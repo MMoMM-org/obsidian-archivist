@@ -1,1 +1,7 @@
 # Tools Memory
+
+<!-- 2026-04-23 -->
+- Check Obsidian community-plugin-ID availability: `gh api repos/obsidianmd/obsidian-releases/contents/community-plugins.json --jq '.content' | base64 -d | jq -r '.[] | select(.id == "<candidate>")'` — empty output means the ID is free to register.
+- Inspect current Dropbox SDK version + publish history: `npm view dropbox version time --json` — useful to confirm the package is still maintained before pinning.
+- Dropbox developer app registration flow (for plugins like Archivist): https://www.dropbox.com/developers/apps/create → API "Scoped access" → Access type "App folder" (CRITICAL: NOT "Full Dropbox"). Enable exactly three permissions: `files.content.write`, `files.content.read`, `files.metadata.read`. Set OAuth 2 redirect URI `obsidian://<plugin-id>-oauth`. Note the App key — that's the CLIENT_ID. App secret is not needed for PKCE public clients.
+- `block-main-edits.sh` PreToolUse hook denies Write/Edit on the `main`/`master` branch. Must create a feature branch (`git checkout -b feat/<name>`) before any spec or code edits. `_outbox/**` and `_inbox/**` are exempt. Override per-session: `CLAUDE_ALLOW_MAIN_EDITS=1`.
