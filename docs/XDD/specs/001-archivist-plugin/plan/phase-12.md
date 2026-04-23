@@ -113,6 +113,18 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Dry-run release produces artifacts; CI gates trigger on deliberate violations.
   5. Success: Supply-chain posture `[ref: SDD/ADR-14]`.
 
+- [ ] **T12.6a Brand assets — icons + logos** `[activity: frontend-ui]` `[parallel: true]`
+
+  1. Prime: Read PRD V1 Prerequisites (app registration confirmed values) and Obsidian community-plugin branding guidance.
+  2. Test:
+     - `assets/icons/dropbox-app-512.png` exists at 512×512 px, PNG with alpha, ≤ 50 KB; uploaded to the Dropbox developer app page.
+     - `src/ui/icons/ribbon.svg` exists as a 20×20 viewBox SVG using `currentColor` only (no hard-coded colors) — verified by grep + manual theme-switch check in a test vault (light mode + dark mode + one popular community theme).
+     - (Optional) `assets/icons/plugin-logo-256.png` at 256×256 for the community-plugin listing card.
+     - Icons documented in README with attribution if anything derived is used; otherwise "original work, MIT" noted in `assets/README.md`.
+  3. Implement: Commission or author the icons. The design direction: simple, monochrome-friendly (theme-respecting for the ribbon SVG), readable at 16×16 (smallest effective display size for ribbon icons). Candidate motif: a scroll/archive/file-with-clock or a folder with a backward-arrow — whatever communicates "version history of a vault." Iterate with sketches before committing final PNG.
+  4. Validate: Upload to the Dropbox app page and confirm it displays correctly on the OAuth consent screen (real test, not just local).
+  5. Success: Branding ready for community submission `[ref: PRD/V1 Prerequisites]`.
+
 - [ ] **T12.6 Obsidian Community Plugin submission** `[activity: tooling]`
 
   1. Prime: Read the Obsidian plugin submission guidelines linked in the SDD.

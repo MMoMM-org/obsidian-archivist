@@ -348,9 +348,46 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 - [x] Resolved: License → **MIT**. Matches Obsidian community-plugin norm; predecessor uses MIT; no reason to pick otherwise (Apache-2.0 patent grant is over-engineered for a solo plugin; GPL would restrict forks unnecessarily).
 - [x] Resolved: Plugin ID — `obsidian-archivist` confirmed free in the `obsidianmd/obsidian-releases` community-plugins registry as of 2026-04-23.
 
-## V1 Prerequisites (not-yet-done, required before Phase 1)
+## V1 Prerequisites
 
-- [ ] **Dropbox app registration** (owner: Marcus). Register a new Dropbox app in "App folder" mode at https://www.dropbox.com/developers/apps/create. Capture the `CLIENT_ID` and list the OAuth redirect URI as `obsidian://archivist-oauth` under "OAuth 2 → Redirect URIs". Feed `CLIENT_ID` into `src/infra/DropboxClient.ts` as a compile-time constant. **Blocks Phase 3 T3.3 (OAuth flow).** Do not reuse the predecessor plugin's `CLIENT_ID`.
+### Dropbox App Registration — CONFIRMED 2026-04-23
+
+| Field | Value |
+|---|---|
+| Dropbox App Name | **ObsidianArchivist** |
+| App Folder Name (visible in user's Dropbox) | **Archivist** → `/Apps/Archivist/<VAULT_PREFIX>/` |
+| API | Scoped access |
+| Access type | App folder (NOT "Full Dropbox") |
+| Publisher / Developer name | Marcus Breiden |
+| CLIENT_ID (app key) | `aanoqah5sn73rjb` |
+| Permissions enabled | `files.content.write`, `files.content.read`, `files.metadata.read` (exactly these three; no `sharing.*`, no `account_info.*`) |
+| OAuth 2 Redirect URIs | `obsidian://archivist-oauth` |
+| Production / Development | Development (App-Folder apps do not need production approval until >50 users) |
+| Description (shown in OAuth consent) | "Archivist is an open-source Obsidian community plugin that creates versioned backups of your Obsidian vault in its dedicated Dropbox App Folder (`/Apps/Archivist/`). It never reads or writes anything outside this folder. Source: https://github.com/MMoMM-org/obsidian-archivist" |
+| Privacy Policy URL | https://github.com/MMoMM-org/obsidian-archivist/blob/main/PRIVACY.md |
+| App icon | 512×512 PNG — **TODO before community submission** (Phase 12 T12.6) |
+
+**CLIENT_ID propagation:** The CLIENT_ID is NOT secret (PKCE transmits it in the authorization URL). It lands as a compile-time constant in `src/config/dropbox.ts` during Phase 3 T3.3. Do not reuse the predecessor plugin's `CLIENT_ID` (`40ig42vaqj3762d`).
+
+**App-Folder prefix mismatch note:** The Dropbox app name is `ObsidianArchivist` (globally-unique requirement) but Dropbox uses the "App folder name" we set (`Archivist`) as the folder root. Our spec consistently uses `Apps/Archivist/<VAULT_PREFIX>/` — no change required.
+
+### Registration Walkthrough (archived for reproducibility)
+
+1. Go to https://www.dropbox.com/developers/apps/create.
+2. **API:** Scoped access.
+3. **Access type:** App folder (CRITICAL — "Full Dropbox" would bypass the App Folder sandbox and invalidate the security model).
+4. **Name the app:** the name must be globally unique across the Dropbox ecosystem. We registered `ObsidianArchivist` (fallback plan was `Obsidian Archivist` with a space if the first was taken). The "App folder name" field underneath controls the actual folder shown to users — we set it to `Archivist` for clean paths.
+5. Create. You land on the app settings page.
+6. **Permissions tab:** check exactly three scopes — `files.content.write`, `files.content.read`, `files.metadata.read`. Leave everything else off. Save.
+7. **Settings tab → OAuth 2 → Redirect URIs:** add `obsidian://archivist-oauth`.
+8. **Settings tab → App info:** fill Description, Publisher name, Privacy Policy URL (values above).
+9. Copy the **App key** (CLIENT_ID). The **App secret** is NOT needed — PKCE is a public-client flow.
+10. Upload the app icon when ready (512×512 PNG).
+
+### Outstanding prerequisites
+
+- [ ] Author `PRIVACY.md` at repo root before the OAuth Description URL resolves (drafted in T12.4 or earlier — a stub can be committed to unblock Dropbox's URL-validation).
+- [ ] App icon (512×512 PNG) uploaded to Dropbox — deferred to Phase 12 T12.6; a placeholder is acceptable during development. Ribbon SVG is a separate deliverable, also Phase 12.
 
 ---
 
