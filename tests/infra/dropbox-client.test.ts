@@ -293,34 +293,82 @@ describe('DropboxClient', () => {
   });
 
   it('chunked_upload_above_150mb_uses_upload_session_with_8mb_chunks', async () => {
-    const MB = 1024 * 1024;
-    const size = 151 * MB; // just over the threshold
-    // Don't actually allocate 151 MB in the test — swap the threshold to
-    // something that still exercises the chunk path deterministically.
-    const { client, sdk } = (() => {
-      const sdk = makeFakeSdk({
-        filesUploadSessionStart: () => sdkResponse({ session_id: 's1' }),
-        filesUploadSessionAppendV2: () => sdkResponse(undefined),
-        filesUploadSessionFinish: () => sdkResponse({ id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z' }),
-      });
-      const tokenStore = makeFakeTokenStore(SAMPLE_TOKENS);
-      const retry = fastRetry();
-      const client = new DropboxClient(
-        sdk as never,
-        tokenStore as unknown as TokenStore,
-        makeLogger(),
-        { retry, singleShotMaxBytes: 16, uploadChunkBytes: 8 },
-      );
-      return { client, sdk };
-    })();
-    void size; // threshold overridden above — size constant kept for clarity
+    // We don't need to allocate the real 150 MB threshold to exercise the
+    // chunked path — we shrink singleShotMaxBytes + uploadChunkBytes so the
+    // math is deterministic and fast, then assert on the cursor progression
+    // and total bytes to prove we neither drop nor duplicate a byte.
+    const startBodies: Uint8Array[] = [];
+    const appendBodies: Uint8Array[] = [];
+    const finishBodies: Uint8Array[] = [];
+    const appendOffsets: number[] = [];
+    let finishOffset = -1;
 
-    // 20 bytes with threshold=16 and chunk=8 → start(8) + append(8) + finish(4).
-    await client.uploadLarge('/big.bin', new Uint8Array(20));
+    const sdk = makeFakeSdk({
+      filesUploadSessionStart: (arg) => {
+        const a = arg as { contents: Uint8Array };
+        startBodies.push(a.contents);
+        return sdkResponse({ session_id: 's1' });
+      },
+      filesUploadSessionAppendV2: (arg) => {
+        const a = arg as { contents: Uint8Array; cursor: { offset: number } };
+        appendBodies.push(a.contents);
+        appendOffsets.push(a.cursor.offset);
+        return sdkResponse(undefined);
+      },
+      filesUploadSessionFinish: (arg) => {
+        const a = arg as { contents: Uint8Array; cursor: { offset: number } };
+        finishBodies.push(a.contents);
+        finishOffset = a.cursor.offset;
+        return sdkResponse({ id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z' });
+      },
+    });
+    const tokenStore = makeFakeTokenStore(SAMPLE_TOKENS);
+    const retry = fastRetry();
+    const client = new DropboxClient(
+      sdk as never,
+      tokenStore as unknown as TokenStore,
+      makeLogger(),
+      { retry, singleShotMaxBytes: 16, uploadChunkBytes: 8 },
+    );
 
+    // 20 bytes, chunk=8 → start(8) + append(8) + finish(4).
+    // Use a distinctive payload so we can prove byte-exact reassembly.
+    const payload = new Uint8Array(20);
+    for (let i = 0; i < payload.length; i++) payload[i] = i + 1;
+
+    await client.uploadLarge('/big.bin', payload);
+
+    // Call counts first so failures point at the structural problem.
     expect(sdk.filesUploadSessionStart).toHaveBeenCalledTimes(1);
     expect(sdk.filesUploadSessionAppendV2).toHaveBeenCalledTimes(1);
     expect(sdk.filesUploadSessionFinish).toHaveBeenCalledTimes(1);
+
+    // Start call receives the first chunk; finish call receives the last.
+    expect(startBodies[0]).toEqual(payload.subarray(0, 8));
+    expect(finishBodies[0]).toEqual(payload.subarray(16, 20));
+
+    // Cursor offsets are monotonic and equal cumulative bytes so far:
+    // append[0] at offset 8 (after start=8 bytes); finish at offset 16 (after
+    // start + append = 16 bytes).
+    expect(appendOffsets).toEqual([8]);
+    expect(finishOffset).toBe(16);
+
+    // Total bytes across start + append + finish equals the payload length —
+    // no dropped or duplicated bytes.
+    const totalBytes =
+      startBodies.reduce((sum, b) => sum + b.byteLength, 0) +
+      appendBodies.reduce((sum, b) => sum + b.byteLength, 0) +
+      finishBodies.reduce((sum, b) => sum + b.byteLength, 0);
+    expect(totalBytes).toBe(payload.length);
+
+    // Reassembled payload matches exactly.
+    const reassembled = new Uint8Array(totalBytes);
+    let pos = 0;
+    for (const b of [...startBodies, ...appendBodies, ...finishBodies]) {
+      reassembled.set(b, pos);
+      pos += b.byteLength;
+    }
+    expect(reassembled).toEqual(payload);
   });
 
   it('list_folder_auto_paginates_via_continue', async () => {
@@ -367,9 +415,14 @@ describe('DropboxClient', () => {
       'folder',
       'deleted',
     ]);
-    // Archivist-owned shape — no SDK fields should leak through.
-    for (const e of entries) {
-      expect(Object.getPrototypeOf(e)).toBe(Object.prototype);
+    // Archivist-owned shape — only our canonical keys should appear. This is
+    // strictly stronger than a prototype check: the SDK can't slip extra
+    // fields (path_lower, id, .tag, etc.) past us even by accident.
+    const ALLOWED = ['path', 'tag', 'rev', 'size', 'server_modified', 'content_hash'];
+    for (const entry of entries) {
+      for (const k of Object.keys(entry)) {
+        expect(ALLOWED).toContain(k);
+      }
     }
   });
 
@@ -452,5 +505,95 @@ describe('DropboxClient', () => {
     await expect(client.deleteV2('/foo.bin')).rejects.toSatisfy(
       (err: unknown) => err instanceof AuthError && (err as AuthError).retryable === false,
     );
+  });
+
+  it('concurrent_401_coalesces_to_single_refresh_and_single_save', async () => {
+    // Two operations both hit 401 in parallel. Without single-flight we would
+    // fire `refreshAccessToken` twice and `tokenStore.save` twice — a race
+    // that can clobber a good persisted token with a stale one. We use a
+    // latch so both ops genuinely observe the 401 before either refresh can
+    // run, then assert refresh + save fire exactly once.
+    const deleteCalls: number[] = [];
+    let deleteIx = 0;
+    // Latches: the first and second operations both throw 401, but the
+    // second op waits on `bothThrew` before running so the two 401s are
+    // truly concurrent relative to the refresh path.
+    let releaseBothThrew!: () => void;
+    const bothThrew = new Promise<void>((resolve) => {
+      releaseBothThrew = resolve;
+    });
+    let thrown = 0;
+
+    const { client, sdk, tokenStore } = buildClient({
+      filesDeleteV2: async () => {
+        const ix = deleteIx++;
+        deleteCalls.push(ix);
+        // Attempts 0 and 1 are the initial concurrent ops — both return 401.
+        if (ix < 2) {
+          thrown++;
+          if (thrown === 2) releaseBothThrew();
+          // op #1 waits for op #0 to also throw before its 401 propagates
+          if (ix === 1) await bothThrew;
+          throw sdkError(401, { error: { '.tag': 'expired_access_token' } });
+        }
+        // Retries (ix 2, 3) succeed.
+        return sdkResponse({ metadata: {} });
+      },
+      getAccessToken: () => 'sl.u.NEW_CONCURRENT',
+      refreshAccessToken: async () => {
+        // Synchronous refresh in tests — but await a microtask so concurrent
+        // callers have a chance to attach to the in-flight promise.
+        await Promise.resolve();
+      },
+    });
+
+    const [a, b] = await Promise.all([
+      client.deleteV2('/a.bin'),
+      client.deleteV2('/b.bin'),
+    ]);
+
+    expect(a).toBeUndefined();
+    expect(b).toBeUndefined();
+
+    // Both ops succeeded → 2 initial 401s + 2 successful retries = 4 calls.
+    expect(deleteCalls.length).toBe(4);
+    // Single-flight invariant: the SDK saw exactly one refresh call, and the
+    // token store saw exactly one save.
+    expect(sdk.auth.refreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(tokenStore._saved.length).toBe(1);
+    expect(tokenStore._saved[0]!.access_token).toBe('sl.u.NEW_CONCURRENT');
+  });
+
+  it('thrown_error_contract_no_sdk_field_leakage', async () => {
+    // Raw SDK-shaped error with `headers` (with .get) and `error` object —
+    // classifyError must wrap it in a NetworkError subclass of ArchivistError
+    // without any SDK-shaped fields leaking onto the public error.
+    const { client } = buildClient({
+      filesDeleteV2: () => {
+        const sdkShaped = {
+          status: 500,
+          headers: { get: (_k: string) => null },
+          error: { foo: 'bar' },
+        };
+        throw sdkShaped;
+      },
+    });
+
+    let caught: unknown = null;
+    try {
+      await client.deleteV2('/foo');
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(NetworkError);
+    const errAny = caught as unknown as Record<string, unknown>;
+    // SDK fields must NOT bleed through onto the ArchivistError. The original
+    // SDK error object is preserved on `.cause` (for diagnostic logs), but
+    // the error surface itself exposes only our own fields.
+    expect(errAny.headers).toBeUndefined();
+    expect(errAny.error).toBeUndefined();
+    expect(typeof (caught as NetworkError).code).toBe('string');
+    expect(typeof (caught as NetworkError).message).toBe('string');
   });
 });

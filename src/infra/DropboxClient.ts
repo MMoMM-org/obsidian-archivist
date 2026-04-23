@@ -157,7 +157,10 @@ function readHeader(h: SdkErrorLike['headers'], key: string): string | undefined
 // Error classification — the core of this module.
 // ---------------------------------------------------------------------------
 
-export interface ClassifyContext {
+// Internal — consumed only by classifyError inside this module. Not exported
+// to keep the public surface lean; promote to `export` if a future consumer
+// needs it.
+interface ClassifyContext {
   isManifestEndpoint?: boolean;
 }
 
@@ -262,6 +265,12 @@ export class DropboxClient {
   private readonly singleShotMaxBytes: number;
   private readonly uploadChunkBytes: number;
   private readonly retryOptions: RetryOptions;
+
+  // Single-flight guard: if two operations both hit 401 in parallel (or a
+  // proactive refresh races a reactive one), we coalesce onto one in-flight
+  // refresh promise so the SDK sees exactly one `refreshAccessToken` call and
+  // TokenStore sees at most one `save`.
+  private refreshInFlight: Promise<void> | null = null;
 
   constructor(sdk: Dropbox, tokenStore: TokenStore, logger: Logger, options: DropboxClientOptions = {}) {
     this.sdk = asDropboxLike(sdk);
@@ -459,16 +468,30 @@ export class DropboxClient {
       }
     } catch (err) {
       // Proactive refresh is best-effort. Log and let the reactive 401 path
-      // handle it if the token really is expired.
-      this.logger.warn('proactive_refresh_failed', { error: err });
+      // handle it if the token really is expired. Use a safe error shape so
+      // we never embed raw request bodies from the SDK in the log.
+      this.logger.warn('proactive_refresh_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
   /**
    * Run the SDK's built-in refresh flow, then persist whatever the SDK now
    * thinks the access token is so the store survives plugin restart.
+   *
+   * Single-flight: concurrent callers await the same in-flight promise so we
+   * never fire two `refreshAccessToken` calls (and never double-`save`).
    */
   private async refreshAndPersistTokens(prev?: Tokens | null): Promise<void> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    this.refreshInFlight = this.doRefreshAndPersist(prev).finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async doRefreshAndPersist(prev?: Tokens | null): Promise<void> {
     await this.sdk.auth.refreshAccessToken();
     const newAccessToken = this.sdk.auth.getAccessToken();
     const expiresAt = safeExpiresAt(this.sdk.auth.getAccessTokenExpiresAt());
@@ -484,7 +507,23 @@ export class DropboxClient {
       access_token: newAccessToken,
       access_token_expires_at: expiresAt,
     };
-    await this.tokenStore.save(updated);
+    try {
+      await this.tokenStore.save(updated);
+    } catch (err) {
+      // Divergence window: SDK memory now holds the NEW token; disk still
+      // holds the OLD one. We log-and-swallow (rather than re-throw) because:
+      //   (a) the current session keeps working via SDK in-memory token, so
+      //       the in-flight op can still succeed on retry;
+      //   (b) re-throwing would leak a disk-layer failure into retry.ts,
+      //       which would misclassify it as a Dropbox error;
+      //   (c) on next restart the stored (old) token is already expired, so
+      //       the normal re-auth path kicks in — which is the correct outcome.
+      // Log with a stable key and a safe message so request bodies embedded in
+      // `err` never land in the log.
+      this.logger.warn('tokens_save_after_refresh_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
 }

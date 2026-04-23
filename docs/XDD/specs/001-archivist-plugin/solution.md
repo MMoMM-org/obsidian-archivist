@@ -992,7 +992,7 @@ The Dropbox client is the sole network boundary; all other errors are local logi
 
 | Error Source | Classification | Retry? | User-visible Surface |
 |---|---|---|---|
-| HTTP 400 (malformed request) | `PathError` / `ConfigError` | No | Toast "Archivist: bad request — please file a bug"; full details in diagnostic log. |
+| HTTP 400 (malformed request) | `PathError('BAD_REQUEST')` | No | Toast "Archivist: bad request — please file a bug"; full details in diagnostic log. `ConfigError` is reserved for local schema/configuration failures (e.g., invalid settings) and is not emitted by `DropboxClient`. |
 | HTTP 401 (expired access) | `AuthError` | Refresh once | Automatic via SDK. If refresh also fails with `invalid_grant` → surface persistent "Authentication lost — reconnect Dropbox" notice. |
 | HTTP 409 `path/*` | `PathError` | No | Code-specific message; common case = concurrent write → treat as benign for CAS. |
 | HTTP 409 `too_many_write_operations` | `RateLimitError` | Yes | Pause queue for `retry_after`. No user-visible unless sustained >5 min. |
