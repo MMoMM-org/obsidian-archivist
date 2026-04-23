@@ -44,7 +44,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
 
   1. Prime: Read `[ref: SDD/Implementation Context/Project Commands]` and `[ref: SDD/ADR-14]`.
   2. Test: `npm install` creates `node_modules` without unresolved deps; `npm run build` produces `main.js` at repo root; `npm run dev` starts esbuild watch.
-  3. Implement: Create `package.json` with pinned `dropbox@10.x`, `obsidian`, `esbuild`, `typescript`, `vitest`, `@vitest/coverage-v8`, `eslint`, `eslint-plugin-obsidianmd`. Create `tsconfig.json` (`strict: true`, `strictNullChecks: true`, `target: ES2020`, `moduleResolution: node`). Create `esbuild.config.mjs` bundling `src/main.ts → main.js` with `drop: ['console']` in prod, `external: ['obsidian', 'electron', 'fs', 'path', 'crypto']`.
+  3. Implement: Create `package.json` with pinned `dropbox@10.x`, `obsidian`, `esbuild`, `typescript`, `vitest`, `@vitest/coverage-v8`, `eslint`, `eslint-plugin-obsidianmd`. Create `tsconfig.json` (`strict: true`, `strictNullChecks: true`, `target: ES2020`, `moduleResolution: node`). Create `esbuild.config.mjs` bundling `src/main.ts → main.js` with `drop: ['console']` in prod, `external: ['obsidian', 'electron', 'fs', 'path', 'crypto']`. **Dev-mode output path**: `npm run dev` emits to `test/Archivist/.obsidian/plugins/obsidian-archivist/` (deploys into the local test vault's plugins folder where `hot-reload` picks it up); `npm run build` emits to `./` at the repo root (release-artefact path for GitHub Release uploads). Both targets write the triplet `main.js` + `manifest.json` + `styles.css`.
   4. Validate: `npm run build` succeeds; `main.js` exists and loads into a test vault; `npm run typecheck` (alias for `tsc --noEmit`) passes.
   5. Success: Every later phase can build and test `[ref: SDD/Implementation Context]`; no `@latest` pin `[ref: SDD/ADR-14]`.
 
@@ -61,7 +61,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   1. Prime: Read Obsidian plugin lifecycle `[ref: SDD/Implementation Context/interfaces — Obsidian Plugin Lifecycle]`, `[ref: SDD/Cross-Cutting/System-Wide Patterns/Logging]`.
   2. Test: Plugin `onload` registers a ribbon icon (using `addRibbonIcon`) and a command (`Archivist: Hello`); `onunload` removes both without throwing; after a load/unload cycle no timers or listeners remain (asserted via jest-style fake-timers in a test harness that mocks Obsidian API).
   3. Implement: Create `src/main.ts` extending `Plugin`. In `onload`: `addRibbonIcon`, `addCommand`, `registerEvent(this.app.workspace.on('layout-ready', …))` — all via `this.registerX`. Add a minimal `data.json` loader (returns empty settings for now).
-  4. Validate: Load into a disposable Obsidian vault; verify ribbon icon appears; disable the plugin; confirm icon removed; no console errors.
+  4. Validate: Load into the local test vault at `test/Archivist/` (git-ignored, already configured with `hot-reload`); verify ribbon icon appears; disable the plugin; confirm icon removed; no console errors. Build pipeline should emit the plugin bundle to `test/Archivist/.obsidian/plugins/obsidian-archivist/main.js` so `hot-reload` picks up changes automatically during development.
   5. Success: Lifecycle hygiene contract is provable `[ref: SDD/Risks/Implementation Gotchas — 'every listener via registerX']`; provides the bootstrap that later phases extend.
 
 - [ ] **T1.5 CI pipeline (typecheck + lint + test + audit + build)** `[activity: tooling]` `[parallel: true]`
