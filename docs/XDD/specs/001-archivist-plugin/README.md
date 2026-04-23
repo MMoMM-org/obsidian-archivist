@@ -33,6 +33,8 @@
 | 2026-04-23 | SDD: 18 ADRs captured — CAS, hybrid change-detection, commit protocol, rename as first-class, GC lock, designated device, plaintext token w/ disclosure, PKCE TTL Map, WebCrypto, index outside data.json, isDesktopOnly=false, MarkdownRenderer-only, pinned SDK, no encryption V1, transitive chain-integrity, retention-after-backup, vault prefix normalized | All auto-confirmed in Auto Mode; flagged for post-hoc review before implementation begins |
 | 2026-04-23 | Architecture pattern: modular layered + reactive event pipeline | Single-component plugin; UI → Services → Infrastructure; no microservices, no event bus |
 | 2026-04-23 | PLAN: 12 sequenced phases | Foundation → Models → Dropbox/OAuth → Change Detection → Backup → Retention/GC → Scheduler → Restore → Browser UI → Settings UI → Mobile/A11y → Release |
+| 2026-04-23 | ADR-7 revised: tokens in `tokens.json`, not `data.json` | Predecessor plugin uses a dedicated hidden file for the same reason (`.__dropbox_backups_token_store__`) — Obsidian Sync synchronizes `data.json` by default, which would silently spread tokens across devices. ADR-11 already applies the same reasoning to `index.json`; now consistently applied to tokens. Data-Storage-Changes section updated. |
+| 2026-04-23 | ADR-19 added: standalone restore CLI (`scripts/restore.mjs`) | Zero npm deps, pure Node.js, ships in every release zip. The on-disk `Apps/Archivist/` format is a public documented contract — users must be able to recover WITHOUT the plugin (disaster recovery, abandonment insurance, trust-but-verify). Implemented in Phase 8 T8.5, parity-tested in Phase 12. Added as PRD S6. |
 
 ## Context
 

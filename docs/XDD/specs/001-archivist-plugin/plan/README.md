@@ -157,6 +157,7 @@ Before this plan is ready for implementation, verify:
 | S3 Storage usage estimate | retention preview in Settings | 10 |
 | S4 Mobile restore | mobile layout + manual-only | 11 |
 | S5 Pre-flight notice for full | scheduler + notice | 7 |
+| S6 Standalone Restore CLI | zero-dep Node script + parity test | 8, 12 |
 
 ## SDD-Component → Phase Traceability
 

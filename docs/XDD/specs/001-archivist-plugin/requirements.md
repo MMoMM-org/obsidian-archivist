@@ -191,6 +191,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 - **S3. Storage Usage Estimate in Settings.** Settings page shows current Dropbox usage for the Archivist folder and a computed retention estimate ("With these settings: ~120 snapshots, estimated ~40 GB"). Updated after each backup.
 - **S4. Mobile Restore (Read-Only).** On mobile, the Backup Browser and File-History modal work as on desktop (collapsed to single-column on narrow viewports). Scheduling is desktop-only.
 - **S5. Pre-Flight Notice for Full Backups.** 5-minute-before-full notice with Start now / Postpone 1h / Skip. Configurable on/off.
+- **S6. Standalone Restore CLI (`scripts/restore.mjs`).** A single-file Node.js script with zero npm dependencies that reconstructs any snapshot from a locally-available `Apps/Archivist/` folder (typically the Dropbox Desktop app's synced copy) — WITHOUT requiring the plugin to be installed or Obsidian to be running. Rationale: disaster recovery + "trust but verify" + future-proofing if the plugin is ever abandoned. User invokes `node scripts/restore.mjs --dropbox-path <path> --output <dir> [--at <id|latest|date>] [--list-snapshots] [--dry-run] [--verify-only]`. The script verifies every blob's SHA-256 before writing and produces byte-identical output to the plugin's in-app restore.
 
 ### Could Have Features
 

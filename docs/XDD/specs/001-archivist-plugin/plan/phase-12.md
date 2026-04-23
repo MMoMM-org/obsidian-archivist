@@ -48,6 +48,7 @@ Produces the evidence that the plugin is ready for public release: integration t
      - `auth-revoked.test.ts`: access revoked → next cycle surfaces AuthLost banner → user reconnects → recovery works.
      - `catch-up-full.test.ts`: simulate plugin offline during scheduled full → startup → catch-up full runs after quiet period.
      - `quota-full.test.ts`: Dropbox returns 507 → backup pauses → persistent banner appears → no infinite retry.
+     - `cli-parity.test.ts`: generate a synthetic 4-week history via the plugin's backup pipeline; run the standalone CLI (`scripts/restore.mjs`) on the same local fixture folder; assert byte-for-byte parity between plugin-restored output and CLI-restored output for 5 sampled snapshots (latest + 3 random + the oldest retained); assert `--verify-only` exits 0 on a clean fixture and non-zero on a fixture with a deliberately-corrupted blob.
   3. Implement: Create `tests/integration/*.test.ts` using a shared harness: in-memory `VaultAdapter`, mocked `DropboxClient` with deterministic clock. One new helper `createArchivistFixture()` boots a headless plugin with a given scenario config.
   4. Validate: All scenarios pass in < 60 s total.
   5. Success: Every PRD acceptance criterion covered by at least one scenario `[ref: PRD/Feature Requirements]`.
@@ -93,6 +94,7 @@ Produces the evidence that the plugin is ready for public release: integration t
      - Release notes linking to each version's changelog.
      - License (MIT recommended).
      - Contact / issue tracker link.
+     - **Standalone Restore CLI section**: explains `scripts/restore.mjs`, its zero-dep property, and the recovery-without-plugin use case. Includes invocation examples and a worked example (`node scripts/restore.mjs --dropbox-path ~/Dropbox/Apps/Archivist/my-vault --output ./restored --at latest`).
   3. Implement: Author `README.md` at repo root. Add per-version `CHANGELOG.md`. Add `LICENSE`.
   4. Validate: Manual review against the community-plugin checklist; link-check script (if any docs).
   5. Success: Submission-ready documentation `[ref: SDD/Deployment View/Distribution]`.
@@ -104,7 +106,7 @@ Produces the evidence that the plugin is ready for public release: integration t
      - `package-lock.json` committed; CI fails if lockfile drifts.
      - Dependabot config at `.github/dependabot.yml` — weekly, npm ecosystem, auto-merge patch-only after CI green.
      - `npm audit` required step in PR CI; fails on high/critical; documented override protocol in README for when a CVE has no upgrade path.
-     - Pre-release script: `scripts/release.sh` runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm audit`, `npm run build`, outputs `dist/` with `main.js`, `manifest.json`, `styles.css`.
+     - Pre-release script: `scripts/release.sh` runs `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`, `npm audit`, `npm run build`, outputs `dist/` with `main.js`, `manifest.json`, `styles.css`, and a copy of `scripts/restore.mjs` (so the CLI ships on every GitHub Release asset list).
      - Built `main.js` is ≤ 1 MB; `styles.css` uses only CSS vars (CI grep check).
      - GPG-signed git tags for each release.
   3. Implement: Commit lockfile; create Dependabot config; author `scripts/release.sh`; add CI checks + final build size gate.

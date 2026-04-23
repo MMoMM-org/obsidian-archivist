@@ -78,6 +78,25 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit tests cover the three paths (happy, missing, mismatch).
   5. Success: Integrity check on every download `[ref: SDD/Cross-Cutting/Pattern: CAS]`.
 
-- [ ] **T8.5 Phase Validation** `[activity: validate]`
+- [ ] **T8.5 Standalone Restore CLI (`scripts/restore.mjs`)** `[activity: tooling]` `[parallel: true]`
 
-  - Run all Phase 8 tests. Integration: generate a synthetic 4-week history (with renames + deletes), pick 5 paths, verify `listVersionsForPath` + `fetchContent` + `restoreInPlace` round-trip fidelity. Lint and typecheck pass.
+  1. Prime: Read `[ref: SDD/ADR-19]`, `[ref: SDD/Acceptance Criteria — Standalone Restore CLI]`, `[ref: PRD/S6]`, and the manifest-merge walkthrough `[ref: SDD/Implementation Examples/Restore Merge Walkthrough]`.
+  2. Test:
+     - Zero-dependency invariant: `scripts/restore.mjs` has no `import` from any npm package; only `node:fs/promises`, `node:path`, `node:crypto`, `node:process`, `node:url`. Verified by a grep-based CI check.
+     - `--list-snapshots` on a fixture folder (5 snapshots) prints all 5 with id, type, parent_id, created_at, newest-first.
+     - `--at latest --output OUT` reconstructs the vault state at HEAD; every written file's SHA-256 matches the manifest.
+     - `--at 2026-04-20T03-00-full` resolves a partial id to the full snapshot id; unknown/ambiguous ids exit non-zero with a clear message.
+     - `--at 2026-04-20` resolves to the latest snapshot whose `created_at` is on that date.
+     - `--dry-run` prints the would-write list with sizes and hashes; writes nothing; exit 0.
+     - `--verify-only` walks the chain, opens every content blob, hashes it; exits 0 if all match, non-zero with a list if any mismatch; writes nothing.
+     - Hash mismatch during a real restore: the CLI exits non-zero BEFORE writing the bad file, and all previously-written files in this run are cleaned up (the CLI does atomic-dir: writes to `<output>.tmp` then renames to `<output>` on success, deletes the tmp on failure).
+     - A missing HEAD.json with snapshots present: the CLI falls back to the newest-by-created_at snapshot and warns "HEAD missing, using <id>."
+     - A broken parent chain: exits non-zero with `CHAIN_BROKEN: cannot reach Full ancestor from <id>`.
+     - Cross-platform: the test runs on Ubuntu + macOS in CI (Node 18, 20) and produces identical output.
+  3. Implement: Create `scripts/restore.mjs`. Single file, ESM. Module structure inside the file (plain functions): `parseArgs`, `listSnapshots`, `loadManifest`, `resolveSnapshotId`, `materializeState`, `reconstruct`, `verifyBlob`, `main`. Use `crypto.createHash('sha256')` (Node stdlib — not WebCrypto; this is a standalone Node tool where Node-crypto is the idiomatic choice). Write files via `fs.writeFile` with `mkdir -p` for parent directories. Atomic-dir pattern: write to `<output>.tmp` then rename.
+  4. Validate: Run the new tests under `tests/cli/` — they spawn `node scripts/restore.mjs` as a subprocess against a fixture folder and assert on stdout + filesystem output. Keep the script under 500 lines.
+  5. Success: Zero-dep contract holds `[ref: SDD/ADR-19]`; byte-identical to in-plugin restore (deferred to T12.x integration parity test) `[ref: SDD/Acceptance Criteria — byte-identical]`; all PRD S6 invariants.
+
+- [ ] **T8.6 Phase Validation** `[activity: validate]`
+
+  - Run all Phase 8 tests (in-plugin + CLI). Integration: generate a synthetic 4-week history (with renames + deletes), pick 5 paths, verify `listVersionsForPath` + `fetchContent` + `restoreInPlace` round-trip fidelity. Run the CLI on the same history and compare output to the plugin-produced state. Lint and typecheck pass.

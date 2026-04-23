@@ -411,7 +411,10 @@ graph TB
 ├── tests/
 │   ├── unit/                               # NEW: *.test.ts co-located with services
 │   ├── integration/                        # NEW: mocked DropboxClient, in-memory VaultAdapter
+│   ├── cli/                                # NEW: standalone CLI tests (Node subprocess)
 │   └── fixtures/                           # NEW: synthetic vault trees, manifest fixtures
+├── scripts/
+│   └── restore.mjs                         # NEW: standalone restore CLI — ADR-19, zero deps
 └── docs/
     ├── XDD/specs/001-archivist-plugin/     # EXISTS: this spec
     └── ai/memory/                           # EXISTS: per CLAUDE.md
@@ -450,18 +453,22 @@ No database. Two classes of persistent storage:
 
 ```yaml
 # Path: <vault>/.obsidian/plugins/obsidian-archivist/
-data.json:           # saveData()/loadData() - Obsidian-managed; synced by Obsidian Sync if user has it
+data.json:           # saveData()/loadData() - Obsidian-managed; IS synced by Obsidian Sync if user has it (intentional for settings + device state)
   schema_version: "1.0"
   settings: PluginSettings       # see model/Settings.ts — retention tiers, schedule, toggles
-  auth:
-    access_token: string (nullable)     # PLAINTEXT — disclosed in README
-    refresh_token: string (nullable)    # PLAINTEXT — disclosed in README
-    access_token_expires_at: ISO-8601 (nullable)
-    dropbox_account_email: string (nullable)  # display-only
   device:
-    device_id: UUIDv4              # generated once per install
+    device_id: UUIDv4              # generated once per install — per-device identity (sync'd is fine; describes the device)
     designated: boolean            # "this device performs backups"
     device_label: string           # user-editable hostname (display)
+  ui:
+    predecessor_notice_dismissed: boolean (default false)
+
+tokens.json:         # written via adapter.write, OUTSIDE data.json — NOT Obsidian-Synced (per ADR-7)
+  schema_version: "1.0"
+  access_token: string (nullable)          # PLAINTEXT — disclosed in README
+  refresh_token: string (nullable)         # PLAINTEXT — disclosed in README
+  access_token_expires_at: ISO-8601 (nullable)
+  dropbox_account_email: string (nullable) # display-only
 
 index.json:          # written via adapter.write, OUTSIDE data.json — NOT Obsidian-Synced
   schema_version: "1.0"
@@ -482,6 +489,7 @@ pending_changes.json:  # persistent event queue
       observed_at: ISO-8601
 
 device.json: merged into data.json.device (no separate file)
+auth: split OUT of data.json into tokens.json (ADR-7)
 ```
 
 **Remote (Dropbox `Apps/Archivist/<VAULT_PREFIX>/`):**
@@ -1182,11 +1190,17 @@ Not applicable — single-component plugin.
   - Rejected: dynamic 48h-silent takeover — deferred to V2 (PRD W2).
   - Confirmed (auto).
 
-- [x] **ADR-7: Token storage in `data.json` (plaintext) with explicit README + in-app disclosure; chmod 600 on desktop.**
-  - Rationale: Obsidian offers no keychain abstraction; `electron.safeStorage` is available but adds Electron-version coupling; community norm for backup plugins is plaintext `data.json`.
-  - Trade-offs: local-filesystem-read attacker can steal the token; disclosed to user. Mitigation: chmod 600 where possible; one-time warning if `data.json` appears under a known sync path.
-  - V2 migration path: wrap the token in `safeStorage.encryptString`. Reserved.
-  - Confirmed (auto).
+- [x] **ADR-7: Token storage in a dedicated `tokens.json` file (plaintext, outside `data.json`) with explicit disclosure; chmod 600 on desktop.**
+  - Decision: tokens live at `<plugin-data>/tokens.json`, written via `app.vault.adapter.write` — NOT inside `data.json`.
+  - Rationale: Obsidian Sync synchronizes plugin `data.json` across devices by default; putting tokens there silently spreads them to every device the user signs into. Predecessor plugin `obsidian-dropbox-backups` already uses a separate hidden file (`.__dropbox_backups_token_store__`) for this reason. Consistency with ADR-11 (same reasoning for `index.json`).
+  - Consequence: `data.json` holds only settings + `device` block (intentionally Obsidian-Sync-eligible: device_id and designated flag are per-device state, not secrets); `tokens.json` holds `{access_token, refresh_token, access_token_expires_at, dropbox_account_email}`; `index.json` and `pending_changes.json` remain as defined in the storage section.
+  - Trade-offs: local-filesystem-read attacker can still steal the token (plaintext on disk); disclosed to user. Mitigation: `fs.chmod(path, 0o600)` on desktop; one-time warning if the plugin-data folder appears under a known cloud-sync path (iCloud Drive, Dropbox Desktop); `safeStorage` migration reserved for V2.
+  - Rejected alternatives:
+    - **Tokens in `data.json.auth`**: cross-device token spread via Obsidian Sync is a silent privacy regression.
+    - **Obsidian's `loadData`/`saveData`**: writes to `data.json` — same problem.
+    - **`electron.safeStorage` (Electron keychain)**: adds Electron-version coupling and a platform guard (no mobile equivalent); deferred to V2.
+  - Data-Storage-Changes section (above) updated to reflect the split; `TokenStore` implementation (Phase 3) reads/writes `tokens.json` directly via adapter.
+  - Confirmed (auto) — updated after reviewing predecessor's pattern.
 
 - [x] **ADR-8: PKCE code-verifier stored in a bounded Map with TTL (cap 5 entries, 10-min TTL).**
   - Rationale: fixes the predecessor plugin's module-level `let` bug; bounds memory.
@@ -1242,6 +1256,24 @@ Not applicable — single-component plugin.
 - [x] **ADR-18: Vault prefix in Dropbox paths is lowercased+slugified at first OAuth; user-editable in Advanced settings with a migration warning on change.**
   - Rationale: Dropbox paths are case-insensitive but case-preserving; prevents split-brain if the user renames the vault folder across devices with different casing.
   - Trade-offs: prefix changes after initial setup require a copy operation (not automated in V1 — user is warned).
+  - Confirmed (auto).
+
+- [x] **ADR-19: Ship a standalone restore CLI (`scripts/restore.mjs`) alongside the plugin — zero npm deps, pure Node.js.**
+  - Rationale: the on-disk format in `Apps/Archivist/` is a **public, documented contract**, not a private plugin detail. A user must be able to recover their data even if (a) the plugin is broken, (b) Obsidian is uninstalled, (c) this plugin is abandoned 5 years from now, or (d) they want to verify their backups with tooling outside the plugin. The Dropbox Desktop app already syncs `Apps/Archivist/` to disk; the CLI needs only local filesystem access.
+  - Contract: the CLI reads a local folder (pointed at `Apps/Archivist/<VAULT_PREFIX>/` — typically a Dropbox-desktop-synced path), walks the manifest chain using the same algorithm as `RestoreService.materializeVaultStateAt`, verifies each content blob's SHA-256, and writes the reconstructed vault tree to a user-specified output directory.
+  - Invocation:
+    ```bash
+    node scripts/restore.mjs \
+      --dropbox-path ~/Dropbox/Apps/Archivist/my-vault \
+      --output ./restored \
+      [--at <snapshot-id | latest | yyyy-mm-dd | yyyy-mm-ddThh:mm>] \
+      [--dry-run] \
+      [--list-snapshots] \
+      [--verify-only]
+    ```
+  - Constraints: single `.mjs` file; uses only Node ≥ 18 stdlib (`node:fs/promises`, `node:path`, `node:crypto`, `node:process`); no npm install required; no Dropbox API; read-only against the source folder.
+  - Trade-offs: the CLI duplicates the manifest-merge logic (cannot share code with the plugin bundle since the plugin imports from `obsidian`). Kept tiny (< 500 lines) — the merge algorithm is the only non-trivial piece. Integration tests in Phase 12 verify byte-for-byte parity with the plugin's in-app restore on a shared fixture.
+  - Distribution: the script is committed to the repo AND included as an asset on every GitHub Release — so a user whose only surviving artifact is the release zip can still recover.
   - Confirmed (auto).
 
 ## Quality Requirements
@@ -1332,6 +1364,15 @@ Not applicable — single-component plugin.
 - [ ] IF a manifest's parent_id references a non-existent snapshot, THEN THE SYSTEM SHALL NOT delete the referrer AND surface an "history integrity warning" in diagnostic logging.
 - [ ] IF a file was renamed and the user invokes File-History for the new path, THEN THE SYSTEM SHALL include versions under prior paths with a visible "Renamed from X" marker.
 - [ ] IF `obsidian-dropbox-backups` is installed and enabled at plugin load, THEN THE SYSTEM SHALL show a one-time warning notice.
+
+**Standalone Restore CLI Criteria (ADR-19):**
+- [ ] THE CLI SHALL be a single `.mjs` file with zero npm dependencies (only Node ≥ 18 stdlib).
+- [ ] WHEN invoked with `--list-snapshots`, THE CLI SHALL print every snapshot in `snapshots/` with its id, type, parent_id, and created_at, sorted newest-first.
+- [ ] WHEN invoked with `--dropbox-path PATH --output DIR --at SNAPSHOT`, THE CLI SHALL reconstruct the vault state at SNAPSHOT into DIR and verify every written file's SHA-256 against the manifest hash.
+- [ ] IF any content blob's SHA-256 does not match the manifest hash, THEN THE CLI SHALL exit non-zero with a list of the offending paths and NOT continue writing remaining files.
+- [ ] WHEN invoked with `--dry-run`, THE CLI SHALL print the list of files it would write with their sizes and hashes, without writing anything.
+- [ ] WHEN invoked with `--verify-only`, THE CLI SHALL walk the snapshot chain and verify every referenced content blob's SHA-256 without reconstructing the vault.
+- [ ] THE CLI SHALL produce byte-identical output to the plugin's in-plugin restore for the same snapshot (verified by a shared fixture test in Phase 12).
 
 ## Risks and Technical Debt
 
