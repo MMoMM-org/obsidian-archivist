@@ -29,6 +29,7 @@ import { requestUrl } from 'obsidian';
 import {
   DROPBOX_AUTHORIZE_URL,
   DROPBOX_CLIENT_ID,
+  DROPBOX_REVOKE_URL,
   DROPBOX_TOKEN_URL,
   OAUTH_REDIRECT_URI,
   OAUTH_SCOPE,
@@ -79,11 +80,19 @@ export interface OAuthConnectFlowDeps {
   tokenStore: TokenStore;
   logger: Logger;
   /**
-   * HTTP POST for the token-exchange endpoint. Injectable so tests can return
-   * crafted responses without touching the network. Defaults to Obsidian's
-   * `requestUrl` (wrapped into the {@link HttpPostResponse} shape).
+   * HTTP POST for the token-exchange and revoke endpoints. Injectable so tests
+   * can return crafted responses without touching the network. Defaults to
+   * Obsidian's `requestUrl` (wrapped into the {@link HttpPostResponse} shape).
+   *
+   * The optional `headers` parameter was added for T3.4 so disconnect can send
+   * `Authorization: Bearer <access_token>` to the revoke endpoint. Token
+   * exchange does NOT use it (PKCE: no client auth header).
    */
-  httpPost?: (url: string, body: URLSearchParams) => Promise<HttpPostResponse>;
+  httpPost?: (
+    url: string,
+    body: URLSearchParams,
+    headers?: Record<string, string>,
+  ) => Promise<HttpPostResponse>;
   /** Time source (epoch millis). Testability hook. */
   now?: () => number;
   /** Random-bytes source. Defaults to `crypto.getRandomValues`. */
@@ -116,7 +125,11 @@ interface PendingFlow {
 export class OAuthConnectFlow {
   private readonly tokenStore: TokenStore;
   private readonly logger: Logger;
-  private readonly httpPost: (url: string, body: URLSearchParams) => Promise<HttpPostResponse>;
+  private readonly httpPost: (
+    url: string,
+    body: URLSearchParams,
+    headers?: Record<string, string>,
+  ) => Promise<HttpPostResponse>;
   private readonly now: () => number;
   private readonly randomBytes: (length: number) => Uint8Array;
 
@@ -251,6 +264,80 @@ export class OAuthConnectFlow {
     this.pending.clear();
   }
 
+  /**
+   * Revoke server-side (best-effort) then hard-clear local tokens.
+   *
+   * Algorithm (ADR-9):
+   *   1. Load current tokens. If none, log `disconnect_noop` and return —
+   *      idempotent.
+   *   2. Best-effort POST to `/oauth2/token/revoke` with
+   *      `Authorization: Bearer <access_token>`. Transport OR HTTP errors are
+   *      logged at warn (`disconnect_revoke_failed`) and do NOT block step 3.
+   *      The UI should surface "server-side revoke failed — consider
+   *      revoking at dropbox.com".
+   *   3. `tokenStore.clear()`, then verify via `tokenStore.load()` that
+   *      tokens.json is absent. If load() still returns tokens (e.g. the
+   *      adapter silently swallowed an EPERM on remove), throw
+   *      `AuthError('DISCONNECT_LOCAL_CLEAR_FAILED')` — the user must delete
+   *      the file manually. No automatic retry is attempted (SEC-H2).
+   *
+   * Disconnect NEVER touches Dropbox backup data — it does not call
+   * `files/delete_v2` or any other Dropbox files endpoint.
+   *
+   * @throws AuthError('DISCONNECT_LOCAL_CLEAR_FAILED') when tokens.json could
+   *   not be removed from local disk.
+   */
+  async disconnect(): Promise<void> {
+    const tokens = await this.tokenStore.load();
+    if (tokens === null) {
+      this.logger.info('disconnect_noop');
+      return;
+    }
+
+    // Step 2 — best-effort revoke. Never rethrow from this block; the
+    // authoritative completion step is the local clear below.
+    try {
+      const response = await this.httpPost(
+        DROPBOX_REVOKE_URL,
+        new URLSearchParams(),
+        { Authorization: `Bearer ${tokens.access_token}` },
+      );
+      if (!response.ok) {
+        this.logger.warn('disconnect_revoke_failed', { status: response.status });
+      }
+    } catch (err) {
+      this.logger.warn('disconnect_revoke_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Step 3 — local clear is the authoritative completion step. Catch any
+    // throw from clear() but still verify via load() — TokenStore.clear()
+    // intentionally swallows adapter errors (tokens_clear_failed warn), so
+    // we confirm removal here rather than trust the return.
+    let clearThrew: unknown;
+    try {
+      await this.tokenStore.clear();
+    } catch (err) {
+      clearThrew = err;
+    }
+
+    const post = await this.tokenStore.load().catch(() => null);
+    if (post !== null) {
+      this.logger.error('disconnect_local_clear_failed', {
+        error: clearThrew instanceof Error ? clearThrew.message : String(clearThrew),
+      });
+      throw new AuthError(
+        'DISCONNECT_LOCAL_CLEAR_FAILED',
+        'Disconnect incomplete — tokens.json could not be deleted. Please delete it manually.',
+        false,
+        clearThrew,
+      );
+    }
+
+    this.logger.info('disconnect_ok');
+  }
+
   // ---- internals --------------------------------------------------------
 
   private gcExpired(): void {
@@ -380,11 +467,16 @@ function defaultRandomBytes(length: number): Uint8Array {
  * (no-restricted-globals/fetch). `throw: false` lets us surface non-2xx bodies
  * via the same response contract as the success case.
  */
-async function defaultHttpPost(url: string, body: URLSearchParams): Promise<HttpPostResponse> {
+async function defaultHttpPost(
+  url: string,
+  body: URLSearchParams,
+  headers?: Record<string, string>,
+): Promise<HttpPostResponse> {
   const resp = await requestUrl({
     url,
     method: 'POST',
     contentType: 'application/x-www-form-urlencoded',
+    headers,
     body: body.toString(),
     throw: false,
   });
