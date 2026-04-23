@@ -51,12 +51,21 @@ describe('ArchivistPlugin lifecycle', () => {
 
   it('onunload leaves zero lingering workspace listeners', async () => {
     await plugin.onload();
-    const before = app.workspace._listeners.size;
+    // Sanity: at least one listener was registered during onload — otherwise the test
+    // would trivially pass even for a broken onload that never wired up anything.
+    const totalBefore = [...app.workspace._listeners.values()]
+      .reduce((n, s) => n + s.size, 0);
+    expect(totalBefore).toBeGreaterThan(0);
+
     await plugin.onunload();
-    // All listeners registered via registerEvent should be auto-cleaned by the Plugin base.
-    // In our mock, the base Plugin class removes them in onunload.
-    expect(app.workspace._listeners.size).toBeLessThanOrEqual(before);
-    // After a load/unload cycle with clean mock, effective delta is 0 or net-removed
+
+    // Every listener registered via registerEvent MUST be removed by the Plugin base's
+    // onunload (Obsidian's real base does this; our mock mirrors it). This is the
+    // load-bearing lifecycle-hygiene invariant — not that the _listeners map is small,
+    // but that every registered ref has actually been released.
+    const totalAfter = [...app.workspace._listeners.values()]
+      .reduce((n, s) => n + s.size, 0);
+    expect(totalAfter).toBe(0);
   });
 
   it('loadSettings returns empty object when data.json is absent', async () => {
