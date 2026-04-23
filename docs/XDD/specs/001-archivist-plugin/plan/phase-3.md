@@ -1,6 +1,6 @@
 ---
 title: "Phase 3: Dropbox Client & OAuth"
-status: pending
+status: completed
 version: "1.0"
 phase: 3
 ---
@@ -34,7 +34,7 @@ phase: 3
 
 Establishes the sole network boundary. Every other service calls Dropbox **only** through `DropboxClient`. No SDK types leak past this layer.
 
-- [ ] **T3.1 DropboxClient — SDK wrap, error classification, retry** `[activity: backend-api]`
+- [x] **T3.1 DropboxClient — SDK wrap, error classification, retry** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Error Handling]` (the full error matrix) and `[ref: SDD/ADR-14]`.
   2. Test: Given a mocked SDK that returns `{ status: 401, error: { '.tag': 'expired_access_token' } }`, client auto-refreshes once then retries; given 429 with `Retry-After: 3`, client waits ≥ 3 s before retry; given 507, client throws `QuotaExceededError` and does NOT retry; given network error (no status), client retries with exponential backoff up to 5 tries; given 409 `path/conflict`, client throws `PathError`; given malformed JSON from a JSON endpoint, client throws `CorruptionError('MANIFEST_CORRUPT')` only for manifest endpoints (other endpoints surface as `NetworkError`).
@@ -42,7 +42,7 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
   4. Validate: Unit tests mock the SDK and exhaustively exercise the error matrix (≥ 12 cases); a contract test asserts that no method returns an SDK type.
   5. Success: Error classification covers every branch in the SDD error matrix `[ref: SDD/Runtime View/Error Handling]`; 429 `Retry-After` honored `[ref: SDD/Acceptance Criteria — 429]`; 507 does not retry `[ref: SDD/Acceptance Criteria — 507]`; malformed manifest is parse-isolated `[ref: SDD/Risks/Implementation Gotchas]`.
 
-- [ ] **T3.2 TokenStore & auto-refresh wiring** `[activity: backend-api]`
+- [x] **T3.2 TokenStore & auto-refresh wiring** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/ADR-7]` (revised — tokens in `tokens.json`, NOT `data.json`), `[ref: SDD/Data Storage Changes — tokens.json block]`, Dropbox OAuth guide linked in SDD.
   2. Test: Storing tokens persists the shape documented in the `tokens.json` YAML block (access_token, refresh_token, access_token_expires_at, dropbox_account_email) at `<plugin-data>/tokens.json` via `app.vault.adapter.write` — NOT via `loadData/saveData`; loading tokens returns them intact; `accessTokenExpiresAt` older than 60 s triggers proactive refresh before the next API call; Dropbox SDK's built-in auto-refresh is also enabled (defense-in-depth); permission 600 is applied to `tokens.json` on desktop (assertion: `fs.stat(tokensPath).mode & 0o777 === 0o600`); `tokens.json` does NOT appear inside `data.json` (Obsidian Sync isolation).
@@ -50,7 +50,7 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
   4. Validate: Unit tests with a fake adapter + a desktop-only permission fixture; assertion that `data.json` contents never contain `access_token` keys.
   5. Success: Token lifecycle matches ADR-7 (revised) `[ref: SDD/ADR-7]`; Obsidian-Sync isolation preserved `[ref: SDD/ADR-11 consistency — tokens treated like index.json]`.
 
-- [ ] **T3.3 PKCE OAuth flow with bounded-TTL state map** `[activity: security]`
+- [x] **T3.3 PKCE OAuth flow with bounded-TTL state map** `[activity: security]`
 
   1. Prime: Read `[ref: SDD/ADR-8]`, `[ref: SDD/System-Wide Patterns/Security]`, `[ref: SDD/Acceptance Criteria — OAUTH_STATE_MISMATCH]`.
   2. Test:
@@ -63,7 +63,7 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
   4. Validate: Unit tests use fake crypto + fake timers; verifies TTL expiry; verifies state mismatch throws; verifies Map size cap.
   5. Success: Fixes predecessor's module-level bug `[ref: SDD/ADR-8]`; state-CSRF prevention `[ref: SDD/Acceptance Criteria — OAUTH_STATE_MISMATCH]`.
 
-- [ ] **T3.4 Disconnect flow (revoke + local clear)** `[activity: security]` `[parallel: true]`
+- [x] **T3.4 Disconnect flow (revoke + local clear)** `[activity: security]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-9]`, `[ref: SDD/Acceptance Criteria — Feature 7]`.
   2. Test: `disconnect()` calls `POST /oauth2/token/revoke` with the current access token; then deletes `tokens.json` via `adapter.remove`; verifies `tokens.json` is absent AFTER the delete (SEC-H2 hard-fail); does NOT touch `data.json`; does NOT call any `files/delete_v2` on Dropbox. Error paths:
@@ -74,6 +74,6 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
   4. Validate: Unit tests mock the revoke endpoint for success/error/offline; assert no destructive Dropbox path is called.
   5. Success: Server-side token revocation on Disconnect `[ref: SDD/Acceptance Criteria — Feature 7]`; Dropbox backup data preserved `[ref: PRD/F7 AC-4]`.
 
-- [ ] **T3.5 Phase Validation** `[activity: validate]`
+- [x] **T3.5 Phase Validation** `[activity: validate]`
 
   - Run all Phase 3 tests. Exercise the error matrix end-to-end. Confirm no raw SDK types escape `DropboxClient`. Confirm `code_verifier` Map is cleared on `onunload` via a plugin lifecycle test. Lint and typecheck pass.
