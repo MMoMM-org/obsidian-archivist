@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-archivist",
+	"name": "Archivist",
+	"version": "0.0.0",
+	"minAppVersion": "1.5.0",
+	"description": "Your vault's quiet historian. Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.",
+	"author": "Marcus Breiden",
+	"authorUrl": "https://github.com/MMoMM-org",
+	"isDesktopOnly": true
+}
