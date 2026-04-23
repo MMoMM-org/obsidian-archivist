@@ -50,7 +50,7 @@ const context = await esbuild.context({
 	target: "es2020",
 	logLevel: "info",
 	sourcemap: isDev,
-	drop: isDev ? [] : ["console"],
+	drop: isDev ? [] : ["debug"],
 	minify: false,
 	outfile: `${outdir}/main.js`,
 	plugins: [copyAssets],

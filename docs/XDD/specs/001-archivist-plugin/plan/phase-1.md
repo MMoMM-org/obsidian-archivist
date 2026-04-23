@@ -1,6 +1,6 @@
 ---
 title: "Phase 1: Foundation & Scaffolding"
-status: pending
+status: in_progress
 version: "1.0"
 phase: 1
 ---
@@ -44,7 +44,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
 
   1. Prime: Read `[ref: SDD/Implementation Context/Project Commands]` and `[ref: SDD/ADR-14]`.
   2. Test: `npm install` creates `node_modules` without unresolved deps; `npm run build` produces `main.js` at repo root; `npm run dev` starts esbuild watch.
-  3. Implement: Create `package.json` with pinned `dropbox@10.x`, `obsidian`, `esbuild`, `typescript`, `vitest`, `@vitest/coverage-v8`, `eslint`, `eslint-plugin-obsidianmd`. Create `tsconfig.json` (`strict: true`, `strictNullChecks: true`, `target: ES2020`, `moduleResolution: node`). Create `esbuild.config.mjs` bundling `src/main.ts → main.js` with `drop: ['console']` in prod, `external: ['obsidian', 'electron', 'fs', 'path', 'crypto']`. **Dev-mode output path**: `npm run dev` emits to `test/Archivist/.obsidian/plugins/obsidian-archivist/` (deploys into the local test vault's plugins folder where `hot-reload` picks it up); `npm run build` emits to `./` at the repo root (release-artefact path for GitHub Release uploads). Both targets write the triplet `main.js` + `manifest.json` + `styles.css`.
+  3. Implement: Create `package.json` with pinned `dropbox@10.x`, `obsidian`, `esbuild`, `typescript`, `vitest`, `@vitest/coverage-v8`, `eslint`, `eslint-plugin-obsidianmd`. Create `tsconfig.json` (`strict: true`, `strictNullChecks: true`, `target: ES2020`, `moduleResolution: node`). Create `esbuild.config.mjs` bundling `src/main.ts → main.js` with `drop: ['debug']` in prod (strips console.debug only; log/warn/error are kept and go through the Logger wrapper per SDD §Logging), `external: ['obsidian', 'electron', 'fs', 'path', 'crypto']`. **Dev-mode output path**: `npm run dev` emits to `test/Archivist/.obsidian/plugins/obsidian-archivist/` (deploys into the local test vault's plugins folder where `hot-reload` picks it up); `npm run build` emits to `./` at the repo root (release-artefact path for GitHub Release uploads). Both targets write the triplet `main.js` + `manifest.json` + `styles.css`.
   4. Validate: `npm run build` succeeds; `main.js` exists and loads into a test vault; `npm run typecheck` (alias for `tsc --noEmit`) passes.
   5. Success: Every later phase can build and test `[ref: SDD/Implementation Context]`; no `@latest` pin `[ref: SDD/ADR-14]`.
 
