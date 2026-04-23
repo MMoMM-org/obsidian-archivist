@@ -11,7 +11,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { DropboxClient, type DropboxClientOptions } from '../../src/infra/DropboxClient';
+import {
+  DropboxClient,
+  type DropboxClientOptions,
+  type ListFolderEntry,
+} from '../../src/infra/DropboxClient';
 import { TokenStore, type Tokens } from '../../src/infra/TokenStore';
 import type { Logger } from '../../src/infra/Logger';
 import {
@@ -20,7 +24,6 @@ import {
   NetworkError,
   PathError,
   QuotaExceededError,
-  RateLimitError,
 } from '../../src/model/Errors';
 import {
   makeFakeSdk,
@@ -358,7 +361,12 @@ describe('DropboxClient', () => {
     expect(sdk.filesListFolder).toHaveBeenCalledTimes(1);
     expect(sdk.filesListFolderContinue).toHaveBeenCalledTimes(2);
     expect(entries).toHaveLength(4);
-    expect(entries.map((e) => e.tag)).toEqual(['file', 'file', 'folder', 'deleted']);
+    expect(entries.map((e: ListFolderEntry) => e.tag)).toEqual([
+      'file',
+      'file',
+      'folder',
+      'deleted',
+    ]);
     // Archivist-owned shape — no SDK fields should leak through.
     for (const e of entries) {
       expect(Object.getPrototypeOf(e)).toBe(Object.prototype);
