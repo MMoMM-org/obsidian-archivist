@@ -40,7 +40,37 @@ export class Vault {
     read: async (_path: string): Promise<string> => '',
     write: async (_path: string, _data: string): Promise<void> => {},
     exists: async (_path: string): Promise<boolean> => false,
+    // Phase 3 addition: TokenStore.clear() calls adapter.remove to delete
+    // tokens.json during OAuth disconnect.
+    remove: async (_path: string): Promise<void> => {},
   };
+}
+
+// ---------------------------------------------------------------------------
+// Platform (Phase 3 addition)
+// ---------------------------------------------------------------------------
+// Tests can override via `vi.mock('obsidian', ...)` when they need the mobile
+// branch. Default is desktop because that's where TokenStore chmod runs.
+
+export const Platform = { isDesktopApp: true };
+
+// ---------------------------------------------------------------------------
+// FileSystemAdapter (Phase 3 addition)
+// ---------------------------------------------------------------------------
+// Desktop-only adapter subclass. `getFullPath` resolves a vault-relative path
+// to the absolute filesystem path, which TokenStore needs before calling
+// Node's fs.chmod.
+
+export class FileSystemAdapter {
+  private basePath = '/tmp/mock-vault';
+
+  getBasePath(): string {
+    return this.basePath;
+  }
+
+  getFullPath(relativePath: string): string {
+    return `${this.basePath}/${relativePath}`;
+  }
 }
 
 // ---------------------------------------------------------------------------
