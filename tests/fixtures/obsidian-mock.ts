@@ -97,6 +97,13 @@ export interface Command {
 // Plugin base class
 // ---------------------------------------------------------------------------
 
+export interface ObsidianProtocolData {
+  action: string;
+  [key: string]: string;
+}
+
+export type ObsidianProtocolHandler = (params: ObsidianProtocolData) => unknown;
+
 export class Plugin {
   app: App;
   manifest: { id: string; name: string; version: string };
@@ -104,6 +111,12 @@ export class Plugin {
   /** Internal registry — cleared by onunload. Exposed for test introspection. */
   _registeredEvents: EventRef[] = [];
   _registeredIntervals: ReturnType<typeof setInterval>[] = [];
+  /**
+   * Phase 3 addition (T3.3): records handlers passed to
+   * registerObsidianProtocolHandler so tests can drive OAuth callbacks.
+   * Keyed by action string (e.g. 'archivist-oauth').
+   */
+  _protocolHandlers: Map<string, ObsidianProtocolHandler> = new Map();
 
   constructor(app: App, manifest: { id: string; name: string; version: string }) {
     this.app = app;
@@ -143,6 +156,10 @@ export class Plugin {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   addSettingTab(_tab: unknown): void {}
+
+  registerObsidianProtocolHandler(action: string, handler: ObsidianProtocolHandler): void {
+    this._protocolHandlers.set(action, handler);
+  }
 
   async loadData(): Promise<unknown> {
     return null;
