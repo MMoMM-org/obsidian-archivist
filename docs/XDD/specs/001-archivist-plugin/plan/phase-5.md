@@ -14,8 +14,8 @@ phase: 5
 **Specification References**:
 - `[ref: SDD/Runtime View/Primary Flow: Incremental Backup Cycle]`
 - `[ref: SDD/Runtime View/Complex Logic/Algorithm 2 — verifyNoConflict]`
-- `[ref: SDD/Implementation Examples/Example: Commit Protocol]` + the crash-recovery matrix
-- `[ref: SDD/Building Block View/Interface Specifications — HEAD.json, gc_lock]`
+- `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]` + the crash-recovery matrix
+- `[ref: SDD/Building Block View/Data Storage Changes]` (HEAD.json + gc_lock blocks)
 - `[ref: SDD/ADR-3, ADR-4, ADR-5, ADR-6, ADR-18]`
 - `[ref: PRD/F1, F5, F6]`
 
@@ -60,7 +60,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
 
 - [ ] **T5.3 BackupService — Full pipeline** `[activity: backend-api]`
 
-  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol]`, `[ref: SDD/Implementation Examples/Crash-Recovery Matrix]`.
+  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`.
   2. Test (end-to-end with mocked DropboxClient + fake Vault):
      - A full backup of a 100-file vault uploads exactly 100 distinct blobs (1 per unique hash; dedup when duplicates exist), writes 1 manifest (`type='full'`), writes HEAD.json, and advances `LocalIndex` + queue cursor.
      - Calling full twice in a row on an unchanged vault still produces 2 distinct snapshots (timestamps differ) but uploads 0 new blobs the second time (CAS dedup).
@@ -86,7 +86,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
 
 - [ ] **T5.5 Startup recovery (HEAD + INDEX_MISSING)** `[activity: backend-api]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Implementation Examples/Crash-Recovery Matrix]`, `[ref: SDD/Acceptance Criteria — INDEX_MISSING]`.
+  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/Acceptance Criteria — INDEX_MISSING]`.
   2. Test:
      - If `index.json` is missing or unparseable → force-Full-on-next-backup flag set in `LocalIndex`; next `run` calls `runFull`.
      - If HEAD.json points at a snapshot_id that is older than the newest manifest in `snapshots/` (crash between manifest and HEAD) → recovery rewrites HEAD to the newest manifest by `created_at`.
@@ -94,7 +94,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
      - If `snapshots/` is empty → HEAD is deleted; state is "fresh folder."
   3. Implement: Add `recoverOnStartup()` to `BackupService` (or a small `RecoveryService`).
   4. Validate: Unit tests with mocked Dropbox listings covering each recovery branch.
-  5. Success: Crash-recovery matrix fully implemented `[ref: SDD/Implementation Examples/Crash-Recovery Matrix]`.
+  5. Success: Crash-recovery matrix fully implemented `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`.
 
 - [ ] **T5.6 Phase Validation** `[activity: validate]`
 

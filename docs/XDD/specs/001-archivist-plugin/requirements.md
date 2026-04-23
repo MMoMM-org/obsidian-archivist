@@ -66,7 +66,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
   - Never lose a note, even one edited a week ago and forgotten about.
   - Recover a specific earlier version of a note without reading a manual.
   - Run backups quietly in the background; never think about them until something goes wrong.
-  - Keep Dropbox usage under a few percent of plan — backups should be invisible both in UX and in the Dropbox account.
+  - Keep Dropbox usage at or below 5% of the user's plan (the V1 design target stated in Constraints) — backups should be invisible both in UX and in the Dropbox account.
 - **Pain Points:**
   - Burned previously by `obsidian-dropbox-backups` filling up Dropbox within days.
   - Has opened Dropbox web to find the right snapshot and been unable to tell which of 300 `backup-2024-06-14-14-32-00/` folders contains the pre-corruption version.
@@ -129,6 +129,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
   - [ ] Given a retention pass deletes a snapshot manifest, When garbage collection runs afterwards, Then content blobs referenced by zero remaining manifests are deleted from Dropbox AND content blobs referenced by at least one remaining manifest are retained.
   - [ ] Given a user configures a tier value (e.g., daily = 60 days), When the retention pass runs, Then the new value is honored on the next pass with no manual restart required.
   - [ ] Given the total Dropbox usage for Archivist exceeds a configurable warning threshold (default 80% of a user-settable limit), When the plugin detects this after a backup, Then the user sees a persistent warning in Settings and the ribbon tooltip.
+  - [ ] Given the total Dropbox usage for Archivist meets or exceeds 100% of the configured hard-limit, When the next scheduled backup is about to run, Then backups are paused (the cycle does not upload), a persistent banner surfaces in Settings + ribbon tooltip, and no `files/upload` calls are issued until the user either raises the limit or confirms "continue anyway" via a Settings control.
 
 #### Feature 3: File-Level Restore via Command Palette (Primary Recovery Path)
 
@@ -147,6 +148,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
   - [ ] Given the user invokes `Archivist: Open Backup Browser` OR clicks the second ribbon button, When the view opens, Then a three-column layout appears (snapshot list / files-at-snapshot / preview) within 1 second.
   - [ ] Given the user selects a snapshot in column 1, When the selection is made, Then column 2 populates with the file tree of that snapshot within 3 seconds for a 10k-file vault.
   - [ ] Given the user selects a file in column 2, When the selection is made, Then column 3 displays a preview (text) or a binary-file placeholder within 3 seconds.
+  - [ ] Given the selected file is a binary file (non-text extension or detected-binary content), When column 3 renders, Then the preview area shows a "binary file — no text preview (<size>)" placeholder AND the Restore actions remain enabled.
   - [ ] Given the user clicks "Restore in place" in column 3 and the file's path no longer exists in the live vault, When the action is confirmed, Then the file is restored at its original path (creating intermediate folders if needed), the user sees a confirmation of folder creation, and the restored content matches the snapshot's recorded hash.
   - [ ] Given no backups exist yet, When the Backup Browser is opened, Then it shows an empty-state message explaining when the first backup will run and how to confirm this device is the backup device.
 
@@ -191,7 +193,14 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 - **S3. Storage Usage Estimate in Settings.** Settings page shows current Dropbox usage for the Archivist folder and a computed retention estimate ("With these settings: ~120 snapshots, estimated ~40 GB"). Updated after each backup.
 - **S4. Mobile Restore (Read-Only).** On mobile, the Backup Browser and File-History modal work as on desktop (collapsed to single-column on narrow viewports). Scheduling is desktop-only.
 - **S5. Pre-Flight Notice for Full Backups.** 5-minute-before-full notice with Start now / Postpone 1h / Skip. Configurable on/off.
-- **S6. Standalone Restore CLI (`scripts/restore.mjs`).** A single-file Node.js script with zero npm dependencies that reconstructs any snapshot from a locally-available `Apps/Archivist/` folder (typically the Dropbox Desktop app's synced copy) — WITHOUT requiring the plugin to be installed or Obsidian to be running. Rationale: disaster recovery + "trust but verify" + future-proofing if the plugin is ever abandoned. User invokes `node scripts/restore.mjs --dropbox-path <path> --output <dir> [--at <id|latest|date>] [--list-snapshots] [--dry-run] [--verify-only]`. The script verifies every blob's SHA-256 before writing and produces byte-identical output to the plugin's in-app restore.
+- **S6. Standalone Restore CLI (`scripts/restore.mjs`).** A single-file Node.js script with zero npm dependencies that reconstructs any snapshot from a locally-available `Apps/Archivist/` folder (commonly the Dropbox Desktop app's synced copy — any local mirror with the same layout works) — WITHOUT requiring the plugin to be installed or Obsidian to be running. Rationale: disaster recovery + "trust but verify" + future-proofing if the plugin is ever abandoned. User invokes `node scripts/restore.mjs --dropbox-path <path> --output <dir> [--at <id|latest|date>] [--list-snapshots] [--dry-run] [--verify-only]`. The script verifies every blob's SHA-256 before writing and produces byte-identical output to the plugin's in-app restore.
+- **Acceptance Criteria (S6):**
+  - [ ] Given a local `Apps/Archivist/<VAULT_PREFIX>/` folder with N snapshots, When the user invokes `--list-snapshots`, Then stdout lists all N snapshots with id, type, parent_id, and created_at, sorted newest-first.
+  - [ ] Given a valid snapshot chain, When the user invokes `--at latest --output OUT`, Then the reconstructed directory matches the plugin's in-app restore for the same snapshot byte-for-byte.
+  - [ ] Given any content blob's SHA-256 does not match its manifest hash, When the CLI encounters it during restore, Then the CLI exits non-zero BEFORE writing the bad file, the in-progress output directory is cleaned up (atomic-dir pattern), and stdout lists every offending path.
+  - [ ] Given `--dry-run`, When invoked, Then the CLI prints the would-write list (paths + sizes + hashes) and writes zero files, exit 0.
+  - [ ] Given `--verify-only`, When invoked on a clean fixture, Then exit 0; When invoked on a fixture with a corrupted blob, Then exit non-zero with the offending hash listed.
+  - [ ] The script is a single `.mjs` file with zero `import` statements from npm packages (Node ≥ 18 stdlib only — asserted by a grep-based CI gate).
 
 ### Could Have Features
 

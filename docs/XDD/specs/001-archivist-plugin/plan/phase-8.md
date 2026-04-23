@@ -34,7 +34,7 @@ Produces the feature users actually care about — getting an earlier version of
 
 - [ ] **T8.1 materializeVaultStateAt (manifest chain merge)** `[activity: domain-modeling]`
 
-  1. Prime: Read `[ref: SDD/Implementation Examples/Restore Merge Walkthrough]`.
+  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Manifest Merge for Restore-at-Time-T]`.
   2. Test:
      - The 4-snapshot walkthrough in the SDD reproduces exactly: `{ A.md=h4, C-renamed.md=h6, D.md=h5 }`.
      - A chain that terminates in an Inc (no reachable Full) throws `IntegrityError('CHAIN_BROKEN')`.
@@ -80,7 +80,7 @@ Produces the feature users actually care about — getting an earlier version of
 
 - [ ] **T8.5 Standalone Restore CLI (`scripts/restore.mjs`)** `[activity: tooling]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/ADR-19]`, `[ref: SDD/Acceptance Criteria — Standalone Restore CLI]`, `[ref: PRD/S6]`, and the manifest-merge walkthrough `[ref: SDD/Implementation Examples/Restore Merge Walkthrough]`.
+  1. Prime: Read `[ref: SDD/ADR-19]`, `[ref: SDD/Acceptance Criteria — Standalone Restore CLI]`, `[ref: PRD/S6]`, and the manifest-merge walkthrough `[ref: SDD/Implementation Examples/Example: Manifest Merge for Restore-at-Time-T]`.
   2. Test:
      - Zero-dependency invariant: `scripts/restore.mjs` has no `import` from any npm package; only `node:fs/promises`, `node:path`, `node:crypto`, `node:process`, `node:url`. Verified by a grep-based CI check.
      - `--list-snapshots` on a fixture folder (5 snapshots) prints all 5 with id, type, parent_id, created_at, newest-first.

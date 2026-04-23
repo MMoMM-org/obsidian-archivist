@@ -12,7 +12,7 @@ phase: 3
 **GATE**: Read all referenced files before starting this phase.
 
 **Specification References**:
-- `[ref: SDD/External Interfaces/Interface Specifications — Dropbox]`
+- `[ref: SDD/Implementation Context/External Interfaces/Interface Specifications]` (Dropbox outbound bindings)
 - `[ref: SDD/Runtime View/Error Handling — Dropbox error matrix]`
 - `[ref: SDD/System-Wide Patterns/Security — PKCE, token storage]`
 - `[ref: SDD/Interface Specifications/Application Data Models — ArchivistError hierarchy]`
@@ -44,11 +44,11 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
 
 - [ ] **T3.2 TokenStore & auto-refresh wiring** `[activity: backend-api]`
 
-  1. Prime: Read `[ref: SDD/ADR-7]`, `[ref: SDD/Interface Specifications/Data Storage — data.json.auth]`, Dropbox OAuth guide linked in SDD.
-  2. Test: Storing tokens persists the shape documented in `data.json.auth`; loading tokens returns them intact; `accessTokenExpiresAt` older than 60 s triggers proactive refresh before the next API call; Dropbox SDK's built-in auto-refresh is also enabled (defense-in-depth); permission 600 is applied to `data.json` on desktop (assertion: new `fs.stat(path).mode & 0o777 === 0o600`); on mobile the permission step is skipped silently.
-  3. Implement: Create `src/infra/TokenStore.ts` with `load(): Promise<Tokens | null>`, `save(tokens)`, `clear()`. Uses Obsidian's `this.plugin.loadData/saveData` for `data.json.auth`. After save on desktop, calls `fs.chmod(dataPath, 0o600)` via the plugin's `FileSystemAdapter` (`app.vault.adapter.getBasePath()`). Guarded with `platform.isDesktopApp`.
-  4. Validate: Unit tests with a fake data-adapter; permission assertion runs only on a desktop test fixture.
-  5. Success: Token lifecycle matches ADR-7 disclosure policy `[ref: SDD/ADR-7]`; permissions tightened where platform supports it.
+  1. Prime: Read `[ref: SDD/ADR-7]` (revised — tokens in `tokens.json`, NOT `data.json`), `[ref: SDD/Data Storage Changes — tokens.json block]`, Dropbox OAuth guide linked in SDD.
+  2. Test: Storing tokens persists the shape documented in the `tokens.json` YAML block (access_token, refresh_token, access_token_expires_at, dropbox_account_email) at `<plugin-data>/tokens.json` via `app.vault.adapter.write` — NOT via `loadData/saveData`; loading tokens returns them intact; `accessTokenExpiresAt` older than 60 s triggers proactive refresh before the next API call; Dropbox SDK's built-in auto-refresh is also enabled (defense-in-depth); permission 600 is applied to `tokens.json` on desktop (assertion: `fs.stat(tokensPath).mode & 0o777 === 0o600`); on mobile the permission step is skipped silently; `tokens.json` does NOT appear inside `data.json` (Obsidian Sync isolation).
+  3. Implement: Create `src/infra/TokenStore.ts` with `load(): Promise<Tokens | null>`, `save(tokens)`, `clear()`. Reads/writes `<plugin-data>/tokens.json` via `this.plugin.app.vault.adapter.read/write`. After save on desktop, resolves the absolute path via `FileSystemAdapter.getFullPath(...)` (or `getBasePath() + tokensPath`) and calls Node `fs.chmod(abs, 0o600)`. Guarded with `platform.isDesktopApp`. Missing-file on load returns `null` (not an error).
+  4. Validate: Unit tests with a fake adapter + a desktop-only permission fixture; assertion that `data.json` contents never contain `access_token` keys.
+  5. Success: Token lifecycle matches ADR-7 (revised) `[ref: SDD/ADR-7]`; Obsidian-Sync isolation preserved `[ref: SDD/ADR-11 consistency — tokens treated like index.json]`.
 
 - [ ] **T3.3 PKCE OAuth flow with bounded-TTL state map** `[activity: security]`
 
@@ -65,7 +65,7 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
 - [ ] **T3.4 Disconnect flow (revoke + local clear)** `[activity: security]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-9]`, `[ref: SDD/Acceptance Criteria — Feature 7]`.
-  2. Test: `disconnect()` calls `POST /oauth2/token/revoke` with the current access token; then clears `data.json.auth`; does NOT call any `files/delete_v2` on Dropbox; if revoke returns an error, the local clear still happens and a warning is logged; if network is offline, the local clear still happens and a notice tells the user "server-side revoke failed — consider revoking the app in Dropbox settings."
+  2. Test: `disconnect()` calls `POST /oauth2/token/revoke` with the current access token; then deletes `tokens.json` via `adapter.remove` (or writes an empty file); does NOT touch `data.json`; does NOT call any `files/delete_v2` on Dropbox; if revoke returns an error, the local clear still happens and a warning is logged; if network is offline, the local clear still happens and a notice tells the user "server-side revoke failed — consider revoking the app in Dropbox settings."
   3. Implement: Add `disconnect()` to `DropboxClient` (or `OAuthConnectFlow` — place it where the TokenStore handle lives). Logs via `Logger`.
   4. Validate: Unit tests mock the revoke endpoint for success/error/offline; assert no destructive Dropbox path is called.
   5. Success: Server-side token revocation on Disconnect `[ref: SDD/Acceptance Criteria — Feature 7]`; Dropbox backup data preserved `[ref: PRD/F7 AC-4]`.

@@ -33,7 +33,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
 
 - [ ] **T6.1 Retention tier evaluator (pure logic)** `[activity: domain-modeling]`
 
-  1. Prime: Read `[ref: SDD/Implementation Examples/Retention Walkthrough]`, `[ref: PRD/F2 acceptance criteria]`.
+  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Retention Pass with Transitive Chain-Integrity]`, `[ref: PRD/F2 acceptance criteria]`.
   2. Test:
      - Never-prune window includes the snapshot → keep, overrides every other tier.
      - Recent-hours match → keep.
@@ -48,7 +48,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
 
 - [ ] **T6.2 Transitive chain-integrity pass** `[activity: domain-modeling]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Implementation Examples/Retention Walkthrough]` (second algorithm), `[ref: SDD/ADR-16]`.
+  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Retention Pass with Transitive Chain-Integrity]` (second algorithm), `[ref: SDD/ADR-16]`.
   2. Test:
      - Given tier-kept set `{Inc-B}` whose parent chain is `Inc-B → Inc-A → Full-F`, the augmented set is `{Full-F, Inc-A, Inc-B}`.
      - A cycle in parent pointers does not loop forever (visited-set guard).

@@ -49,7 +49,7 @@ Produces the single UI surface where users configure everything. Also the entry 
 
 - [ ] **T10.2 Backup Schedule section** `[activity: frontend-ui]` `[parallel: true]`
 
-  1. Prime: Read `[ref: PRD/F1]`, `[ref: SDD/Interface Specifications — ScheduleSettings]`.
+  1. Prime: Read `[ref: PRD/F1]`, `[ref: SDD/Building Block View/Interface Specifications/Application Data Models — ScheduleSettings]`.
   2. Test:
      - Toggle: "This device performs backups" reflects `device.designated` and triggers `DeviceCoordinator.takeOwnership(true/false)` on change.
      - Device ID displayed read-only (first 6 chars + copy-to-clipboard).

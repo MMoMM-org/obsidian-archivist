@@ -74,7 +74,7 @@ When implementation requires changes from the specification:
 - **ADR-4**: Rename is first-class in the Inc manifest — `renames: {from, to}[]`.
 - **ADR-5**: GC lock marker file; list content AFTER manifest upload.
 - **ADR-6**: Designated-device with startup HEAD-conflict detection.
-- **ADR-7**: Token in `data.json` plaintext with README disclosure + chmod 600; `safeStorage` deferred.
+- **ADR-7**: Token in dedicated `tokens.json` (plaintext, OUTSIDE `data.json`) via `app.vault.adapter.write`; README disclosure + chmod 600; `safeStorage` deferred. `data.json` holds only settings + device block.
 - **ADR-8**: PKCE code-verifier Map (cap 5, TTL 10 min); cleared on `onunload`.
 - **ADR-10**: WebCrypto `crypto.subtle.digest` — cross-platform (desktop + mobile).
 - **ADR-11**: `index.json` OUTSIDE `data.json` — avoids Obsidian Sync churn.

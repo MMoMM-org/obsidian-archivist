@@ -286,7 +286,7 @@ Coverage:       npm run test:coverage
   - **Commit protocol: blobs → manifest → HEAD** — crash-safe; orphan blobs tolerated, orphan manifests fatal.
   - **Designated-device** ownership with startup conflict-detection — simplest model that rules out two-device races for V1.
   - **Rename is first-class** in the manifest schema — preserves File History continuity across renames (primary use case).
-  - **Token storage in `data.json` with disclosure** — matches community norm for V1; `electron.safeStorage` migration path reserved for V2.
+  - **Token storage in dedicated `tokens.json` (outside `data.json`) with disclosure** — keeps tokens off the Obsidian-Sync path (ADR-7, consistent with ADR-11 for `index.json`); `electron.safeStorage` migration path reserved for V2.
   - **MarkdownRenderer-only preview** — eliminates the XSS/Electron-RCE risk class.
 
 ## Building Block View
@@ -562,6 +562,8 @@ export interface LocalIndex {
   last_inc_snapshot_id: string | null;
   last_full_commit_at: string | null;
   last_inc_commit_at: string | null;
+  last_retention_at: string | null;       // ISO-8601; drives the 24h retention throttle (ADR-17)
+  index_missing_recovery_required: boolean;  // set true on index.json corruption; forces a Full on next run
   files: Record<string, FileEntry>;
 }
 
@@ -737,7 +739,7 @@ Expected vault state at #4: `A.md=h4, C-renamed.md=h6, D.md=h5`. ✓
 
 **Edge cases:**
 - If `m.renames` references a `from` not in state (e.g., file was already deleted in an earlier Inc), skip silently (idempotent).
-- If `m.renames` references a `to` already in state, skip (conflict — should never happen from a correct writer, but resilient in case of future bugs).
+- If `m.renames` references a `to` already in state, skip the rename (log `WARN: rename-to-collision` with the offending manifest id) and continue replay. This branch is unreachable from a correct writer; it exists so corruption from a future writer bug cannot abort an otherwise valid manifest chain — the restore still produces a usable state.
 - If the chain cannot reach a Full (missing parent manifest), throw `IntegrityError('CHAIN_BROKEN', ...)` — user sees "Restore failed: snapshot history is broken, please file a bug."
 
 #### Example: Retention Pass with Transitive Chain-Integrity
@@ -1130,7 +1132,7 @@ stateDiagram-v2
 
 - **Security:**
   - OAuth PKCE with state-parameter CSRF prevention; `code_verifier` stored in a bounded Map (cap 5, TTL 10 min) on the plugin instance — cleared on `onunload`.
-  - Access/refresh tokens in `data.json` (plaintext — disclosed in README); file permissions set to 600 via Node `fs.chmod` on desktop when possible.
+  - Access/refresh tokens in `tokens.json` (plaintext, OUTSIDE `data.json` — disclosed in README; see ADR-7); file permissions set to 600 via Node `fs.chmod` on desktop when possible.
   - Disconnect calls `POST /oauth2/token/revoke` **before** deleting local tokens; does NOT delete Dropbox backup data in V1.
   - All preview rendering via `MarkdownRenderer.render(content, el, sourcePath, component)` — no `innerHTML` on user content anywhere.
   - ESLint rule bans `innerHTML =` with non-literal RHS.
@@ -1147,7 +1149,7 @@ stateDiagram-v2
   - Production build strips `console.log` / `console.debug` via esbuild `drop: ['console']`.
   - Structured `Logger` for errors: `{ code, op, retryable }`. Paths redacted unless `advanced.diagnostic_logging === true`.
   - No content hashes in user-facing logs (pseudonymous but correlatable).
-  - Audit trail: every backup/restore action writes an entry to `data.json.audit_log` (keep last 100 entries) with `{ op, snapshot_id, duration_ms, result }`. No paths in audit log.
+  - Audit trail: every backup/restore action writes an entry to a dedicated `audit_log.json` in plugin-data (written via `app.vault.adapter.write`, OUTSIDE `data.json` — same reasoning as ADR-11/ADR-7: per-device forensic state should not cross Obsidian Sync). Ring-buffer capped at the last 100 entries (FIFO eviction). Each entry: `{ op, snapshot_id, duration_ms, result, timestamp }`. No paths, no hashes, no content in the audit log.
 
 ### Multi-Component Patterns
 
@@ -1260,7 +1262,7 @@ Not applicable — single-component plugin.
 
 - [x] **ADR-19: Ship a standalone restore CLI (`scripts/restore.mjs`) alongside the plugin — zero npm deps, pure Node.js.**
   - Rationale: the on-disk format in `Apps/Archivist/` is a **public, documented contract**, not a private plugin detail. A user must be able to recover their data even if (a) the plugin is broken, (b) Obsidian is uninstalled, (c) this plugin is abandoned 5 years from now, or (d) they want to verify their backups with tooling outside the plugin. The Dropbox Desktop app already syncs `Apps/Archivist/` to disk; the CLI needs only local filesystem access.
-  - Contract: the CLI reads a local folder (pointed at `Apps/Archivist/<VAULT_PREFIX>/` — typically a Dropbox-desktop-synced path), walks the manifest chain using the same algorithm as `RestoreService.materializeVaultStateAt`, verifies each content blob's SHA-256, and writes the reconstructed vault tree to a user-specified output directory.
+  - Contract: the CLI reads a local directory that mirrors the `Apps/Archivist/<VAULT_PREFIX>/` layout (commonly produced by the Dropbox Desktop app's selective sync; any local mirror with the same layout is supported — the CLI does not authenticate to Dropbox). It walks the manifest chain using the same algorithm as `RestoreService.materializeVaultStateAt`, verifies each content blob's SHA-256, and writes the reconstructed vault tree to a user-specified output directory.
   - Invocation:
     ```bash
     node scripts/restore.mjs \
@@ -1425,6 +1427,12 @@ Carry-forward debt to V2:
 | Chain-integrity | The property that every retained Inc can be traced back through its parents to a retained Full. | Enforced by the retention algorithm. |
 | Garbage Collection (GC) | Deletion of content blobs no longer referenced by any retained manifest. | Runs after retention passes. |
 | Quiet period | A post-startup window during which no backups run, to let sync tools settle. | 10 min grace + 2 min no-event. |
+| `data.json` | Obsidian-managed plugin state file (read/written via `loadData`/`saveData`); IS synchronized by Obsidian Sync across devices. | Holds settings + per-device `device` block + UI dismissal flags — intentionally device-shareable. |
+| `tokens.json` | Plugin-data file holding Dropbox access + refresh tokens (plaintext, chmod 600 on desktop); NOT in `data.json`. | Written via `app.vault.adapter.write`; ADR-7. |
+| `index.json` | Plugin-data file holding the local hash/mtime/size index per vault path; NOT in `data.json`. | Source of truth for "what this backup device saw last"; ADR-11. |
+| `pending_changes.json` | Plugin-data file holding the persistent event queue + `committed_through` cursor. | Enables crash-safe resumption of backup cycles. |
+| `audit_log.json` | Plugin-data file holding the last 100 backup/restore operation entries; NOT in `data.json`. | Per-device forensic trail; no paths, no hashes, no content. |
+| Backup owner | Synonym for **designated device** (narrative alias in PRD; canonical term is "designated device"). | The one device that actually writes to Dropbox. |
 
 ### Technical Terms
 
