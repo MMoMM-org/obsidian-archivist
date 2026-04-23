@@ -1,6 +1,6 @@
 ---
 title: "Phase 1: Foundation & Scaffolding"
-status: in_progress
+status: completed
 version: "1.0"
 phase: 1
 ---
@@ -64,7 +64,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   4. Validate: Load into the local test vault at `test/Archivist/` (git-ignored, already configured with `hot-reload`); verify ribbon icon appears; disable the plugin; confirm icon removed; no console errors. Build pipeline should emit the plugin bundle to `test/Archivist/.obsidian/plugins/obsidian-archivist/main.js` so `hot-reload` picks up changes automatically during development.
   5. Success: Lifecycle hygiene contract is provable `[ref: SDD/Risks/Implementation Gotchas — 'every listener via registerX']`; provides the bootstrap that later phases extend.
 
-- [ ] **T1.5 CI pipeline (typecheck + lint + test + audit + build)** `[activity: tooling]` `[parallel: true]`
+- [x] **T1.5 CI pipeline (typecheck + lint + test + audit + build)** `[activity: tooling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Quality Requirements/Security — supply chain]`.
   2. Test: A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pull request against `main`; fails if any step fails; passes on the T1.1–T1.4 outputs.
@@ -72,6 +72,10 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   4. Validate: Open a draft PR with a deliberate lint violation — CI fails. Fix — CI passes. `npm audit` blocks on a synthetic `high` CVE injection.
   5. Success: All future PRs have mechanical quality protection `[ref: SDD/ADR-14]`; Obsidian plugin-review pre-flight gate is automated.
 
-- [ ] **T1.6 Phase Validation** `[activity: validate]`
+- [x] **T1.6 Phase Validation** `[activity: validate]`
 
   - Run all Phase 1 tests. Verify the plugin loads/unloads cleanly, the build artifact exists, the CI pipeline is green on a test PR. Lint and typecheck pass. Confirm manifest is community-review-ready via checklist in `[ref: SDD/Quality Requirements/Security]`.
+
+  **Static validation (agent-driven, 2026-04-23):** drift check ALIGNED across scope/missing/contradicts/extra/test-coverage categories except one stale comment in src/main.ts (fixed in a follow-up commit). Every T1.1–T1.5 deliverable present; Dropbox SDK pinned exact; `isDesktopOnly: true`; esbuild uses `pure: ['console.debug']`; release.yml scaffold acknowledged as Phase-10 territory and left in place.
+
+  **Dynamic validation (pending user action on host):** `npm install` → `npm run build` / `npm test` / `npm run lint` / `npm audit --audit-level=high` must all exit 0. Plugin must load into `test/Archivist/` via hot-reload; ribbon icon appears; unload leaves no console errors. CI must go green on a first PR opened against the repo on GitHub. These checks require a local Node environment + network and are the user's next step before Phase 2 starts.

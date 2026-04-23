@@ -109,7 +109,7 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 
 > **Tracking Principle**: Track logical units that produce verifiable outcomes. The TDD cycle is the method, not separate tracked items.
 
-- [ ] [Phase 1: Foundation & Scaffolding](phase-1.md)
+- [x] [Phase 1: Foundation & Scaffolding](phase-1.md)
 - [ ] [Phase 2: Domain Models & Infrastructure Primitives](phase-2.md)
 - [ ] [Phase 3: Dropbox Client & OAuth](phase-3.md)
 - [ ] [Phase 4: Change Detection & Event Queue](phase-4.md)

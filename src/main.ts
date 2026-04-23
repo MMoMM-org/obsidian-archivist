@@ -3,7 +3,7 @@ import { Plugin } from 'obsidian';
 export default class ArchivistPlugin extends Plugin {
   async onload(): Promise<void> {
     // Minimal bootstrap log — full Logger module arrives in Phase 2.
-    // The production build strips console.debug via esbuild drop:['debug'],
+    // The production build strips console.debug via esbuild pure:['console.debug'],
     // so log/warn/error survive for reasonable diagnostics.
     console.log('Archivist: plugin_loaded');
 
