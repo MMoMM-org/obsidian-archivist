@@ -58,7 +58,7 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
      - Attempting to begin > 5 concurrent flows evicts the oldest and/or rejects; expired entries (> 10 min) are GC'd lazily.
      - `handleCallback(url)` with a matching state exchanges the code for tokens and clears the Map entry; with a non-matching state throws `AuthError('OAUTH_STATE_MISMATCH')`.
      - `onunload` clears the Map entirely.
-  3. Implement: Create `src/ui/OAuthConnectFlow.ts` (logic only — UI wiring happens in Phase 10). Use `crypto.getRandomValues` for verifier/state. Verifier is base64url-encoded 32 random bytes. Challenge is base64url of SHA-256(verifier). Callback URL registered via Obsidian's `registerObsidianProtocolHandler('archivist-oauth', ...)`.
+  3. Implement: Create `src/ui/OAuthConnectFlow.ts` (logic only — UI wiring happens in Phase 10). Use `crypto.getRandomValues` for verifier/state. Verifier is base64url-encoded 32 random bytes. Challenge is base64url of SHA-256(verifier). Callback URL registered via Obsidian's `registerObsidianProtocolHandler('archivist-oauth', ...)`. **Dropbox CLIENT_ID** (see PRD V1 Prerequisites) is kept as a compile-time constant in `src/config/dropbox.ts` — PKCE CLIENT_ID is not a secret (it is transmitted in the authorization URL), so no env var / user config is needed. Do NOT reuse the predecessor plugin's CLIENT_ID (`40ig42vaqj3762d`).
   4. Validate: Unit tests use fake crypto + fake timers; verifies TTL expiry; verifies state mismatch throws; verifies Map size cap.
   5. Success: Fixes predecessor's module-level bug `[ref: SDD/ADR-8]`; state-CSRF prevention `[ref: SDD/Acceptance Criteria — OAUTH_STATE_MISMATCH]`.
 

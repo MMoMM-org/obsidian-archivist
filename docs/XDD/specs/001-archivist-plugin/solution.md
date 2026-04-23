@@ -1146,10 +1146,11 @@ stateDiagram-v2
 - **i18n/L10n:** All user-visible strings centralized in `src/ui/strings.ts` as a flat string-key map. English only for V1. V2 can substitute a locale-aware resolver without code-site changes.
 
 - **Logging/Auditing:**
-  - Production build strips `console.log` / `console.debug` via esbuild `drop: ['console']`.
-  - Structured `Logger` for errors: `{ code, op, retryable }`. Paths redacted unless `advanced.diagnostic_logging === true`.
-  - No content hashes in user-facing logs (pseudonymous but correlatable).
-  - Audit trail: every backup/restore action writes an entry to a dedicated `audit_log.json` in plugin-data (written via `app.vault.adapter.write`, OUTSIDE `data.json` — same reasoning as ADR-11/ADR-7: per-device forensic state should not cross Obsidian Sync). Ring-buffer capped at the last 100 entries (FIFO eviction). Each entry: `{ op, snapshot_id, duration_ms, result, timestamp }`. No paths, no hashes, no content in the audit log.
+  - Production build strips `console.debug` via esbuild `drop: ['debug']`. `console.log` / `console.warn` / `console.error` are kept but routed through the `Logger` wrapper so redaction policy applies.
+  - Two log levels gated by `advanced.diagnostic_logging`:
+    - **Default (toggle OFF, the common case):** emits `plugin_loaded`, `plugin_unloaded`, `dropbox_connected`, `dropbox_disconnected`, `dropbox_reauth_required`, `backup_started`, `backup_completed`, `backup_failed` (error code only), `retention_pass_started`, `retention_pass_completed`, `restore_started`, `restore_completed`, `restore_failed` (error code only). **No paths. No hashes. No content. No counts that could fingerprint a vault.** Errors include stable `code` + retryable flag + operation name, never `error.message` from the SDK verbatim.
+    - **Verbose (toggle ON, diagnostic mode):** adds per-file paths logged during reconcile/backup/restore, queue-cursor movements, raw Dropbox error-response `.tag` values, individual upload-session progress. Intended for reproducing a reported bug; user is told to turn it back off after capturing logs. The toggle does NOT switch to `console.debug` — it widens the payload of `console.log` entries emitted by the `Logger`.
+  - Audit trail (separate from console logging): every backup/restore action writes an entry to a dedicated `audit_log.json` in plugin-data (written via `app.vault.adapter.write`, OUTSIDE `data.json` — same reasoning as ADR-11/ADR-7: per-device forensic state should not cross Obsidian Sync). Ring-buffer capped at the last 100 entries (FIFO eviction). Each entry: `{ op, snapshot_id, duration_ms, result, timestamp }`. No paths, no hashes, no content in the audit log — same redaction discipline as default-level console logging.
 
 ### Multi-Component Patterns
 
@@ -1234,10 +1235,11 @@ Not applicable — single-component plugin.
   - Trade-offs: non-markdown files get a "binary — no text preview" placeholder instead of raw text (a lint-level rule, not a usability loss — a user who wants to see binary bytes has other tools).
   - Confirmed (auto).
 
-- [x] **ADR-14: Dropbox SDK pinned to exact version; `package-lock.json` committed; Dependabot weekly; `npm audit` as required CI gate.**
-  - Rationale: supply-chain risk on a bundled plugin is real — transitive vulnerabilities ship to every user.
-  - Trade-offs: more maintenance churn from Dependabot PRs. Acceptable.
-  - Confirmed (auto).
+- [x] **ADR-14: Dropbox SDK — use the latest stable available at first build, pin to that exact version; `package-lock.json` committed; Dependabot weekly; `npm audit` as required CI gate.**
+  - Decision: at the moment of first `npm install` for V1 build, resolve `dropbox` to the latest stable on npm (as of 2026-04-23 that is `10.34.0`, last modified 2025-10-13 — the package is still maintained despite infrequent majors). Pin that version exactly in `package.json` (no `^`, no `~`, no `@latest` specifier). Commit `package-lock.json`.
+  - Rationale: supply-chain risk on a bundled plugin is real — transitive vulnerabilities ship to every user. "Latest at build" ensures we start on the most patched line; pinning thereafter ensures reproducible builds and auditable version bumps via Dependabot PRs (not silent resolution drift).
+  - Trade-offs: more maintenance churn from Dependabot PRs. Acceptable given plugin is single-maintainer + CI gates catch regressions.
+  - Confirmed (reviewed — user preference: "latest version possible" interpreted as latest stable at first build, not `@latest` in package.json).
 
 - [x] **ADR-15: No client-side encryption in V1.**
   - Rationale: incompatible with CAS dedup; key-management UX is a product in itself; out-of-scope threat (Dropbox-account compromise) is explicitly deferred.

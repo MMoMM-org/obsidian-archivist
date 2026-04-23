@@ -267,14 +267,19 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 Archivist is a single-maintainer, single-user-calibrated plugin at V1. Traditional SaaS KPIs (DAU, MAU, conversion rate) do not apply. Success is measured by qualitative reliability and by a small set of quantitative reliability targets.
 
 - **Adoption (V1 baseline):** At least 100 installs from the Obsidian Community Plugin directory within 90 days of public release. This is a proxy for "the plugin is discoverable and clearly positioned against the unmaintained incumbent."
-- **Engagement:** Among users with telemetry opted-in (opt-in, off by default), the backup cycle completes successfully at least 95% of the time measured across a 30-day window.
+- **Engagement:** Backup-cycle success rate ≥ 95% over a 30-day window, measured via direct bug reports + the plugin's own issue tracker (no telemetry in V1 — see Tracking Requirements).
 - **Quality — Reliability:** Zero reports of data-loss-on-restore (restored content ≠ recorded hash) in the first 180 days. Any such report is a P0 bug that blocks the next release.
 - **Quality — Storage:** The reference vault (10k files, 2 GB, ~5 edits/day) stays under 100 GB total Dropbox usage for Archivist data across a 4-week test period with default settings. Formula: `ceiling ≤ vault_size × max_retained_snapshot_count` with `max_retained_snapshot_count` derived from default retention tiers.
 - **Business Impact (indirect):** A community convergence signal — within 12 months, Archivist becomes the recommended answer in Obsidian forum posts, Reddit threads, and Discord channels when a user asks "how do I back up my vault to Dropbox."
 
 ### Tracking Requirements
 
-Telemetry is **opt-in, off by default**. No telemetry in V1 is also an acceptable outcome; in that case, success is measured via explicit user bug reports + the plugin's own issue tracker. If telemetry is added in V1, the event set is:
+**V1: No telemetry.** Decision recorded in spec Decisions Log. Success is measured via explicit user bug reports + the plugin's own issue tracker. No events emitted. No network calls other than Dropbox API.
+
+If telemetry is ever added (post-V1), the event schema below is a **reference**, not an implementation commitment — any activation requires an opt-in user toggle, a documented privacy policy, and a new ADR.
+
+<details>
+<summary>V2 Reference Schema (NOT implemented in V1)</summary>
 
 | Event | Properties | Purpose |
 |-------|------------|---------|
@@ -286,7 +291,9 @@ Telemetry is **opt-in, off by default**. No telemetry in V1 is also an acceptabl
 | `retention_pass_completed` | snapshots_pruned_count, content_blobs_gc_deleted_count, final_storage_mb | Storage-ceiling validation |
 | `first_run_completed` | oauth_completed_seconds_after_enable, predecessor_plugin_detected (bool) | Onboarding-friction measurement |
 
-All events: no file paths, no file contents, no vault names, no user identifiers (device_id is hashed client-side with a random salt generated once per vault install).
+If adopted: no file paths, no file contents, no vault names, no user identifiers (device_id hashed client-side with a random salt generated once per vault install).
+
+</details>
 
 ---
 
@@ -335,9 +342,15 @@ All events: no file paths, no file contents, no vault names, no user identifiers
 - [x] Resolved: Localization → English-only V1 with centralized strings (W9).
 - [x] Resolved: Client-side encryption → deferred to V2 (W8).
 - [x] Resolved: Mobile scope → read-only Browse + Restore + manual backup trigger; no scheduling (S2, S4).
-- [ ] Should the plugin ship with opt-in telemetry, or strictly no telemetry in V1? Author preference: no telemetry in V1; revisit with a clear privacy policy in V2.
-- [ ] Hard-limit storage cap: should the default be 200 GB (10% of 2 TB plan), or a percentage of the plan, or unlimited-with-warning? Author preference: 200 GB default, configurable 10 GB – unlimited.
-- [ ] If a user reports a bug that requires `console.log` output, the logging policy (off in production) makes diagnosis harder. Should there be a user-toggleable "diagnostic mode" setting that temporarily enables verbose logging? Author preference: yes, add as Could-Have C6 post-V1-release if bug reports are blocked on it.
+- [x] Resolved: Telemetry → **no telemetry in V1**. V2 reference schema retained in Tracking Requirements for future reference.
+- [x] Resolved: Storage hard-limit default → **200 GB default**, user-configurable 10 GB – unlimited via Settings → Retention.
+- [x] Resolved: Diagnostic logging → **two-level logger** (default + verbose), toggled by `advanced.diagnostic_logging`. Default level: plugin load/unload, Dropbox connection events, backup-start/end, errors-as-errors (no paths, no hashes, no content). Verbose level: adds per-file paths, raw SDK response metadata, queue-cursor movement. See SDD §Logging.
+- [x] Resolved: License → **MIT**. Matches Obsidian community-plugin norm; predecessor uses MIT; no reason to pick otherwise (Apache-2.0 patent grant is over-engineered for a solo plugin; GPL would restrict forks unnecessarily).
+- [x] Resolved: Plugin ID — `obsidian-archivist` confirmed free in the `obsidianmd/obsidian-releases` community-plugins registry as of 2026-04-23.
+
+## V1 Prerequisites (not-yet-done, required before Phase 1)
+
+- [ ] **Dropbox app registration** (owner: Marcus). Register a new Dropbox app in "App folder" mode at https://www.dropbox.com/developers/apps/create. Capture the `CLIENT_ID` and list the OAuth redirect URI as `obsidian://archivist-oauth` under "OAuth 2 → Redirect URIs". Feed `CLIENT_ID` into `src/infra/DropboxClient.ts` as a compile-time constant. **Blocks Phase 3 T3.3 (OAuth flow).** Do not reuse the predecessor plugin's `CLIENT_ID`.
 
 ---
 
