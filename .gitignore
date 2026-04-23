@@ -39,3 +39,7 @@ claude-docker/
 claude-docker-home/
 begin-code.sh
 generated-images/
+/claude-docker/
+/claude-docker-home/
+/begin-code.sh
+/generated-images/
