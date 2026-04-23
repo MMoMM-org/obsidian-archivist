@@ -384,11 +384,14 @@ graph TB
 │   │   └── strings.ts                      # NEW: all user-visible strings (i18n ready)
 │   ├── services/
 │   │   ├── SchedulerFSM.ts                 # NEW: grace/quiet/active/backup state
+│   │   ├── MaintenanceScheduler.ts         # NEW: async retention/GC runner (decoupled from backup hot path — ROB-002)
 │   │   ├── BackupService.ts                # NEW: full + inc pipeline orchestrator
-│   │   ├── RestoreService.ts               # NEW: manifest merge + content fetch + write
+│   │   ├── ManifestBuilder.ts              # NEW: pure snapshot manifest builder (ROB-015 — was missing from map)
+│   │   ├── RestoreService.ts               # NEW: manifest merge + content fetch + write + per-path mutex (ROB-010)
+│   │   ├── SnapshotIndexStore.ts           # NEW: ADR-20 — lightweight metadata cache over Dropbox
 │   │   ├── RetentionService.ts             # NEW: tier evaluator + transitive chain-integrity
 │   │   ├── GCService.ts                    # NEW: orphan-blob sweep with lock marker
-│   │   ├── DeviceCoordinator.ts            # NEW: designated-device + conflict detection
+│   │   ├── DeviceCoordinator.ts            # NEW: designated-device + conflict detection + double-check (ROB-001)
 │   │   └── ChangeDetector.ts               # NEW: events + reconcile scan
 │   ├── infra/
 │   │   ├── DropboxClient.ts                # NEW: SDK wrapper, retry, error classification
@@ -400,9 +403,11 @@ graph TB
 │   ├── model/
 │   │   ├── Manifest.ts                     # NEW: SnapshotManifest type + guards
 │   │   ├── Index.ts                        # NEW: LocalIndex type + guards
+│   │   ├── SnapshotIndex.ts                # NEW: SnapshotIndex + SnapshotIndexEntry types (ADR-20)
 │   │   ├── QueueEntry.ts                   # NEW: ChangeEvent shape
-│   │   ├── Settings.ts                     # NEW: PluginSettings shape + migrations
-│   │   └── Errors.ts                       # NEW: ArchivistError hierarchy
+│   │   ├── Settings.ts                     # NEW: PluginSettings shape + SETTINGS_MIGRATIONS registry (ROB-006)
+│   │   ├── StartupState.ts                 # NEW: unified startup-state enum (ROB-008)
+│   │   └── Errors.ts                       # NEW: ArchivistError hierarchy (split per ROB-005)
 │   └── util/
 │       ├── paths.ts                        # NEW: Dropbox path builders + prefix guards
 │       ├── time.ts                         # NEW: ISO-8601 helpers, schedule math
@@ -502,8 +507,23 @@ HEAD.json:
   device_id: string                  # device_id of writer — used for conflict detection
   committed_at: ISO-8601
 
-gc_lock:                              # empty marker file; presence = GC in progress
-  (no content; its mtime is the lock acquisition time)
+snapshot_index.json:                 # LIGHTWEIGHT METADATA CACHE (ADR-20) — enables metadata-only retention + fast restore
+  schema_version: "1.0"
+  last_updated_at: ISO-8601
+  snapshots:                         # array, not keyed — preserves natural commit order
+    - id: string                     # mirrors snapshots/<id>.json filename base
+      type: "full" | "inc"
+      parent_id: string (nullable)
+      created_at: ISO-8601
+      device_id: string              # writer device — avoids a second download for audit
+      blob_hashes: string[]          # every content-hash referenced by this snapshot's files (union of files[].hash)
+      # NB: vault paths + file sizes + mtimes are NOT mirrored here — that would defeat the "lightweight" property.
+      # Callers that need full path resolution (Restore, File-History) still download the full snapshots/<id>.json.
+
+gc_lock:                             # empty marker file with JSON body; presence = GC in progress
+  schema_version: "1.0"
+  started_at: ISO-8601               # client-clock timestamp; authoritative for staleness checks (avoids Dropbox server-clock skew)
+  device_id: string                  # who holds the lock
 
 snapshots/<ISO-timestamp>-<type>.json:
   # where <type> = "full" | "inc"; <ISO-timestamp> uses '-' separators (filesystem-safe): 2026-04-01T03-00-full.json
@@ -627,15 +647,31 @@ export interface AdvancedSettings {
   chunk_size_mb: number;              // default 8
 }
 
+// Note: schema_version is a string union that grows with each migration, NOT a fixed literal (ROB-006).
+export type SettingsSchemaVersion = '1.0';  // add '1.1', '1.2', ... as fields are added/renamed
+
 export interface PluginSettings {
-  schema_version: '1.0';
+  schema_version: SettingsSchemaVersion;
   retention: RetentionSettings;
   schedule: ScheduleSettings;
   notifications: NotificationSettings;
   advanced: AdvancedSettings;
 }
 
-// model/Errors.ts
+// Migration registry — each entry transforms settings written by an older schema forward to the next version.
+// parseSettings(raw) applies migrations in sequence before the final type guard, so a v1.0 settings blob on a
+// v1.2 plugin installs two migrations cleanly. On SETTINGS_MIGRATION_FAILED the plugin logs + preserves the
+// raw blob as `settings.json.bak` and falls back to DEFAULT_SETTINGS — never silently discards user config.
+export interface SettingsMigration {
+  from: SettingsSchemaVersion;
+  to: SettingsSchemaVersion;
+  migrate: (old: Record<string, unknown>) => Record<string, unknown>;
+}
+export const SETTINGS_MIGRATIONS: SettingsMigration[] = [
+  // Example: { from: '1.0', to: '1.1', migrate: (s) => ({ ...s, schedule: { ...s.schedule, inc_interval_seconds: (s.schedule as any).inc_interval_minutes * 60 }, schema_version: '1.1' }) }
+];
+
+// model/Errors.ts — ArchivistError hierarchy (split per ROB-005: IntegrityError was over-general)
 export class ArchivistError extends Error {
   constructor(
     public readonly code: string,       // machine-readable; stable across versions
@@ -644,17 +680,39 @@ export class ArchivistError extends Error {
     public readonly cause?: unknown
   ) { super(message); }
 }
-export class AuthError extends ArchivistError {}
-export class NetworkError extends ArchivistError {}
+export class AuthError extends ArchivistError {}                 // OAUTH_STATE_MISMATCH, TOKEN_REVOKED, TOO_MANY_PENDING_FLOWS, DISCONNECT_LOCAL_CLEAR_FAILED
+export class NetworkError extends ArchivistError {}              // transient; retryable
 export class RateLimitError extends ArchivistError {
   constructor(code: string, message: string, public readonly retryAfterSeconds: number, cause?: unknown) {
     super(code, message, true, cause);
   }
 }
-export class QuotaExceededError extends ArchivistError {}
-export class PathError extends ArchivistError {}
-export class IntegrityError extends ArchivistError {}       // hash mismatch, manifest parse, device conflict
-export class ConfigError extends ArchivistError {}
+export class QuotaExceededError extends ArchivistError {}        // 507 insufficient_space; user action required
+export class PathError extends ArchivistError {}                 // 409 path conflict, PATH_NOT_IN_SNAPSHOT, INVALID_VAULT_PREFIX, RESTORE_IN_PROGRESS, BINARY_NOT_TEXT
+export class CorruptionError extends ArchivistError {}           // data-level corruption: MANIFEST_CORRUPT, RESTORE_HASH_MISMATCH, CONTENT_HASH_MISMATCH, HEAD_INVALID, SNAPSHOT_INDEX_INVALID
+export class ChainError extends ArchivistError {}                // structural: CHAIN_BROKEN (missing ancestor), ALIAS_GRAPH_INVALID
+export class ConflictError extends ArchivistError {}             // coordination: DEVICE_CONFLICT (requires explicit user resolution via toggle UI)
+export class ConfigError extends ArchivistError {}               // SCHEMA_INVALID, SCHEMA_INCOMPATIBLE, SETTINGS_MIGRATION_FAILED
+
+// Historical note: IntegrityError was the original super-class for all of Corruption / Chain / Conflict.
+// Post-review split (ROB-005) because each requires a distinct recovery strategy: Corruption → treat-as-absent
+// or user-visible hard error; Chain → history-warning, no-delete; Conflict → user must toggle device.
+
+// model/SnapshotIndex.ts (ADR-20)
+export interface SnapshotIndexEntry {
+  id: string;
+  type: SnapshotType;
+  parent_id: string | null;
+  created_at: string;                 // ISO-8601
+  device_id: string;
+  blob_hashes: string[];              // unique hashes referenced by this snapshot's files
+}
+
+export interface SnapshotIndex {
+  schema_version: '1.0';
+  last_updated_at: string;            // ISO-8601
+  snapshots: SnapshotIndexEntry[];    // natural commit order (append-only per commit)
+}
 ```
 
 #### Integration Points
@@ -802,16 +860,32 @@ async function commitSnapshot(manifest: SnapshotManifest, newBlobs: Map<string, 
   for (const [hash, bytes] of newBlobs) {
     await dropbox.uploadBlob(contentPath(manifest.vault_prefix, hash), bytes);
   }
-  // 2. Write the manifest JSON to snapshots/.
-  //    If we crash here: manifest exists but HEAD is stale. Recovery: on startup, scan snapshots/, pick newest by created_at, re-write HEAD.
+  // 2. RE-VERIFY device conflict AFTER blob upload, BEFORE manifest write (ROB-001 double-check).
+  //    A concurrent device may have committed a snapshot while we were uploading. Shrinks the race window
+  //    to a single RTT. If conflict detected here, our blobs stay in content/ as orphans (next GC cleans them).
+  await deviceCoordinator.verifyNoConflict(); // throws IntegrityError('DEVICE_CONFLICT') on mismatch
+  // 3. Write the manifest JSON to snapshots/.
+  //    If we crash here: manifest exists but HEAD + snapshot_index stale. Recovery: startup scans snapshots/,
+  //    picks newest by created_at, re-writes HEAD + rebuilds snapshot_index entries for any missing id.
   await dropbox.uploadJson(snapshotPath(manifest), manifest);
-  // 3. Update HEAD pointer.
+  // 4. Update snapshot_index.json (ADR-20) — append the new entry with { id, type, parent_id, created_at,
+  //    device_id, blob_hashes } so retention/GC can operate metadata-only. Must succeed BEFORE HEAD update;
+  //    a stale index means retention/GC would miss the new snapshot (safe, but delays pruning one cycle).
+  await snapshotIndexStore.append({
+    id: manifest.id, type: manifest.type, parent_id: manifest.parent_id,
+    created_at: manifest.created_at, device_id: manifest.device_id,
+    blob_hashes: Array.from(new Set(Object.values(manifest.files).map(f => f.hash))),
+  });
+  // 5. Update HEAD pointer.
   //    After this call returns, the snapshot is the new "current".
   const head = { schema_version: '1.0', snapshot_id: manifest.id, snapshot_type: manifest.type, device_id: manifest.device_id, committed_at: new Date().toISOString() };
   await dropbox.uploadJson(headPath(manifest.vault_prefix), head);
-  // 4. Update local index + clear queue through observed_at of committed entries.
+  // 6. Update local index + clear queue through observed_at of committed entries.
   await pluginStore.updateIndexAfterSnapshot(manifest);
   await pluginStore.advanceQueueCursor(manifest.created_at);
+  // 7. Enqueue retention/GC as an async job (ROB-002) — does NOT block return to READY.
+  //    If retention fails, it logs and retries at the next 24h window; never blocks a backup cycle.
+  maintenanceScheduler.scheduleRetentionIfDue();
 }
 ```
 
@@ -821,10 +895,12 @@ async function commitSnapshot(manifest: SnapshotManifest, newBlobs: Map<string, 
 |---|---|---|
 | before step 1 | no new blobs, no manifest, HEAD unchanged | none — next run re-hashes queued files, re-uploads via CAS (idempotent) |
 | step 1 mid | partial blobs in `content/`, no manifest | blobs are orphan; included in next GC sweep |
-| step 1 done, before step 2 | all blobs present, no manifest, HEAD unchanged | same as above — blobs are orphan until next manifest references them; GC cleans |
-| step 2 mid | partial manifest bytes in Dropbox | JSON.parse fails → treat as absent; same as "before step 2" |
-| step 2 done, before step 3 | manifest exists, HEAD stale | startup scans `snapshots/`, picks newest-by-created_at, rewrites HEAD |
-| step 3 mid | HEAD partially written | Dropbox `files/upload` is atomic per file — no partial-HEAD state; either succeeds or old HEAD persists |
+| step 1 done, before step 2 | all blobs present, no manifest | same as above — blobs are orphan until next manifest references them; GC cleans |
+| step 2 throws DEVICE_CONFLICT | blobs present (orphan), no manifest, no index change, HEAD unchanged | GC cleans orphan blobs on next sweep; user resolves device conflict via toggle UI |
+| step 3 mid | partial manifest bytes in Dropbox | JSON.parse fails → treat as absent; same as "before step 3"; blobs still orphan-safe |
+| step 3 done, before step 4 | manifest exists, snapshot_index stale, HEAD stale | startup rebuilds snapshot_index from listing + reads each newer manifest to fill entries; rewrites HEAD |
+| step 4 done, before step 5 | manifest exists, index entry present, HEAD stale | startup sees index includes an id HEAD doesn't; rewrites HEAD to the newest index entry |
+| step 5 mid | HEAD partially written | Dropbox `files/upload` is atomic per file — no partial-HEAD state; either succeeds or old HEAD persists |
 | step 3 done, before step 4 | manifest committed remotely, local index stale | startup reconciles local index against HEAD; re-hashes any files not already in index |
 
 ## Runtime View
@@ -836,15 +912,14 @@ async function commitSnapshot(manifest: SnapshotManifest, newBlobs: Map<string, 
 3. Scheduler checks device is designated (`DeviceCoordinator.isActiveOwner() === true`). If passive, no-op.
 4. Scheduler checks queue has entries since `committed_through` cursor. If empty, no-op (idle tick).
 5. `BackupService.runIncremental()` begins.
-6. `DeviceCoordinator.verifyNoConflict()` — reads Dropbox `HEAD.json`; if `HEAD.device_id !== this.device_id` AND `HEAD.committed_at` within last 2 hours → abort with `IntegrityError('DEVICE_CONFLICT')`, surface persistent error in UI.
-7. `ChangeDetector.getChangedPaths()` — reads queue + (if `reconcile_scan_enabled`) runs a reconcile scan, yielding main thread every 500 files.
+6. `DeviceCoordinator.verifyNoConflict()` (**first call**) — reads and schema-validates Dropbox `HEAD.json`; if `HEAD.device_id !== this.device_id` AND `HEAD.committed_at` within last 2 hours → abort with `ConflictError('DEVICE_CONFLICT')`, surface persistent error in UI. If HEAD fails schema validation → treated as absent with a WARN log.
+7. `ChangeDetector.getChangedPaths()` — reads queue + (if `reconcile_scan_enabled`) runs a reconcile scan, yielding main thread every 500 files **or every 10 MB processed**, whichever comes first (PERF-H2 — guards against a single large-file stall freezing the progress UI).
 8. For each changed path: `VaultAdapter.readBytes(path)` → `Hasher.sha256hex(bytes)` → lookup `index.files[path].hash`. If hash unchanged, skip (rename-only or spurious event).
-9. Build `newBlobs: Map<hash, Buffer>` of blobs whose content hash is not already uploaded (check against remote listing OR trust CAS + `overwrite` semantics — see ADR-3 below).
+9. Build `newBlobs: Map<hash, Buffer>` of blobs whose content hash is not already uploaded. Upload is idempotent on content-hash paths (CAS + `overwrite` semantics — see ADR-3), so no pre-check needed.
 10. Build `SnapshotManifest`: copy parent's `files` if needed, apply changes, record `deleted`, `renames`.
-11. `BackupService.commitSnapshot(manifest, newBlobs)` — runs the 4-step commit protocol above.
-12. `RetentionService.maybeRunPass()` — runs if last-pass > 24h ago; calls `GCService.sweep()` after if manifests were deleted.
-13. `NoticeCenter.dispatch('backup_completed', ...)` if the user opted into full-completion toasts.
-14. SchedulerFSM returns to `READY`.
+11. `BackupService.commitSnapshot(manifest, newBlobs)` — runs the 7-step commit protocol above (includes a second `verifyNoConflict` call between blob upload and manifest write per ROB-001).
+12. `NoticeCenter.dispatch('backup_completed', ...)` if the user opted into full-completion toasts.
+13. SchedulerFSM returns to `READY`. `MaintenanceScheduler.scheduleRetentionIfDue()` runs asynchronously off the hot path — if retention/GC is overdue, they run in the background (new ribbon state `MAINTENANCE` announces this; a failed maintenance pass logs but does NOT block the next backup cycle — ROB-002).
 
 ```mermaid
 sequenceDiagram
@@ -898,16 +973,18 @@ sequenceDiagram
 
 1. User invokes `Archivist: Show history of current file`.
 2. `FileHistoryModal.open(file)`.
-3. `RestoreService.listVersions(file.path)` — walks manifests from HEAD backward, collects entries where `path` appears either directly in `files` or indirectly via a rename chain (`renames.to === path`).
-4. Modal renders version list with timestamps, tier tags, "Renamed from X on Y" markers as applicable.
-5. User clicks [Preview] on a version.
-6. `RestoreService.fetchContent(snapshotId, path)` → `DropboxClient.downloadBlob(contentPath(hash))`.
-7. Modal displays content via `MarkdownRenderer.render()`.
-8. User clicks [Restore this version] → `ConfirmRestoreModal` opens.
-9. User confirms → `RestoreService.restoreInPlace(file.path, snapshotId)`.
-10. Service writes content atomically via `VaultAdapter.writeAtomic(path, bytes)` (writes to `path + '.archivist-tmp'`, then rename).
-11. Service re-hashes written content and compares to `manifest.files[path].hash`. If mismatch → `IntegrityError('RESTORE_HASH_MISMATCH')`, surface to user, do NOT revert (user may manually intervene).
-12. Obsidian `modify` event fires naturally as a consequence of the write — the ChangeDetector queues the restored file for the next backup.
+3. `RestoreService.ensureManifestCacheLoaded()` (PERF-C3) — **first call per session only**: downloads `snapshot_index.json` (one request), and lazy-loads full `snapshots/<id>.json` manifests on demand as File-History queries walk the chain. Cache is invalidated when a new `commitSnapshot()` completes locally. Subsequent `listVersions` calls in the same session are CPU-only.
+4. `RestoreService.listVersions(file.path)` — walks manifests from HEAD backward via the rename-aware algorithm (Algorithm 3, revised); returns `Array<VersionEntry>`.
+5. Modal renders version list with timestamps, tier tags, "Renamed from X on Y" markers as applicable.
+6. User clicks [Preview] on a version.
+7. `RestoreService.fetchContent(snapshotId, path)` → `DropboxClient.downloadBlob(contentPath(hash))`. Bytes are hash-verified against the manifest hash before being returned (throws `CorruptionError('CONTENT_HASH_MISMATCH')` on mismatch).
+8. Modal displays content via `MarkdownRenderer.render()`.
+9. User clicks [Restore this version] → `ConfirmRestoreModal` opens.
+10. User confirms → `RestoreService.restoreInPlace(file.path, snapshotId)`.
+11. `RestoreService` enters a **per-path mutex** (ROB-010) — concurrent `restoreInPlace` calls for the same vault path throw `PathError('RESTORE_IN_PROGRESS')` instead of racing.
+12. Service **pre-hashes the in-memory buffer** (SEC-M6) and compares to `manifest.files[path].hash` BEFORE writing. Mismatch at this point throws `CorruptionError('RESTORE_HASH_MISMATCH')` with zero disk side-effects.
+13. Service writes content atomically via `VaultAdapter.writeAtomic(path, bytes)` (writes to `path + '.archivist-tmp'`, then rename).
+14. Obsidian `modify` event fires naturally as a consequence of the write — the ChangeDetector queues the restored file for the next backup. Per-path mutex is released in `finally` (success or failure).
 
 ### Error Handling
 
@@ -962,46 +1039,86 @@ OUTPUT: changed: Set<path>
 ```
 ALGORITHM: verifyNoConflict
 INPUT: myDeviceId, maxClockSkewMinutes (= 5), recentWindowHours (= 2)
-OUTPUT: boolean (OK) OR throws IntegrityError('DEVICE_CONFLICT')
+OUTPUT: boolean (OK) OR throws ConflictError('DEVICE_CONFLICT') OR CorruptionError('HEAD_INVALID')
 
-1. LET head = await dropbox.downloadJson(HEAD.json)
-2. IF head IS NULL: RETURN true                   # fresh Dropbox folder
-3. IF head.device_id === myDeviceId: RETURN true  # I wrote last
-4. LET ageHours = (now - parseISO(head.committed_at)) / 3600_000
-5. IF ageHours > recentWindowHours: RETURN true   # other device hasn't been active recently
-6. THROW IntegrityError('DEVICE_CONFLICT', 'Another device (' + head.device_id + ') committed ' + ageHours + 'h ago.')
+1. LET headRaw = await dropbox.downloadJson(HEAD.json)   # may throw NetworkError / CorruptionError('MANIFEST_CORRUPT')
+2. IF headRaw IS NULL: RETURN true                        # fresh Dropbox folder
+
+3. # (SEC-M4) Schema-validate the HEAD before trusting any field:
+   #   - assert head.schema_version in known-versions set
+   #   - assert head.snapshot_id matches /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-(full|inc)$/
+   #   - assert head.snapshot_type ∈ {'full','inc'}
+   #   - assert head.device_id matches UUIDv4 regex
+   #   - assert head.committed_at parses as ISO-8601 and is not in the future by more than maxClockSkewMinutes
+   IF validation fails: LOG warn 'HEAD_INVALID — treating as absent'; RETURN true  # DoS-protection: a poisoned HEAD must not permanently block backups
+
+4. IF head.device_id === myDeviceId: RETURN true           # I wrote last
+5. LET ageHours = (now - parseISO(head.committed_at)) / 3600_000
+6. IF ageHours > recentWindowHours: RETURN true            # other device hasn't been active recently
+7. THROW ConflictError('DEVICE_CONFLICT', 'Another device (' + head.device_id + ') committed ' + ageHours + 'h ago.')
 ```
 
-#### Algorithm 3: Rename-Aware File History
+**Double-check (ROB-001):** `BackupService.commitSnapshot()` invokes `verifyNoConflict()` **twice**: once before starting uploads, and again between blob upload and manifest write (step 2 of the commit protocol). The second call shrinks the check-then-act race to a single RTT. Orphan blobs produced by a late-detected conflict are harmless — GC cleans them.
+
+#### Algorithm 3 (revised ROB-004): Rename-Aware File History with Path-Reuse Handling
 
 ```
 ALGORITHM: listVersionsForPath
 INPUT: currentPath (string), manifests (SnapshotManifest[] newest→oldest)
-OUTPUT: versions: Array<{ snapshot_id, hash, created_at, priorPath?, renamedAt? }>
+OUTPUT: versions: Array<{ snapshot_id, path, hash, created_at, priorPath?, renamedAt? }>
 
-1. LET aliases = Set<string>([currentPath])       # all paths that have been this file
+Each alias is tracked with a lifetime: the snapshot id at which it BECAME this file's path (via a rename
+or as the starting current-path). When walking oldest→newest — or equivalently newest→oldest with reversed
+renames — an alias's lifetime STARTS at its rename-in event and ENDS if a create/modify event for the same
+path appears in an OLDER manifest without a corresponding rename-out — meaning the path was reused by a
+different, earlier file that should not contaminate this file's history.
+
+1. LET aliases: Map<path, { liveSinceSnapshotId: string }> = { [currentPath]: { liveSinceSnapshotId: newest.id } }
 2. LET versions = []
-3. LET lastRenameAt = null
-4. FOR m in manifests (newest to oldest):
-     # Apply REVERSE renames to expand aliases set
-     FOR { from, to } in m.renames REVERSED:
-       IF aliases.has(to):
-         aliases.add(from)
-         IF from !== currentPath: lastRenameAt = m.created_at
-     # Check every alias for a content entry in this manifest
-     FOR a in aliases:
-       IF m.files[a] IS DEFINED:
+3. FOR m in manifests (newest to oldest):
+     # Step A — REVERSE-apply renames to potentially extend the alias set further into the past.
+     # A rename `from→to` in m means: paths that are currently `to` were `from` before m.
+     FOR { from, to } of m.renames REVERSED:
+       IF aliases.has(to) AND !aliases.has(from):
+         # The alias's lifetime now extends back to m's parent_id (i.e., all manifests OLDER than m).
+         aliases.set(from, { liveSinceSnapshotId: m.parent_id })
+         # Remove `to` from aliases for manifests OLDER than m — the path `to` was still the OLD file
+         # in older manifests (if it existed at all, which it didn't since it was created by this rename).
+         aliases.delete(to)
+
+     # Step B — for each alias, collect a version IFF the alias is "live" in this manifest.
+     # An alias is live in manifest m if m.id ∈ { aliases[a].liveSince and any manifest between }.
+     # In our newest→oldest walk, liveSinceSnapshotId is the OLDEST manifest where the alias was still valid.
+     # We collect only while walking manifests that are newer-than-or-equal-to that boundary.
+     FOR (a, info) of aliases:
+       IF m.files[a] IS DEFINED AND m.id is newer-or-equal to info.liveSinceSnapshotId (by chronological ordering):
          versions.push({
-           snapshot_id: m.id,
-           path: a,
-           hash: m.files[a].hash,
-           size: m.files[a].size,
+           snapshot_id: m.id, path: a, hash: m.files[a].hash, size: m.files[a].size,
            created_at: m.created_at,
            priorPath: (a === currentPath ? null : a),
-           renamedAt: lastRenameAt
+           renamedAt: (a === currentPath ? null : /* the manifest where a → next alias happened */),
          })
-5. RETURN versions
+
+4. RETURN versions sorted newest-first by created_at
 ```
+
+**Example (path-reuse bug that ROB-004 caught):**
+
+- S1 (oldest): `files = { A.md: h1 }`
+- S2: `files = { B.md: h2 }`, `renames = [{from: A.md, to: B.md}]`
+- S3 (newest): `files = { A.md: h3 }` (a brand-new A.md note, created fresh)
+
+Calling `listVersionsForPath("B.md")` with the old algorithm would include S1's `A.md` (correct) AND S3's `A.md` (wrong — it's a different note). The revised algorithm:
+1. At S3: `aliases = { B.md: liveSince=S3 }`. S3 doesn't contain `B.md`, S3 contains only `A.md`. `A.md` is not in `aliases`. No version added.
+2. At S2: reverse-rename B.md→A.md makes `aliases = { A.md: liveSince=S1 }`. S2 contains `B.md` — not in aliases. No version.
+3. At S1: `A.md` is in aliases AND `liveSince=S1` is satisfied. Version added: `{ path: A.md, hash: h1, priorPath: A.md }`.
+
+Result: one version from S1, correctly excluding S3's unrelated `A.md`. ✓
+
+**Edge cases:**
+- Rename chain `A → B → C` then query `listVersionsForPath("C")`: aliases grow to `{ C, B, A }` as we walk older manifests.
+- Cycle in renames (corruption case): the `aliases.set` guard requires `!aliases.has(from)` — cycles bail out cleanly.
+- A rename whose `to` is also in the alias set (conflict) is skipped with a `WARN: rename-to-collision` log; replay continues.
 
 ## Deployment View
 
@@ -1206,10 +1323,11 @@ Not applicable — single-component plugin.
   - Data-Storage-Changes section (above) updated to reflect the split; `TokenStore` implementation (Phase 3) reads/writes `tokens.json` directly via adapter.
   - Confirmed (auto) — updated after reviewing predecessor's pattern.
 
-- [x] **ADR-8: PKCE code-verifier stored in a bounded Map with TTL (cap 5 entries, 10-min TTL).**
-  - Rationale: fixes the predecessor plugin's module-level `let` bug; bounds memory.
-  - Trade-offs: more than 5 concurrent abandoned auth attempts are rejected — acceptable for realistic usage.
-  - Confirmed (auto).
+- [x] **ADR-8 (revised 2026-04-23): PKCE code-verifier stored in a bounded Map with TTL. Cap 5, TTL 10 min. REJECT at cap — do not evict.**
+  - Rationale: fixes the predecessor plugin's module-level `let` bug; bounds memory. Reject-at-cap (throw `AuthError('TOO_MANY_PENDING_FLOWS')`) closes the DoS vector where an attacker or stuck plugin loop evicts a legitimate in-progress auth entry before the user returns from the browser (SEC-M1).
+  - Additional rule (SEC-H1): `handleCallback(state, code)` must **remove the Map entry immediately on first call**, regardless of whether state matches. One-shot invalidation prevents an attacker who observes the `state` value (via the browser address bar or system URL logs) from replaying the callback.
+  - Trade-offs: the user cannot start more than 5 concurrent auth attempts — acceptable given realistic usage is 1 at a time; expired entries are GC'd lazily on the next `beginAuth()` call.
+  - Confirmed (reviewed).
 
 - [x] **ADR-9: Disconnect flow calls `POST /oauth2/token/revoke` and preserves Dropbox backup data.**
   - Rationale: user expects "stop using the plugin" ≠ "delete my backups"; server-side revocation is security-critical.
@@ -1234,10 +1352,12 @@ Not applicable — single-component plugin.
   - Re-add plan: captured as PRD W8a (Won't-Have) with the concrete checklist to re-enable in V2.
   - Confirmed (user, 2026-04-23 — scope cut after review).
 
-- [x] **ADR-13: Preview rendering uses ONLY `MarkdownRenderer.render(...)`.**
-  - Rationale: rules out XSS-to-Electron-RCE via crafted markdown/HTML in backup content. CRITICAL security property.
-  - Trade-offs: non-markdown files get a "binary — no text preview" placeholder instead of raw text (a lint-level rule, not a usability loss — a user who wants to see binary bytes has other tools).
-  - Confirmed (auto).
+- [x] **ADR-13 (revised 2026-04-23): Preview rendering uses ONLY `MarkdownRenderer.render(...)`; containment is contingent on co-installed plugins.**
+  - Rationale: rules out the common XSS-to-Electron-RCE class via crafted markdown/HTML in backup content. CRITICAL security property.
+  - Trade-offs: non-markdown files get a "binary — no text preview" placeholder instead of raw text.
+  - **Threat-model boundary (SEC-H3):** `MarkdownRenderer.render()` invokes every registered Markdown post-processor — including those from co-installed plugins (Dataview, Templater, Tasks, some Mermaid variants). A malicious or compromised note in the backup could contain a code fence that a co-installed plugin evaluates with eval-equivalent semantics. This containment applies only when no such plugin is active. Mitigation: the Backup Browser detects a known set of code-evaluating plugins on load and surfaces a one-time advisory notice "Previewing historical content may execute plugin code (Dataview/Templater/…) the same way as in a live note" — the user is informed that preview-XSS is out-of-scope for configurations that include these plugins. The plugin itself never adds code-evaluating post-processors.
+  - Known-eval plugin list (V1 check): `dataview`, `templater-obsidian`, `obsidian-tasks-plugin`. Any missing plugin that later adds eval semantics will not be detected; acceptable residual risk.
+  - Confirmed (reviewed).
 
 - [x] **ADR-14: Dropbox SDK — use the latest stable available at first build, pin to that exact version; `package-lock.json` committed; Dependabot weekly; `npm audit` as required CI gate.**
   - Decision: at the moment of first `npm install` for V1 build, resolve `dropbox` to the latest stable on npm (as of 2026-04-23 that is `10.34.0`, last modified 2025-10-13 — the package is still maintained despite infrequent majors). Pin that version exactly in `package.json` (no `^`, no `~`, no `@latest` specifier). Commit `package-lock.json`.
@@ -1265,6 +1385,17 @@ Not applicable — single-component plugin.
   - Rationale: Dropbox paths are case-insensitive but case-preserving; prevents split-brain if the user renames the vault folder across devices with different casing.
   - Trade-offs: prefix changes after initial setup require a copy operation (not automated in V1 — user is warned).
   - Confirmed (auto).
+
+- [x] **ADR-20: Lightweight `snapshot_index.json` in Dropbox enables metadata-only retention + fast File-History.**
+  - Decision: a single JSON file at `Apps/Archivist/<VAULT_PREFIX>/snapshot_index.json` mirrors a minimal subset of every snapshot's metadata: `{ id, type, parent_id, created_at, device_id, blob_hashes[] }`. Maintained incrementally — each `commitSnapshot()` appends an entry before HEAD update.
+  - Rationale: resolves PERF-C1 (retention pass downloading N manifests) and PERF-C2 (GC building referenced-hashes set via N downloads) and PERF-C3 (RestoreService cold-fetch of all manifests). Retention needs `{parent_id, created_at, type}` per snapshot for tier + chain evaluation — all now available from one download. GC needs `blob_hashes[]` per snapshot — same. File-History initial open downloads only the index; per-path versions walk the lightweight metadata, fetching the full manifest only when the user picks a specific version to preview.
+  - Trade-offs: one extra write per commit (~1 KB/entry × ~1k entries over a year = ~1 MB file, well below manifest size ceilings); index rebuild on corruption requires listing `snapshots/` + reading each manifest once (fall-back only, not hot path).
+  - Rejected alternatives:
+    - **Filename-encoding parent_id (e.g., `<ts>-<type>-<parent8>.json`)**: fragile, unreadable filenames, not enough room for blob_hashes needed by GC.
+    - **Per-commit incremental hash-set file**: two coordinates (index + hash-set) instead of one.
+  - Commit protocol integration: step 4 in the commit protocol (see Implementation Example). Crash recovery: if the index is stale vs. `snapshots/` listing, rebuild by downloading the missing manifests — one-time startup cost.
+  - File contract, exact schema: see Data Storage Changes § snapshot_index.json.
+  - Confirmed (reviewed).
 
 - [x] **ADR-19: Ship a standalone restore CLI (`scripts/restore.mjs`) alongside the plugin — zero npm deps, pure Node.js.**
   - Rationale: the on-disk format in `Apps/Archivist/` is a **public, documented contract**, not a private plugin detail. A user must be able to recover their data even if (a) the plugin is broken, (b) Obsidian is uninstalled, (c) this plugin is abandoned 5 years from now, or (d) they want to verify their backups with tooling outside the plugin. The Dropbox Desktop app already syncs `Apps/Archivist/` to disk; the CLI needs only local filesystem access.
@@ -1424,6 +1555,7 @@ Carry-forward debt to V2:
 | Full (snapshot) | A manifest that lists every vault path — needs no parent to reconstruct. | Roots a chain. |
 | Inc / Incremental (snapshot) | A manifest that records only the changes since its parent. | Cheap; relies on parent chain for full state. |
 | HEAD | Pointer file in Dropbox naming the latest snapshot. | Used for startup "what's current" and device-conflict detection. |
+| `snapshot_index.json` | Lightweight Dropbox-side metadata cache with one entry per snapshot: id, type, parent_id, created_at, device_id, blob_hashes. | ADR-20 — enables retention + GC + File-History to avoid per-manifest downloads. |
 | CAS (Content-Addressed Storage) | Storage keyed by the SHA-256 of the content itself. | Gives automatic dedup + integrity. |
 | Reconcile scan | A full walk of the vault comparing each file to the local index. | Safety net for changes that bypassed Obsidian events. |
 | Designated device | The one device flagged to perform uploads; others are passive. | V1 multi-device model. |

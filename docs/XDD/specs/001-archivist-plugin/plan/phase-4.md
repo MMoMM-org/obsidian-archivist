@@ -33,13 +33,14 @@ phase: 4
 
 Produces the eyes-and-ears of the plugin — everything that turns vault edits into a ready-to-snapshot set.
 
-- [ ] **T4.1 VaultAdapter (Obsidian Vault API wrapper)** `[activity: backend-api]`
+- [ ] **T4.1 VaultAdapter (Obsidian Vault API wrapper, typed-overload events)** `[activity: backend-api]`
 
   1. Prime: Read Obsidian Vault / TFile / TAbstractFile interfaces; `[ref: SDD/Risks/Implementation Gotchas]`.
-  2. Test: `getFiles()` returns `TFile[]` mapped to a simple `{path, mtime, size}` shape; `readBytes(path)` returns `Uint8Array`; `writeAtomic(path, bytes)` writes to `<path>.archivist-tmp` then renames and leaves no temp file on success; `writeAtomic` crashes mid-write leaves the original file untouched (verified by aborting between write and rename); `platform.isDesktopApp` returns `boolean` matching `Platform.isDesktopApp`; folder-rename event produces a single `rename(newFolderPath, oldFolderPath)` event and does NOT re-enqueue N descendants (dedup responsibility is here, not ChangeDetector).
-  3. Implement: Create `src/infra/VaultAdapter.ts` wrapping `this.app.vault` and `this.app.vault.adapter`. Expose the small surface above plus `stat(path)`, `exists(path)`, `mkdirParents(path)` (for restore-creates-directory), `on(event, handler)` that registers through `this.plugin.registerEvent`.
-  4. Validate: Unit tests with an in-memory fake `Vault` adapter (no real Obsidian); file-operation contracts asserted; atomic-write aborts leave no residue.
-  5. Success: Every later test can swap `VaultAdapter` for a fake `[ref: SDD/Directory Map]`; atomic-write precondition for restore `[ref: SDD/Acceptance Criteria — restore integrity]`.
+  2. Test: `getFiles()` returns `TFile[]` mapped to a simple `{path, mtime, size}` shape; `readBytes(path)` returns `Uint8Array`; `writeAtomic(path, bytes)` writes to `<path>.archivist-tmp` then renames and leaves no temp file on success; `writeAtomic` crashes mid-write leaves the original file untouched (verified by aborting between write and rename); folder-rename event produces a single `rename(newFolderPath, oldFolderPath)` event and does NOT re-enqueue N descendants (dedup responsibility is here, not ChangeDetector).
+     - **Typed event overloads (ROB-007):** expose `onVaultCreate(handler: (file: TAbstractFile) => void)`, `onVaultModify(handler: (file: TAbstractFile) => void)`, `onVaultDelete(handler: (file: TAbstractFile) => void)`, `onVaultRename(handler: (file: TAbstractFile, oldPath: string) => void)` — four separate methods, one per event, with TypeScript-strict signatures matching Obsidian's. Attempting to register a rename handler with the wrong arity fails at compile time. The fake adapter implements the same four overloads.
+  3. Implement: Create `src/infra/VaultAdapter.ts` wrapping `this.app.vault` and `this.app.vault.adapter`. Expose the small surface above plus `stat(path)`, `exists(path)`, `mkdirParents(path)` (for restore-creates-directory). All event registrations go through `this.plugin.registerEvent` for auto-cleanup.
+  4. Validate: Unit tests with an in-memory fake `Vault` adapter (no real Obsidian); file-operation contracts asserted; atomic-write aborts leave no residue; compile-time type tests assert the event signatures.
+  5. Success: Every later test can swap `VaultAdapter` for a fake `[ref: SDD/Directory Map]`; atomic-write precondition for restore `[ref: SDD/Acceptance Criteria — restore integrity]`; event-arity safety `[ref: ROB-007]`.
 
 - [ ] **T4.2 PluginStore (data.json + index.json + pending_changes.json persistence)** `[activity: data-architecture]` `[parallel: true]`
 
@@ -55,13 +56,15 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
   4. Validate: Unit tests with a fake adapter cover each load/save round-trip and corruption path.
   5. Success: Settings defaults match PRD `[ref: PRD/F2 default retention]`; `index.json` not synced by Obsidian Sync `[ref: SDD/ADR-11]`; `INDEX_MISSING` recovery handoff preserved `[ref: SDD/Acceptance Criteria — edge case]`.
 
-- [ ] **T4.3 EventQueue (append-only + committed_through cursor)** `[activity: backend-api]` `[parallel: true]`
+- [ ] **T4.3 EventQueue (append-only + committed_through cursor, promise-chained writes)** `[activity: backend-api]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Building Block View/Data Storage — pending_changes.json]`, `[ref: SDD/Runtime View — commit protocol step 4]`.
-  2. Test: `enqueue(entry)` appends and persists; `peekSince(cursor)` returns entries whose `observed_at > cursor`; `advanceCursor(ts)` sets `committed_through = ts` and persists; queue survives a simulated crash between enqueue and advance (reloaded queue still has unprocessed entries); concurrent enqueue during a backup commit does not lose entries (enqueue locks a simple in-memory mutex; writes are serialized).
-  3. Implement: Create `src/infra/EventQueue.ts`. Backed by `PluginStore` for persistence. In-memory cache flushed on every mutation. Entries with the same `(path, type)` within a 1-second window are deduped (mitigates folder-rename cascade and rapid-save loops).
-  4. Validate: Unit tests with fake timers verify dedup, persistence, cursor semantics; a crash-between-enqueue-and-commit test proves no lost entries.
-  5. Success: Queue crash-safety contract holds `[ref: SDD/Runtime View/Commit protocol recovery matrix]`; cursor advances exactly once per committed snapshot.
+  1. Prime: Read `[ref: SDD/Building Block View/Data Storage — pending_changes.json]`, `[ref: SDD/Runtime View — commit protocol step 6]`.
+  2. Test: `enqueue(entry)` appends and persists; `peekSince(cursor)` returns entries whose `observed_at > cursor`; `advanceCursor(ts)` sets `committed_through = ts` and persists; queue survives a simulated crash between enqueue and advance (reloaded queue still has unprocessed entries).
+     - **Promise-chain file-write serialization (ROB-003):** all `PluginStore.writeX` calls route through a single `writeQueue: Promise<void>` in `PluginStore` (`this.writeQueue = this.writeQueue.then(() => adapter.write(path, data))`). This guarantees file-level ordering across the async boundary; an in-memory mutex is insufficient because `adapter.write` yields between the logical lock and the physical flush. Test: concurrently invoke 10 `enqueue` + 10 `advanceCursor` via `Promise.all` on fake-timers; assert the final on-disk file is consistent and every enqueued entry appears exactly once.
+     - Entries with the same `(path, type)` within a 1-second window are deduped (mitigates folder-rename cascade and rapid-save loops).
+  3. Implement: Create `src/infra/EventQueue.ts`. Backed by `PluginStore` for persistence (which owns the write-queue serialization primitive). In-memory cache flushed on every mutation.
+  4. Validate: Unit tests with fake timers verify dedup, persistence, cursor semantics, concurrent-write consistency; a crash-between-enqueue-and-commit test proves no lost entries.
+  5. Success: Queue crash-safety contract holds `[ref: SDD/Runtime View/Commit protocol recovery matrix]`; cursor advances exactly once per committed snapshot; file-write ordering correct under concurrent callers `[ref: ROB-003]`.
 
 - [ ] **T4.4 ChangeDetector (events + reconcile scan)** `[activity: backend-api]`
 

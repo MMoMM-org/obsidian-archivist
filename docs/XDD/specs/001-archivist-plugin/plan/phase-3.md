@@ -54,9 +54,10 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
 
   1. Prime: Read `[ref: SDD/ADR-8]`, `[ref: SDD/System-Wide Patterns/Security]`, `[ref: SDD/Acceptance Criteria — OAUTH_STATE_MISMATCH]`.
   2. Test:
-     - `beginAuth()` returns a URL containing `code_challenge`, `code_challenge_method=S256`, and a random `state` (≥ 128 bits); stores `{state → {verifier, expiresAt}}` in the Map.
-     - Attempting to begin > 5 concurrent flows evicts the oldest and/or rejects; expired entries (> 10 min) are GC'd lazily.
-     - `handleCallback(url)` with a matching state exchanges the code for tokens and clears the Map entry; with a non-matching state throws `AuthError('OAUTH_STATE_MISMATCH')`.
+     - `beginAuth()` returns a URL containing `code_challenge`, `code_challenge_method=S256`, and a random `state` (≥ 128 bits from `crypto.getRandomValues`); stores `{state → {verifier, expiresAt}}` in the Map.
+     - Attempting to begin a 6th concurrent flow THROWS `AuthError('TOO_MANY_PENDING_FLOWS')` — does NOT evict the oldest (SEC-M1 DoS-protection). Expired entries (> 10 min) are GC'd lazily on the next `beginAuth()` call.
+     - `handleCallback(url)` removes the Map entry IMMEDIATELY on first call — BEFORE any async token exchange — regardless of whether `state` matches (SEC-H1 one-shot invalidation). A non-matching state throws `AuthError('OAUTH_STATE_MISMATCH')`; a matching-but-already-removed state (replay) also throws `OAUTH_STATE_MISMATCH` because the entry is gone. Verified by: start flow, handleCallback once → OK; handleCallback the same state again → OAUTH_STATE_MISMATCH.
+     - Regression test for predecessor's module-level `let` bug: after `onunload` clears the Map, a second load + `handleCallback` with any state throws `OAUTH_STATE_MISMATCH` (state → verifier mapping does not survive unload).
      - `onunload` clears the Map entirely.
   3. Implement: Create `src/ui/OAuthConnectFlow.ts` (logic only — UI wiring happens in Phase 10). Use `crypto.getRandomValues` for verifier/state. Verifier is base64url-encoded 32 random bytes. Challenge is base64url of SHA-256(verifier). Callback URL registered via Obsidian's `registerObsidianProtocolHandler('archivist-oauth', ...)`. **Dropbox CLIENT_ID** (see PRD V1 Prerequisites) is kept as a compile-time constant in `src/config/dropbox.ts`: `export const DROPBOX_CLIENT_ID = 'aanoqah5sn73rjb';` — PKCE CLIENT_ID is not a secret (it is transmitted in the authorization URL), so no env var / user config is needed. Do NOT reuse the predecessor plugin's CLIENT_ID (`40ig42vaqj3762d`).
   4. Validate: Unit tests use fake crypto + fake timers; verifies TTL expiry; verifies state mismatch throws; verifies Map size cap.
@@ -65,7 +66,10 @@ Establishes the sole network boundary. Every other service calls Dropbox **only*
 - [ ] **T3.4 Disconnect flow (revoke + local clear)** `[activity: security]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-9]`, `[ref: SDD/Acceptance Criteria — Feature 7]`.
-  2. Test: `disconnect()` calls `POST /oauth2/token/revoke` with the current access token; then deletes `tokens.json` via `adapter.remove` (or writes an empty file); does NOT touch `data.json`; does NOT call any `files/delete_v2` on Dropbox; if revoke returns an error, the local clear still happens and a warning is logged; if network is offline, the local clear still happens and a notice tells the user "server-side revoke failed — consider revoking the app in Dropbox settings."
+  2. Test: `disconnect()` calls `POST /oauth2/token/revoke` with the current access token; then deletes `tokens.json` via `adapter.remove`; verifies `tokens.json` is absent AFTER the delete (SEC-H2 hard-fail); does NOT touch `data.json`; does NOT call any `files/delete_v2` on Dropbox. Error paths:
+     - revoke returns an error → local clear still happens + warning logged; UI shows "server-side revoke failed — consider revoking at dropbox.com";
+     - network offline → local clear still happens + same notice;
+     - **adapter.remove fails (disk full, permission denied) → disconnect is NOT considered complete**; throws `AuthError('DISCONNECT_LOCAL_CLEAR_FAILED')`; UI surfaces a persistent error: "Disconnect incomplete — tokens.json could not be deleted at &lt;path&gt;. Please delete it manually." A later automatic retry is NOT attempted — the user must resolve.
   3. Implement: Add `disconnect()` to `DropboxClient` (or `OAuthConnectFlow` — place it where the TokenStore handle lives). Logs via `Logger`.
   4. Validate: Unit tests mock the revoke endpoint for success/error/offline; assert no destructive Dropbox path is called.
   5. Success: Server-side token revocation on Disconnect `[ref: SDD/Acceptance Criteria — Feature 7]`; Dropbox backup data preserved `[ref: PRD/F7 AC-4]`.

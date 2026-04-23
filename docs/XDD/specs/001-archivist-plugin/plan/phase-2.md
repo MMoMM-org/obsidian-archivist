@@ -33,13 +33,19 @@ phase: 2
 
 Establishes the type foundation and low-level primitives used by every service. Pure TypeScript with zero Obsidian-API coupling — these modules run in a plain Node test harness.
 
-- [ ] **T2.1 Type models & runtime guards** `[activity: domain-modeling]`
+- [ ] **T2.1 Type models, runtime guards, Settings migration registry** `[activity: domain-modeling]`
 
-  1. Prime: Read `[ref: SDD/Interface Specifications/Application Data Models]` (all TypeScript interfaces).
-  2. Test: Valid manifest/index/queue/settings fixtures round-trip through `JSON.parse(JSON.stringify(x))` and pass guards; invalid fixtures (missing fields, wrong types, bad `schema_version`) are rejected with a useful error including the invalid field path.
-  3. Implement: Create `src/model/Manifest.ts`, `src/model/Index.ts`, `src/model/QueueEntry.ts`, `src/model/Settings.ts`, `src/model/Errors.ts`. Each exports the interface(s) and a `isX(value: unknown): value is X` guard plus a `parseX(raw: unknown): X` that throws `ConfigError('SCHEMA_INVALID', ...)` with path detail.
-  4. Validate: Unit tests for guards cover the happy path + 5 malformed-input cases per type.
-  5. Success: Every subsequent phase has typed contracts `[ref: SDD/Interface Specifications]`; parse errors are actionable `[ref: SDD/Error Handling]`.
+  1. Prime: Read `[ref: SDD/Interface Specifications/Application Data Models]` (all TypeScript interfaces, including SnapshotIndex and SETTINGS_MIGRATIONS).
+  2. Test: Valid manifest/index/snapshot-index/queue/settings fixtures round-trip through `JSON.parse(JSON.stringify(x))` and pass guards; invalid fixtures (missing fields, wrong types, bad `schema_version`) are rejected with a useful error including the invalid field path.
+     - **Settings migration (ROB-006):** `parseSettings(raw)` applies `SETTINGS_MIGRATIONS` in sequence when the stored `schema_version` is older than the current one. Test scenarios:
+       - v1.0 blob + v1.0 current → no migration, direct parse.
+       - v1.0 blob + v1.1 current (with a synthetic migration that adds a field) → migration runs, result is valid v1.1 shape.
+       - v1.0 blob + v1.2 current (two migrations) → both migrations run in order.
+       - Malformed blob that no migration can fix → `ConfigError('SETTINGS_MIGRATION_FAILED')`; preserve raw blob as `settings.json.bak`; return `DEFAULT_SETTINGS`. NEVER silently discard user config.
+       - Future-version blob (newer than current plugin) → `ConfigError('SCHEMA_INCOMPATIBLE')` with "please upgrade the plugin" message.
+  3. Implement: Create `src/model/Manifest.ts`, `src/model/Index.ts`, `src/model/SnapshotIndex.ts`, `src/model/QueueEntry.ts`, `src/model/Settings.ts` (incl. `SETTINGS_MIGRATIONS` array), `src/model/StartupState.ts`, `src/model/Errors.ts` (split hierarchy: AuthError/NetworkError/RateLimitError/QuotaExceededError/PathError/CorruptionError/ChainError/ConflictError/ConfigError). Each exports the interface(s) and a `isX(value: unknown): value is X` guard plus a `parseX(raw: unknown): X` that throws `ConfigError('SCHEMA_INVALID', ...)` with path detail.
+  4. Validate: Unit tests for guards cover the happy path + 5 malformed-input cases per type + all five migration scenarios above.
+  5. Success: Every subsequent phase has typed contracts `[ref: SDD/Interface Specifications]`; parse errors are actionable `[ref: SDD/Error Handling]`; Settings migration registry exists BEFORE first `schema_version` bump `[ref: ROB-006]`; error hierarchy split `[ref: ROB-005]`.
 
 - [ ] **T2.2 Hasher (WebCrypto SHA-256)** `[activity: backend-api]` `[parallel: true]`
 

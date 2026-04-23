@@ -48,24 +48,34 @@ Produces the evidence that the plugin is ready for public release: integration t
      - `auth-revoked.test.ts`: access revoked → next cycle surfaces AuthLost banner → user reconnects → recovery works.
      - `catch-up-full.test.ts`: simulate plugin offline during scheduled full → startup → catch-up full runs after quiet period.
      - `quota-full.test.ts`: Dropbox returns 507 → backup pauses → persistent banner appears → no infinite retry.
-     - `cli-parity.test.ts`: generate a synthetic 4-week history via the plugin's backup pipeline; run the standalone CLI (`scripts/restore.mjs`) on the same local fixture folder; assert byte-for-byte parity between plugin-restored output and CLI-restored output for 5 sampled snapshots (latest + 3 random + the oldest retained); assert `--verify-only` exits 0 on a clean fixture and non-zero on a fixture with a deliberately-corrupted blob.
+     - `cli-parity.test.ts`: generate a synthetic 4-week history via the plugin's backup pipeline; run the standalone CLI (`scripts/restore.mjs`) on the same local fixture folder; assert byte-for-byte parity between plugin-restored output and CLI-restored output.
+        - **Expanded coverage (ROB-011 + TEST-M3):** the fixture GUARANTEES at least one snapshot containing each of: a pure rename, a delete, a rename-then-content-edit, and a rename-to-collision (idempotent path). Parity is asserted for a snapshot of each kind — not just 5 random samples. Shared fixture lives at `tests/fixtures/merge-spec.json` and is consumed by BOTH the plugin's `materializeVaultStateAt` unit tests AND the CLI subprocess tests; any divergence between implementations fails both suites.
+        - Assert `--verify-only` exits 0 on a clean fixture and non-zero on a fixture with a deliberately-corrupted blob.
   3. Implement: Create `tests/integration/*.test.ts` using a shared harness: in-memory `VaultAdapter`, mocked `DropboxClient` with deterministic clock. One new helper `createArchivistFixture()` boots a headless plugin with a given scenario config.
   4. Validate: All scenarios pass in < 60 s total.
   5. Success: Every PRD acceptance criterion covered by at least one scenario `[ref: PRD/Feature Requirements]`.
 
-- [ ] **T10.2 4-week soak test (simulated time)** `[activity: testing]`
+- [ ] **T10.2 4-week soak test (simulated time, extended assertions)** `[activity: testing]`
 
   1. Prime: Read `[ref: PRD/F2 AC-1]`, `[ref: SDD/Quality Requirements/Reliability]`.
   2. Test:
      - `tests/soak/four-weeks.test.ts` simulates 28 days at fast-forward speed:
        - Vault: 10k files, ~2 GB.
        - Edit pattern: 5 random files modified per day; 1 file renamed per week.
-       - Default retention settings.
-     - Asserts: final storage usage < 100 GB; retained snapshot count matches expected formula within ±1; GC completed at least 3 passes; no integrity errors thrown.
+       - Default retention settings (3 tiers).
+     - Asserts (TEST-H1 expanded set):
+       - final storage usage < 100 GB;
+       - retained snapshot count matches expected formula within ±1;
+       - GC completed at least 3 passes;
+       - **zero `CorruptionError` / `ChainError` / `ConflictError` thrown across the whole run** (every snapshot restorable end-to-end);
+       - **chain-integrity invariant: every retained Inc has a reachable Full ancestor in `snapshot_index.json`** (exhaustive check after each retention pass);
+       - **GC false-positive count = 0**: every blob deleted by GC had zero references in the final snapshot_index; no referenced blob was ever deleted;
+       - **queue cursor monotonicity**: `committed_through` only advances forward — never regresses;
+       - `snapshot_index.json` internally consistent (no duplicate ids; `parent_id` references resolve or are null).
      - Runs in CI nightly (separate job from default PR check).
   3. Implement: Create the soak-test file + supporting generator. Configure a nightly GitHub Action.
   4. Validate: Test runs clean in < 5 minutes (fast-forward time multiplier).
-  5. Success: Storage ceiling demonstrated `[ref: PRD/F2 AC-1, Success Metrics]`.
+  5. Success: Storage ceiling + chain-integrity demonstrated `[ref: PRD/F2 AC-1, Success Metrics]`.
 
 - [ ] **T10.3 Live-Dropbox smoke test (gated CI job)** `[activity: integration]` `[parallel: true]`
 
@@ -73,11 +83,13 @@ Produces the evidence that the plugin is ready for public release: integration t
   2. Test:
      - `tests/live/smoke.test.ts` — requires secrets `DROPBOX_TEST_CLIENT_ID`, `DROPBOX_TEST_REFRESH_TOKEN`; uses a dedicated test Dropbox account.
      - Scenarios: fresh App Folder → upload 10 blobs → download 10 blobs → hash-match → delete → confirm empty.
-     - Tests invariant properties: Retry-After honored; pagination works; 401 triggers refresh.
+     - Tests invariant properties: Retry-After honored (with a dedicated mocked-clock test in `tests/integration/` asserting at-least-N-seconds waited, TEST-H3 makes this reproducible); pagination works; 401 triggers refresh.
+     - **Pagination boundary (TEST-H3):** in `tests/integration/dropbox-client.pagination.test.ts` (mocked SDK), return `has_more: true` with a continuation cursor on the first page even for 10 blobs; assert `list_folder/continue` is invoked exactly once with the correct cursor; assert the final union is the merge of both pages. This pins the behavior without needing a 2000-entry real fixture.
+     - **SDK contract test (TEST-M1):** construct raw SDK error objects with exact shapes (`{ status: 401, error: { '.tag': 'expired_access_token' } }`, `{ status: 429, headers: {'retry-after': '3'} }`, etc.) and assert `classifyError` maps each to the expected `ArchivistError` subclass. Runs in every PR CI (not just live-test).
      - CI job runs only on `main` merges AND on PRs with the `live-test` label.
-  3. Implement: Add the test file + GHA workflow `.github/workflows/live-dropbox.yml`.
-  4. Validate: A single successful run against the test account.
-  5. Success: SDK contract holds against real Dropbox `[ref: SDD/Risks — Dropbox API changes]`.
+  3. Implement: Add the test file + GHA workflow `.github/workflows/live-dropbox.yml`; add the pagination + contract tests to the always-on CI suite.
+  4. Validate: A single successful run against the test account; pagination + contract tests pass on PR CI.
+  5. Success: SDK contract holds against real Dropbox `[ref: SDD/Risks — Dropbox API changes]`; pagination bug cannot escape PR CI `[ref: TEST-H3]`; SDK-shape drift caught by contract test `[ref: TEST-M1]`.
 
 - [ ] **T10.4 README + documentation** `[activity: documentation]`
 
@@ -138,6 +150,17 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Submission PR accepted.
   5. Success: Plugin listed in Community Plugins `[ref: PRD/Success Metrics — adoption]`.
 
-- [ ] **T10.7 Phase Validation & Release** `[activity: validate]`
+- [ ] **T10.7 Performance SLO CI gates** `[activity: testing]` `[parallel: true]`
 
-  - Run every integration test + the 4-week soak + the live smoke. Verify every PRD acceptance criterion has a corresponding passing test. Verify README + submission-checklist. Cut `v0.1.0` tag. Publish GitHub Release. Open Community Plugin submission PR.
+  1. Prime: Read `[ref: SDD/Quality Requirements/Performance]`, `[ref: TEST-M4]`.
+  2. Test (promote 3 SLOs from aspirational to CI-gated regression tests):
+     - **Warm reconcile SLO:** `tests/perf/reconcile-warm.test.ts` runs reconcileScan on a fake vault with 10k files (index pre-populated, zero actual changes); assert completion in < 1.5 s (median of 10 runs). Fail the build if exceeded.
+     - **Idle tick SLO:** `tests/perf/idle-tick.test.ts` runs `SchedulerFSM.tick()` with an empty queue 1000 times; assert p99 < 5 ms. Fail the build if exceeded.
+     - **Restore end-to-end SLO (mocked Dropbox 100 ms RTT):** `tests/perf/restore-e2e.test.ts` restores a 5-day-old file through `RestoreService.restoreInPlace` with manifest cache warm; assert total time < 30 s. Fail the build if exceeded.
+  3. Implement: Use a tight, deterministic synthetic vault + mocked clock/network. Keep runtime budget per test < 10 s so the SLO suite runs on every PR.
+  4. Validate: Intentional regression (add a 500 ms sleep in reconcile) triggers build failure.
+  5. Success: Three load-bearing SLOs now block regressions `[ref: TEST-M4, SDD/Quality Requirements]`.
+
+- [ ] **T10.8 Phase Validation & Release** `[activity: validate]`
+
+  - Run every integration test + the 4-week soak + the live smoke + the SLO CI gates. Verify every PRD acceptance criterion has a corresponding passing test. Verify README + submission-checklist. Cut `v0.1.0` tag. Publish GitHub Release. Open Community Plugin submission PR.

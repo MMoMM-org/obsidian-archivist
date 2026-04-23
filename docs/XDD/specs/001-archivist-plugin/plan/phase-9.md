@@ -80,17 +80,19 @@ Produces the UI surfaces for restore — the features that fulfill the PRD promi
   4. Validate: Component tests with keyboard drivers assert Enter is not destructive.
   5. Success: Destructive-action safety `[ref: research UX ACC-6]`.
 
-- [ ] **T9.4 Preview pane safe rendering** `[activity: security]` `[parallel: true]`
+- [ ] **T9.4 Preview pane safe rendering (+ co-installed plugin boundary notice)** `[activity: security]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/ADR-13]`, `[ref: SDD/System-Wide Patterns/Security]`.
+  1. Prime: Read `[ref: SDD/ADR-13 (revised)]`, `[ref: SDD/System-Wide Patterns/Security]`.
   2. Test:
      - Markdown input containing `<script>` tags / `javascript:` URLs / `onerror=` attributes is rendered harmlessly by `MarkdownRenderer.render` — no script execution (verified via fake DOM with `execCommand` tracking).
      - Binary file (image/PDF/other) never reaches the markdown renderer; the placeholder component is shown instead.
      - CSS styles applied use Obsidian CSS variables; no hard-coded hex.
      - ESLint rule `no-unsafe-innerhtml` prevents any regression that introduces `innerHTML =` in the preview code path (CI gate from T1.3 catches this).
-  3. Implement: Create `src/ui/PreviewPane.ts` exporting `renderPreview(containerEl, content, path, component)` that decides binary/text and calls `MarkdownRenderer.render` for text. Used by both `BackupBrowserView` and `FileHistoryModal`.
-  4. Validate: Injection tests with malicious payloads; verify zero executions.
-  5. Success: XSS-to-Electron-RCE class ruled out `[ref: SDD/ADR-13]`.
+     - **File-tree column (SEC-L2):** assert path rendering uses `el.createEl('span', {text: path})` or equivalent text-node insertion; never `innerHTML` or unencoded `href`. Test includes a vault path containing `<`, `>`, `"`, `&` characters — renders as literal text, not markup.
+     - **Co-installed plugin advisory (SEC-H3, ADR-13 boundary):** on `BackupBrowserView` first open per session, check `this.app.plugins.enabledPlugins` for any of `['dataview', 'templater-obsidian', 'obsidian-tasks-plugin']`. If any present, fire a **one-time** notice: `S.PREVIEW_PLUGIN_ADVISORY` — "Previewing historical content may execute plugin code (Dataview/Templater/…) the same way as in a live note. The preview runs in your current plugin environment." Dismissed state persists in `data.json.ui.preview_plugin_advisory_dismissed`.
+  3. Implement: Create `src/ui/PreviewPane.ts` exporting `renderPreview(containerEl, content, path, component)` that decides binary/text and calls `MarkdownRenderer.render` for text. Used by both `BackupBrowserView` and `FileHistoryModal`. Add `detectCodeEvalPlugins()` helper used by the advisory.
+  4. Validate: Injection tests with malicious payloads; verify zero executions. Advisory tests with fake `app.plugins.enabledPlugins`.
+  5. Success: XSS-to-Electron-RCE class ruled out for the common case `[ref: SDD/ADR-13]`; user informed about plugin-interaction boundary `[ref: SDD/ADR-13 threat-model boundary]`.
 
 - [ ] **T9.5 Phase Validation** `[activity: validate]`
 

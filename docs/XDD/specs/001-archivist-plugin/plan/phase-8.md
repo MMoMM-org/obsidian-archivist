@@ -45,38 +45,52 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit tests with fixture chains (the SDD walkthrough + 5 edge-case chains).
   5. Success: Restore correctness against SDD example `[ref: SDD/Implementation Examples]`; chain-break surfaced cleanly `[ref: SDD/Error Handling]`.
 
-- [ ] **T8.2 listVersionsForPath (rename-aware history)** `[activity: domain-modeling]` `[parallel: true]`
+- [ ] **T8.2 listVersionsForPath (rename-aware history, path-reuse safe)** `[activity: domain-modeling]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 3]`.
+  1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 3]` (revised for ROB-004).
   2. Test:
      - Given a path that existed under two prior names, the returned versions include entries under all three names with `priorPath` and `renamedAt` markers populated correctly.
      - A file with only a single version (never changed) returns one entry.
-     - A pagination hint in the return shape (or a simple limit parameter) lets the UI load first 50, then more — verify returning only the newest N works.
-     - Performance: for a history of 1000 manifests × 10k files, listing versions for a single path completes in < 500 ms on a dev laptop (informational bench).
+     - **Path-reuse test (ROB-004 regression):** S1 has `A.md:h1`; S2 renames `A.md→B.md`; S3 creates a NEW `A.md:h3`. `listVersionsForPath("B.md")` returns ONLY `{A.md@S1:h1, B.md@S2:h2}` — S3's new `A.md` is NOT included because its lifetime starts AFTER the rename-out boundary.
+     - Pagination: `limit` parameter returns only the newest N; a `cursor` parameter resumes from the oldest-returned id.
+     - Performance: for a history of 1000 manifests × 10k files, listing versions for a single path completes in < 500 ms on a dev laptop once manifests are cached (PERF-C3); first-session cold fetch is covered by the manifest-cache SLO, not this function.
+     - **Property-based tests (TEST-H5 mutation-killers):**
+       - **alias-completeness:** for any rename chain of length N, the count of versions returned equals the count of distinct content entries across all aliases.
+       - **priorPath-renamedAt consistency:** every version where `priorPath !== currentPath` has a non-null `renamedAt`.
+       - **idempotency:** running `listVersionsForPath` twice on the same manifests returns equal results.
+       - **ordering:** returned versions are strictly newest-first by `created_at`.
   3. Implement: Add `listVersionsForPath(currentPath: string, manifests: SnapshotManifest[]): VersionEntry[]` to `RestoreService`. Use the algorithm from the SDD.
   4. Validate: Unit tests with fixture manifests containing renames + edits; a perf smoke test for the 1000-manifest case.
   5. Success: Rename tracking `[ref: PRD/F3 AC-5]`.
 
-- [ ] **T8.3 Restore in place + Restore as copy** `[activity: backend-api]`
+- [ ] **T8.3 Restore in place + Restore as copy (pre-write hash + per-path mutex)** `[activity: backend-api]`
 
-  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow: File-Level Restore]`, `[ref: PRD/F3 AC-3, AC-4]`.
+  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow: File-Level Restore]`, `[ref: PRD/F3 AC-3, AC-4]`, `[ref: SDD/ADR-7 ADR-20]`.
   2. Test:
-     - `restoreInPlace(path, snapshotId)` fetches content; writes atomically; post-hashes; confirms match; returns `{ok: true}`.
-     - Post-hash mismatch throws `IntegrityError('RESTORE_HASH_MISMATCH')` and leaves the tmp file cleaned up (no leftover `.archivist-tmp`).
-     - `restoreAsCopy(path, snapshotId)` writes `<path>.restored-<ts>.<ext>` next to original.
+     - `restoreInPlace(path, snapshotId)` fetches content via `RestoreService.fetchContent` (bytes hash-verified at download time against the manifest hash — `CorruptionError('CONTENT_HASH_MISMATCH')` on mismatch, ZERO disk side-effects); **then pre-hashes the in-memory buffer** (SEC-M6) and compares to `manifest.files[path].hash` — mismatch here throws `CorruptionError('RESTORE_HASH_MISMATCH')` BEFORE any write; then writes atomically; returns `{ok: true}`.
+     - Critical: when `RESTORE_HASH_MISMATCH` fires, the following side-effects MUST NOT occur (TEST-C1 assertion battery):
+       - `NoticeCenter.showSuccess` is NOT called;
+       - `PluginStore` index is NOT updated;
+       - No `.archivist-tmp` file remains on disk after the throw (cleaned up in `finally`);
+       - `VaultAdapter.writeAtomic` was NEVER called.
+     - **Per-path mutex (ROB-010):** concurrent `restoreInPlace` calls for the same `path` — second call throws `PathError('RESTORE_IN_PROGRESS')` and does not touch disk. Verified by scheduling two restores on the same path via `Promise.all`; one succeeds, the other throws; mutex released in `finally` (success or error path).
+     - `restoreAsCopy(path, snapshotId)` writes `<path>.restored-<ts>.<ext>` next to original. Same pre-write hash + mutex discipline, keyed on the original path.
      - If the original's directory no longer exists, `restoreInPlace` (with user confirmation already obtained upstream) recreates missing directories via `VaultAdapter.mkdirParents` before the atomic write.
-     - `copyToClipboard(path, snapshotId)` fetches content and copies it (for text files); for binary files, throws `PathError('BINARY_NOT_TEXT')` with a helpful code.
+     - `copyToClipboard(path, snapshotId)` fetches content (hash-verified) and copies it (for text files); for binary files, throws `PathError('BINARY_NOT_TEXT')` with a helpful code.
   3. Implement: Add the three methods to `RestoreService`. Hash verification uses `Hasher.sha256hex` after the write.
   4. Validate: Unit + integration tests; inject write-fail mid-atomic to assert cleanup.
   5. Success: Restore fidelity `[ref: PRD/F3 AC-3]`; restore-to-recreated-dir `[ref: PRD/F4 AC-4]`; hash mismatch surfaces cleanly `[ref: SDD/Acceptance Criteria — RESTORE_HASH_MISMATCH]`.
 
-- [ ] **T8.4 Fetch-content-for-snapshot-path** `[activity: backend-api]` `[parallel: true]`
+- [ ] **T8.4 Fetch-content-for-snapshot-path + manifest cache** `[activity: backend-api]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Interface Specifications/Data Storage — content/<hh>/<hash>]`.
-  2. Test: `fetchContent(snapshotId, path)` materializes state, looks up the hash for the path (if present), downloads the content blob via `DropboxClient.downloadBytes`, returns `Uint8Array`; throws `PathError('PATH_NOT_IN_SNAPSHOT')` if the path isn't in the materialized state; throws `IntegrityError('CONTENT_HASH_MISMATCH')` if the downloaded bytes don't hash back to the expected hash.
-  3. Implement: Add `fetchContent` to `RestoreService`.
-  4. Validate: Unit tests cover the three paths (happy, missing, mismatch).
-  5. Success: Integrity check on every download `[ref: SDD/Cross-Cutting/Pattern: CAS]`.
+  1. Prime: Read `[ref: SDD/Interface Specifications/Data Storage — content/<hh>/<hash>]`, `[ref: SDD/ADR-20]`, `[ref: SDD/Runtime View/Primary Flow: File-Level Restore — step 3]`.
+  2. Test:
+     - `fetchContent(snapshotId, path)` materializes state (via `materializeVaultStateAt`), looks up the hash, downloads via `DropboxClient.downloadBytes`, returns `Uint8Array`; throws `PathError('PATH_NOT_IN_SNAPSHOT')` if the path isn't in state; throws `CorruptionError('CONTENT_HASH_MISMATCH')` if bytes don't hash back.
+     - **Manifest cache (PERF-C3):** `RestoreService.ensureManifestCacheLoaded()` called on first use per session downloads `snapshot_index.json` (1 request) and lazy-loads full `snapshots/<id>.json` only when needed for path resolution. Cache is invalidated (and reloaded lazily) when a new `commitSnapshot()` completes locally. Verified by: first `listVersions` call downloads index + needed manifests; second `listVersions` for a different file in the same session makes 0 additional Dropbox calls (fully cached).
+     - Cache expiry: a new backup commit triggers `cache.invalidate()`. Verified by: call `listVersions`; commit a new snapshot locally; call `listVersions` again — fresh `snapshot_index.json` download confirmed.
+  3. Implement: Add `fetchContent` + `ensureManifestCacheLoaded` + `invalidateCache` to `RestoreService`. Cache is in-memory only (Map-backed), not persisted.
+  4. Validate: Unit tests cover the three paths (happy, missing, mismatch) + cache hit/miss.
+  5. Success: Integrity check on every download `[ref: SDD/Cross-Cutting/Pattern: CAS]`; Restore SLO achievable via cache `[ref: SDD/ADR-20]`.
 
 - [ ] **T8.5 Standalone Restore CLI (`scripts/restore.mjs`)** `[activity: tooling]` `[parallel: true]`
 

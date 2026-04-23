@@ -46,7 +46,8 @@ This phase produces the user-facing config + status layer in its entirety: auton
 
   1. Prime: Read `[ref: SDD/Cross-Cutting/UI Visualization Guide]`, `[ref: SDD/Runtime View]`.
   2. Test:
-     - Initial state = `LOADING`; after `onLayoutReady` fires transitions to `GRACE`.
+     - Initial state = `LOADING`; after `onLayoutReady` fires AND `device.designated === true` transitions to `GRACE`.
+     - **Direct LOADING → PASSIVE (ROB-013):** if `device.designated === false` at plugin load, skip the GRACE + QUIET_WAIT timers entirely and transition `LOADING → PASSIVE` as soon as `onLayoutReady` fires. This avoids a meaningless 12-minute timer wait on a device that will never back up.
      - After `startup_grace_minutes` elapses → `QUIET_WAIT`.
      - A vault event during `QUIET_WAIT` resets its timer.
      - After `quiet_after_event_minutes` with no events → `READY`.

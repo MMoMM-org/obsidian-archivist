@@ -33,13 +33,15 @@ phase: 5
 
 Produces the core value of the plugin: a crash-safe backup writer. Every other feature (retention, restore, scheduler) depends on this working.
 
-- [ ] **T5.1 DeviceCoordinator (designated + conflict detection)** `[activity: backend-api]`
+- [ ] **T5.1 DeviceCoordinator (designated + conflict detection + HEAD validation)** `[activity: backend-api]`
 
-  1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 2]`, `[ref: PRD/F5]`.
+  1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 2]` (revised), `[ref: PRD/F5]`, `[ref: SDD/Error Handling — HEAD_INVALID]`.
   2. Test:
      - First call to `getOrCreateDeviceId()` generates a UUIDv4, persists it to `data.json.device.device_id`; subsequent calls return the stable value.
      - `isActiveOwner()` reflects the `data.json.device.designated` toggle.
-     - `verifyNoConflict()` reads `HEAD.json` from Dropbox; if `head === null` returns OK (fresh folder); if `head.device_id === this.device_id` returns OK; if `head.committed_at` is older than `recent_window_hours` (default 2h) returns OK; otherwise throws `IntegrityError('DEVICE_CONFLICT')` with a helpful message including the other device's ID and committed_at.
+     - `verifyNoConflict()` reads `HEAD.json` from Dropbox; returns OK if: `head === null` (fresh folder) OR `head.device_id === this.device_id` OR `head.committed_at` older than `recent_window_hours` (default 2h).
+     - **HEAD schema validation (SEC-M4):** if HEAD downloads but fails schema validation (unknown `schema_version`, malformed `snapshot_id`/`device_id`, future-dated `committed_at` beyond clock-skew tolerance, unexpected fields) → log `WARN: HEAD_INVALID`, treat as absent, return OK. This prevents a poisoned HEAD (hostile actor with Dropbox-account access, or data corruption) from permanently blocking backups. Explicitly covered: bad JSON, missing fields, future `committed_at`, malformed UUID.
+     - Only a valid HEAD where device differs AND is within the recency window throws `ConflictError('DEVICE_CONFLICT')` with the other device's ID + committed_at + clear next-steps.
      - `takeOwnership()` is a pure settings mutation (no Dropbox calls); the next backup uses the new flag.
   3. Implement: Create `src/services/DeviceCoordinator.ts`. Depends on `PluginStore` + `DropboxClient`.
   4. Validate: Unit tests cover all four branches of `verifyNoConflict`; fresh-folder case; takeover sequence.
@@ -58,17 +60,20 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests with fixtures covering rename+edit, pure rename, pure delete, new-file, and a mix.
   5. Success: Rename-aware manifest shape is correct `[ref: SDD/ADR-4]`; schema stable `[ref: SDD/Data Storage Changes]`.
 
-- [ ] **T5.3 BackupService — Full pipeline** `[activity: backend-api]`
+- [ ] **T5.3 BackupService — Full pipeline (with double-check + snapshot_index)** `[activity: backend-api]`
 
-  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`.
+  1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]` (7-step revised), `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/ADR-20]`.
   2. Test (end-to-end with mocked DropboxClient + fake Vault):
-     - A full backup of a 100-file vault uploads exactly 100 distinct blobs (1 per unique hash; dedup when duplicates exist), writes 1 manifest (`type='full'`), writes HEAD.json, and advances `LocalIndex` + queue cursor.
+     - A full backup of a 100-file vault uploads exactly 100 distinct blobs (1 per unique hash; dedup when duplicates exist), writes 1 manifest (`type='full'`), appends one entry to `snapshot_index.json`, writes HEAD.json, and advances `LocalIndex` + queue cursor.
      - Calling full twice in a row on an unchanged vault still produces 2 distinct snapshots (timestamps differ) but uploads 0 new blobs the second time (CAS dedup).
+     - **Double-check (ROB-001):** `verifyNoConflict()` is called TWICE — once before blob upload AND once between blob upload and manifest write. If a different device's HEAD appears during blob upload → commit aborts BEFORE manifest is written (orphan blobs remain, cleaned by GC).
+     - **Adaptive chunk size (PERF-M2):** upload of a 100 MB file uses 8 MB chunks (default); upload of a 200 MB file uses 150 MB chunks. Verified by counting mocked upload-session API calls.
      - A crash simulated between upload-blobs and write-manifest leaves orphan blobs; next successful backup commits; GC (Phase 6) cleans orphans.
-     - A crash between write-manifest and write-HEAD leaves HEAD pointing at the previous snapshot; startup recovery (see T5.5) re-writes HEAD.
-  3. Implement: Create `src/services/BackupService.ts` with `runFull()`. Uses `ManifestBuilder`, `DropboxClient`, `Hasher`, `VaultAdapter`, `DeviceCoordinator`. Parallelism capped by `settings.advanced.upload_parallelism` (default 4).
+     - A crash between write-manifest and snapshot_index.json update: startup recovery detects inconsistency, rebuilds missing index entries by reading the missing manifests.
+     - A crash between snapshot_index.json update and HEAD write: startup recovery sees index has a newer entry than HEAD points at; rewrites HEAD.
+  3. Implement: Create `src/services/BackupService.ts` with `runFull()`. Uses `ManifestBuilder`, `SnapshotIndexStore`, `DropboxClient`, `Hasher`, `VaultAdapter`, `DeviceCoordinator`. Parallelism capped by `settings.advanced.upload_parallelism` (default 4); chunk size adaptive: 8 MB if file < 50 MB, 150 MB if ≥ 50 MB.
   4. Validate: End-to-end test with the mocked client exercises the crash points.
-  5. Success: Commit protocol crash-safety `[ref: SDD/Acceptance Criteria — crash-recovery]`; dedup working `[ref: PRD/F2 AC-3]`.
+  5. Success: Commit protocol crash-safety `[ref: SDD/Acceptance Criteria — crash-recovery]`; dedup working `[ref: PRD/F2 AC-3]`; double-check race fix `[ref: SDD/ADR-20 + ROB-001]`.
 
 - [ ] **T5.4 BackupService — Incremental pipeline** `[activity: backend-api]`
 
@@ -84,17 +89,21 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: End-to-end tests with scenarios listed above.
   5. Success: Incremental cadence correctness `[ref: PRD/F1]`; rename history preserved `[ref: PRD/F3, SDD/ADR-4]`.
 
-- [ ] **T5.5 Startup recovery (HEAD + INDEX_MISSING)** `[activity: backend-api]` `[parallel: true]`
+- [ ] **T5.5 Startup recovery (unified StartupState)** `[activity: backend-api]` `[parallel: true]`
 
-  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/Acceptance Criteria — INDEX_MISSING]`.
-  2. Test:
-     - If `index.json` is missing or unparseable → force-Full-on-next-backup flag set in `LocalIndex`; next `run` calls `runFull`.
-     - If HEAD.json points at a snapshot_id that is older than the newest manifest in `snapshots/` (crash between manifest and HEAD) → recovery rewrites HEAD to the newest manifest by `created_at`.
-     - If HEAD.json references a snapshot_id that does NOT exist in `snapshots/` (never-committed) → rewrites HEAD to the newest existing manifest; logs the inconsistency.
-     - If `snapshots/` is empty → HEAD is deleted; state is "fresh folder."
-  3. Implement: Add `recoverOnStartup()` to `BackupService` (or a small `RecoveryService`).
-  4. Validate: Unit tests with mocked Dropbox listings covering each recovery branch.
-  5. Success: Crash-recovery matrix fully implemented `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`.
+  1. Prime: Read `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/Acceptance Criteria — INDEX_MISSING]`, `[ref: SDD/ADR-20]`.
+  2. Test (every row of the crash-recovery matrix gets an explicit test case — TEST-H2):
+     - `ArchivistPlugin.startup()` runs in one ordered sequence: load tokens → load settings → load index → load queue → verify HEAD vs. snapshot_index → emit a single `StartupState` enum consumed by the scheduler (ROB-008 unified health-check).
+     - If `index.json` is missing or unparseable → `StartupState.INDEX_MISSING`; `localIndex.index_missing_recovery_required = true`; next `run` calls `runFull`.
+     - If HEAD.json points at a snapshot_id that is older than the newest manifest in `snapshots/` (crash-recovery row: manifest committed, HEAD stale) → recovery rewrites HEAD to the newest manifest by `created_at`.
+     - **Row 7 (manifest committed remotely, local index stale):** startup reconciles local index against the newest manifest referenced by `snapshot_index.json`; re-hashes vault files not already present in `index.files`; ensures the next incremental uploads ONLY the files whose hash has actually changed since the last committed snapshot, NOT every file since last full. Assertion: synthetic fixture — commit a full with file hashes {h1,h2,h3}, simulate local index reset, trigger recovery, run one inc with vault unchanged → zero new blob uploads.
+     - If HEAD.json references a snapshot_id that does NOT exist in `snapshots/` (never-committed crash) → rewrites HEAD to the newest existing manifest by `created_at`; logs inconsistency.
+     - If `snapshot_index.json` is stale vs. `snapshots/` listing (manifests uploaded but not indexed) → rebuild missing entries by reading the corresponding manifests; persist updated index.
+     - If `gc_lock` is present AND its `started_at` is older than the staleness threshold (ROB-014 clock-skew tolerant) → `StartupState` records a `stale_gc_lock` flag; `MaintenanceScheduler` clears the lock and schedules a new GC pass.
+     - If `snapshots/` is empty → HEAD is deleted; state is `StartupState.FRESH_FOLDER`.
+  3. Implement: Add `recoverOnStartup()` coordinated via `ArchivistPlugin.startup()`; introduce `model/StartupState.ts` enum.
+  4. Validate: Unit tests — one per matrix row + one per StartupState variant.
+  5. Success: Crash-recovery matrix fully implemented + testable `[ref: SDD/Implementation Examples/Crash-recovery matrix]`; unified startup state `[ref: ROB-008]`.
 
 - [ ] **T5.6 Phase Validation** `[activity: validate]`
 
