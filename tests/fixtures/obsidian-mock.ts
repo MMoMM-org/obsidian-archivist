@@ -193,3 +193,26 @@ export class Plugin {
 export class Notice {
   constructor(_message: string, _timeout?: number) {}
 }
+
+// ---------------------------------------------------------------------------
+// requestUrl (Phase 3 addition)
+// ---------------------------------------------------------------------------
+// Default no-network stub. Tests that exercise OAuth / HTTP paths inject their
+// own transport; this just prevents "requestUrl is not a function" crashes if
+// a module is imported that reaches for the symbol at load time.
+
+export async function requestUrl(_arg: unknown): Promise<{
+  status: number;
+  headers: Record<string, string>;
+  arrayBuffer: ArrayBuffer;
+  json: unknown;
+  text: string;
+}> {
+  return {
+    status: 200,
+    headers: {},
+    arrayBuffer: new ArrayBuffer(0),
+    json: null,
+    text: '',
+  };
+}
