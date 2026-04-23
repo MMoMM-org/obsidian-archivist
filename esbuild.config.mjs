@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { builtinModules } from "node:module";
 import process from "node:process";
 import esbuild from "esbuild";
@@ -14,8 +14,11 @@ const copyAssets = {
 	setup(build) {
 		build.onEnd(() => {
 			mkdirSync(outdir, { recursive: true });
-			copyFileSync("manifest.json", `${outdir}/manifest.json`);
-			copyFileSync("styles.css", `${outdir}/styles.css`);
+			// Manifest and styles may not exist yet during early Phase 1 bootstrap —
+			// copy only when present. manifest.json is authored in T1.1; styles.css
+			// first appears in Phase 9 UI work.
+			if (existsSync("manifest.json")) copyFileSync("manifest.json", `${outdir}/manifest.json`);
+			if (existsSync("styles.css")) copyFileSync("styles.css", `${outdir}/styles.css`);
 		});
 	},
 };
