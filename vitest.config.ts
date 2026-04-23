@@ -1,5 +1,10 @@
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// __dirname is not available in ESM; derive it from import.meta.url.
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+
 export default defineConfig({
   resolve: {
     alias: {

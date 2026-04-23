@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// __dirname is not available in ESM; derive from import.meta.url.
+const HERE = fileURLToPath(new URL('.', import.meta.url));
 
 const WORKFLOW = readFileSync(
-	resolve(__dirname, '..', '..', '.github', 'workflows', 'ci.yml'),
+	resolve(HERE, '..', '..', '.github', 'workflows', 'ci.yml'),
 	'utf8',
 );
 
@@ -25,8 +29,8 @@ describe('ci.yml workflow', () => {
 		expect(WORKFLOW).toMatch(/macos-latest/);
 	});
 
-	it('uses Node 20', () => {
-		expect(WORKFLOW).toMatch(/node-version:\s*["']?20/);
+	it('uses Node 22', () => {
+		expect(WORKFLOW).toMatch(/node-version:\s*["']?22/);
 	});
 
 	it("audit uses '--audit-level=high'", () => {

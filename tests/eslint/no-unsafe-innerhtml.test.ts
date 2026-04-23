@@ -4,8 +4,9 @@ import { RuleTester } from 'eslint';
 const rule = require('../../tools/eslint/no-unsafe-innerhtml.js');
 
 describe('no-unsafe-innerhtml ESLint rule', () => {
+  // ESLint 9 RuleTester uses flat-config shape: languageOptions (not top-level parserOptions).
   const tester = new RuleTester({
-    parserOptions: {
+    languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
     },
