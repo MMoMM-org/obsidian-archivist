@@ -11,5 +11,5 @@
   "rules": {
     "local/no-unsafe-innerhtml": "error"
   },
-  "ignorePatterns": ["node_modules/", "dist/", "main.js", "test/", "tests/fixtures/"]
+  "ignorePatterns": ["node_modules/", "dist/", "main.js", "test/Archivist/", "tests/fixtures/"]
 }
