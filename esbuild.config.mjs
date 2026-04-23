@@ -53,7 +53,9 @@ const context = await esbuild.context({
 	target: "es2020",
 	logLevel: "info",
 	sourcemap: isDev,
-	drop: isDev ? [] : ["debug"],
+	// Strip console.debug in production (esbuild 0.24+ uses 'pure' for selective drops).
+	// 'debugger' keyword is dropped separately if needed; 'debug' is not a valid drop target.
+	pure: isDev ? [] : ["console.debug"],
 	minify: false,
 	outfile: `${outdir}/main.js`,
 	plugins: [copyAssets],

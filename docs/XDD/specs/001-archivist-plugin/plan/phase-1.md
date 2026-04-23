@@ -32,7 +32,7 @@ phase: 1
 
 Establishes the project skeleton: buildable plugin that installs into Obsidian, produces a bundle, runs tests, and passes lint/typecheck. No product features yet — just the scaffolding that makes every later phase possible.
 
-- [ ] **T1.1 Plugin manifest & versions** `[activity: tooling]`
+- [x] **T1.1 Plugin manifest & versions** `[activity: tooling]`
 
   1. Prime: Read plugin-manifest requirements `[ref: SDD/Deployment View; Distribution]` and community review rules `[ref: SDD/Constraints; CON-7]`.
   2. Test: `manifest.json` is parseable JSON with required fields (`id`, `name`, `version`, `minAppVersion`, `description`, `author`, `authorUrl`, `isDesktopOnly`); `versions.json` maps `0.1.0 → 1.5.0`.
@@ -40,7 +40,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   4. Validate: JSON lints; manifest matches Obsidian community-plugin schema; `versions.json` keyed by plugin version.
   5. Success: Manifest ready for community submission `[ref: PRD/Constraints (Obsidian review)]`; `isDesktopOnly=true` correctly scopes V1 to desktop `[ref: SDD/ADR-12 (revised)]`.
 
-- [ ] **T1.2 Build toolchain (package.json, tsconfig, esbuild)** `[activity: tooling]`
+- [x] **T1.2 Build toolchain (package.json, tsconfig, esbuild)** `[activity: tooling]`
 
   1. Prime: Read `[ref: SDD/Implementation Context/Project Commands]` and `[ref: SDD/ADR-14]`.
   2. Test: `npm install` creates `node_modules` without unresolved deps; `npm run build` produces `main.js` at repo root; `npm run dev` starts esbuild watch.
@@ -48,7 +48,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   4. Validate: `npm run build` succeeds; `main.js` exists and loads into a test vault; `npm run typecheck` (alias for `tsc --noEmit`) passes.
   5. Success: Every later phase can build and test `[ref: SDD/Implementation Context]`; no `@latest` pin `[ref: SDD/ADR-14]`.
 
-- [ ] **T1.3 Test runner & linting** `[activity: tooling]` `[parallel: true]`
+- [x] **T1.3 Test runner & linting** `[activity: tooling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-14]`, `[ref: SDD/System-Wide Patterns/Security]` (innerHTML ban).
   2. Test: `npm test` runs vitest with one smoke test `describe('sanity') { it('true', () => expect(true).toBe(true)) }`; `npm run lint` flags a file that uses `innerHTML = someVar` but passes on `innerHTML = '<p>literal</p>'` (if ever); `npm audit` exits non-zero on high/critical.
@@ -56,7 +56,7 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
   4. Validate: Every script exits as expected; CI-ready exit codes; `npm audit` blocks on synthetic dependency test.
   5. Success: Security gate blocks the `innerHTML` class of bug before it lands `[ref: SDD/ADR-13]`; supply-chain gate enforced `[ref: SDD/ADR-14]`.
 
-- [ ] **T1.4 Hello-World plugin entry + lifecycle hygiene** `[activity: backend-api]`
+- [x] **T1.4 Hello-World plugin entry + lifecycle hygiene** `[activity: backend-api]`
 
   1. Prime: Read Obsidian plugin lifecycle `[ref: SDD/Implementation Context/interfaces — Obsidian Plugin Lifecycle]`, `[ref: SDD/Cross-Cutting/System-Wide Patterns/Logging]`.
   2. Test: Plugin `onload` registers a ribbon icon (using `addRibbonIcon`) and a command (`Archivist: Hello`); `onunload` removes both without throwing; after a load/unload cycle no timers or listeners remain (asserted via jest-style fake-timers in a test harness that mocks Obsidian API).

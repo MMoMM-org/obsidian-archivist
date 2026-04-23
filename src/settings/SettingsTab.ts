@@ -1,29 +1,19 @@
-import type MyPlugin from "main";
-import { type App, PluginSettingTab, Setting } from "obsidian";
+// Phase 7 — Settings UI is not yet implemented.
+// This stub keeps the file compilable; it will be fleshed out in Phase 7.
+import type ArchivistPlugin from '../main';
+import { type App, PluginSettingTab } from 'obsidian';
 
 export class SettingsTab extends PluginSettingTab {
-	plugin: MyPlugin;
+  plugin: ArchivistPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+  constructor(app: App, plugin: ArchivistPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Example setting")
-			.setDesc("A placeholder setting to demonstrate the pattern.")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter a value")
-					.setValue(this.plugin.settings.exampleSetting)
-					.onChange(async (value) => {
-						this.plugin.settings.exampleSetting = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-	}
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    // Phase 7 will populate the settings UI here.
+  }
 }
