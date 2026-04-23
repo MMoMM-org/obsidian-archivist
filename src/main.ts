@@ -1,44 +1,53 @@
 import { Plugin } from 'obsidian';
+import { createLogger, type Logger } from './infra/Logger';
 
 export default class ArchivistPlugin extends Plugin {
-  async onload(): Promise<void> {
-    // Minimal bootstrap log — full Logger module arrives in Phase 2.
-    // The production build strips console.debug via esbuild pure:['console.debug'],
-    // so log/warn/error survive for reasonable diagnostics.
-    console.log('Archivist: plugin_loaded');
+  private logger: Logger = createLogger(() => false);
 
-    // Ribbon icon (T1.4 bootstrap — real icon state machine is Phase 7).
+  async onload(): Promise<void> {
+    this.logger = createLogger(() => false);
+    this.logger.info('plugin_loaded');
+
+    // Ribbon icon — Phase 7 replaces this callback with opening the Backup Browser.
     this.addRibbonIcon('archive', 'Archivist', () => {
-      // Phase 7 will replace this with opening the Backup Browser.
+      // Intentional no-op bootstrap.
     });
 
-    // Hello command (T1.4 bootstrap — real commands authored in later phases).
+    // Placeholder command — real commands are authored in later phases.
     this.addCommand({
       id: 'archivist-hello',
-      name: 'Archivist: Hello',
+      name: 'Hello',
       callback: () => {
-        console.log('Archivist: hello command invoked');
+        this.logger.info('hello command invoked');
       },
     });
 
-    // Gate any real work on layout-ready (guards against partial-vault 'create' events
-    // fired by some Obsidian versions during initial indexing — see SDD Risks/Gotchas).
+    // `layout-ready` is a valid workspace event but missing from the current
+    // Obsidian type surface. Cast through a minimal signature bound to the
+    // workspace so we don't reach for `any` or lose `this`.
+    type LayoutReadyOn = (ev: 'layout-ready', cb: () => void) => import('obsidian').EventRef;
+    const workspace = this.app.workspace;
+    const onLayoutReady = workspace.on.bind(workspace) as unknown as LayoutReadyOn;
     this.registerEvent(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.app.workspace.on('layout-ready' as any, () => {
-        // Phase 5+ will hook scheduler initialization here.
+      onLayoutReady('layout-ready', () => {
+        // Phase 5+ hooks scheduler initialization here.
       }),
     );
   }
 
-  async onunload(): Promise<void> {
-    console.log('Archivist: plugin_unloaded');
-    // Obsidian's Plugin base auto-cleans everything registered via this.registerX.
-    // No manual teardown needed here.
+  onunload(): void {
+    this.logger.info('plugin_unloaded');
+    // The Obsidian base Plugin releases everything registered via
+    // registerEvent/registerInterval in its onunload. Call super so those
+    // registrations get torn down cleanly.
+    super.onunload();
   }
 
   async loadSettings(): Promise<Record<string, unknown>> {
-    const raw = await this.loadData();
-    return (raw as Record<string, unknown>) ?? {};
+    const raw: unknown = await this.loadData();
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+    return {};
   }
 }
