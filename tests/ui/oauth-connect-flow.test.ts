@@ -177,8 +177,8 @@ describe('OAuthConnectFlow.beginAuth', () => {
     // decoded length check via base64url reverse:
     const b64 = state.replace(/-/g, '+').replace(/_/g, '/');
     const padding = (4 - (b64.length % 4)) % 4;
-    const decoded = Buffer.from(b64 + '='.repeat(padding), 'base64');
-    expect(decoded.byteLength).toBeGreaterThanOrEqual(16);
+    const decodedStr = atob(b64 + '='.repeat(padding));
+    expect(decodedStr.length).toBeGreaterThanOrEqual(16);
   });
 
   it('uses crypto.getRandomValues by default when no randomBytes is injected', async () => {
