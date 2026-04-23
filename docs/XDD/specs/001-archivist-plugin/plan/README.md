@@ -78,7 +78,7 @@ When implementation requires changes from the specification:
 - **ADR-8**: PKCE code-verifier Map (cap 5, TTL 10 min); cleared on `onunload`.
 - **ADR-10**: WebCrypto `crypto.subtle.digest` — cross-platform (desktop + mobile).
 - **ADR-11**: `index.json` OUTSIDE `data.json` — avoids Obsidian Sync churn.
-- **ADR-12**: `isDesktopOnly: false` — mobile read-only supports Browse + Restore + manual trigger.
+- **ADR-12**: `isDesktopOnly: true` — mobile deferred post-V1; Phase 11 (mobile + a11y) removed from the plan; accessibility folds into phases 8 and 9.
 - **ADR-13**: `MarkdownRenderer.render()` only for previews — rules out XSS-to-Electron-RCE.
 - **ADR-14**: Pinned Dropbox SDK + lockfile + Dependabot + `npm audit` CI gate.
 - **ADR-16**: Transitive chain-integrity for retention via topological walk.
@@ -115,12 +115,10 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 - [ ] [Phase 4: Change Detection & Event Queue](phase-4.md)
 - [ ] [Phase 5: Backup Pipeline & Device Coordination](phase-5.md)
 - [ ] [Phase 6: Retention & Garbage Collection](phase-6.md)
-- [ ] [Phase 7: Scheduler FSM & Ribbon Status](phase-7.md)
+- [ ] [Phase 7: Scheduler FSM, Ribbon Status & Settings UI](phase-7.md)
 - [ ] [Phase 8: Restore Engine & Rename-Aware History](phase-8.md)
-- [ ] [Phase 9: Backup Browser, File-History Modal & Restore UI](phase-9.md)
-- [ ] [Phase 10: Settings Page & OAuth UI](phase-10.md)
-- [ ] [Phase 11: Mobile Affordances & Accessibility](phase-11.md)
-- [ ] [Phase 12: Integration, Soak Tests & Release Readiness](phase-12.md)
+- [ ] [Phase 9: Backup Browser, File-History Modal & Restore UI (incl. accessibility)](phase-9.md)
+- [ ] [Phase 10: Integration, Soak Tests & Release Readiness](phase-10.md)
 
 ---
 
@@ -145,30 +143,31 @@ Before this plan is ready for implementation, verify:
 | PRD Feature | Acceptance Criteria | Implementing Phase(s) |
 |---|---|---|
 | F1 Automatic backups + quiet period | schedule, grace/quiet, catch-up, pre-flight | 5, 7 |
-| F2 Hierarchical retention + storage ceiling | tier math, GC completeness, hard-limit warning | 6, 10 |
+| F2 Hierarchical retention + storage ceiling | 3-tier math, GC completeness, hard-limit warning | 6, 7 |
 | F3 File-level restore (command palette) | version list, preview, restore fidelity, rename tracking | 8, 9 |
-| F4 Backup Browser tab | 3-column, empty state, deleted-directory restore | 9 |
-| F5 Multi-device coordination | designated toggle, conflict detection | 5, 10 |
+| F4 Backup Browser tab | 3-column, empty state, deleted-directory restore, binary-preview placeholder | 9 |
+| F5 Multi-device coordination | designated toggle, conflict detection | 5, 7 |
 | F6 External-sync robustness | reconcile + hash-as-authority | 4 |
-| F7 OAuth + secure disconnect | PKCE, revoke, persistent re-auth notice | 3, 10 |
-| F8 First-run predecessor plugin warning | one-time notice | 10 |
-| S1 Exclusion globs | glob matcher + settings row | 2, 4, 10 |
+| F7 OAuth + secure disconnect | PKCE, revoke, persistent re-auth notice | 3, 7 |
+| F8 First-run predecessor plugin warning | one-time notice | 7 |
+| S1 Exclusion globs | glob matcher + settings row | 2, 4, 7 |
 | S2 Manual "Back up now" | command + ribbon | 7, 9 |
-| S3 Storage usage estimate | retention preview in Settings | 10 |
-| S4 Mobile restore | mobile layout + manual-only | 11 |
+| S3 Storage usage estimate | retention preview in Settings | 7 |
 | S5 Pre-flight notice for full | scheduler + notice | 7 |
-| S6 Standalone Restore CLI | zero-dep Node script + parity test | 8, 12 |
+| S6 Standalone Restore CLI | zero-dep Node script + parity test | 8, 10 |
+
+_S4 (Mobile Restore) was removed — mobile deferred post-V1; `isDesktopOnly: true` in manifest._
 
 ## SDD-Component → Phase Traceability
 
 | SDD Component | Phase |
 |---|---|
 | UI/RibbonIcon | 7 |
-| UI/SettingsTab | 10 |
+| UI/SettingsTab | 7 |
 | UI/BackupBrowserView | 9 |
 | UI/FileHistoryModal | 9 |
 | UI/ConfirmRestoreModal | 9 |
-| UI/OAuthConnectFlow | 3 (logic) + 10 (settings surface) |
+| UI/OAuthConnectFlow | 3 (logic) + 7 (settings surface) |
 | UI/NoticeCenter | 7 |
 | Services/SchedulerFSM | 7 |
 | Services/BackupService | 5 |

@@ -72,10 +72,10 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
   - Has opened Dropbox web to find the right snapshot and been unable to tell which of 300 `backup-2024-06-14-14-32-00/` folders contains the pre-corruption version.
   - Does not trust Obsidian Sync alone (Obsidian Sync retains versions for 1 year but recovery UX is opaque and it's the same provider holding the live vault — single point of failure).
 
-### Secondary Persona: Alex the Multi-Device User
+### Secondary Persona: Alex the Multi-Desktop User
 
-- **Demographics:** Same technical profile as Marcus; writes from 2+ devices (desktop + mobile, or desktop + laptop). Uses Obsidian Sync, iCloud, or Syncthing to keep devices in agreement.
-- **Goals:** Same as Marcus, plus: backup runs from exactly one device (the most "always-on" one). Doesn't want two devices racing to upload overlapping snapshots. Wants to browse and restore history from any device — including the phone when the laptop is elsewhere.
+- **Demographics:** Same technical profile as Marcus; writes from 2+ desktop devices (desktop + laptop, e.g., office + home). Uses Obsidian Sync, iCloud, or Syncthing to keep devices in agreement. V1 does not support mobile (deferred post-V1).
+- **Goals:** Same as Marcus, plus: backup runs from exactly one device (the most "always-on" one). Doesn't want two devices racing to upload overlapping snapshots. Wants to browse and restore history from any desktop device — the one with Archivist installed.
 - **Pain Points:**
   - External sync tools (Obsidian Sync, iCloud, Dropbox desktop app) modify file mtimes during sync; naïve backup plugins interpret this as "all files changed" and re-upload everything.
   - No current plugin lets them declare "this is the backup device"; they have to disable the plugin manually on secondary devices.
@@ -124,7 +124,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 
 - **User Story:** As a user with a 2 TB Dropbox plan, I want the plugin to keep recent snapshots densely and older snapshots sparsely, so that my Dropbox account does not fill up and my history stays navigable.
 - **Acceptance Criteria:**
-  - [ ] Given the plugin is running with default retention settings (never-prune 14d, recent 24h, hourly 7d, daily 30d, weekly 6mo, monthly 3y), When 35 days have passed in a test fixture, Then the number of retained snapshots matches the tier math to within ±1 snapshot.
+  - [ ] Given the plugin is running with default retention settings (never-prune 14d with recent 24h window, daily 30d, monthly 3y — **3 tiers for V1 MVP**; hourly and weekly tiers dropped, may return post-V1), When 35 days have passed in a test fixture, Then the number of retained snapshots matches the tier math to within ±1 snapshot.
   - [ ] Given a snapshot is within the configured never-prune window, When any retention pass runs, Then the snapshot is kept regardless of which other tier rules would otherwise prune it.
   - [ ] Given a retention pass deletes a snapshot manifest, When garbage collection runs afterwards, Then content blobs referenced by zero remaining manifests are deleted from Dropbox AND content blobs referenced by at least one remaining manifest are retained.
   - [ ] Given a user configures a tier value (e.g., daily = 60 days), When the retention pass runs, Then the new value is honored on the next pass with no manual restart required.
@@ -189,9 +189,8 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 ### Should Have Features
 
 - **S1. Exclusion Globs.** Users can exclude paths via glob (e.g., `.trash/**`, `_templates/**`) from backup. Existing manifests are unaffected; only snapshots taken after the setting change apply the exclusion. Default: empty list.
-- **S2. Manual "Back up now" Trigger.** Ribbon button and command-palette command force an immediate incremental backup on the designated device (desktop) or the only device (mobile, if manual-backup-on-mobile is enabled).
+- **S2. Manual "Back up now" Trigger.** Ribbon button and command-palette command force an immediate incremental backup on the designated device.
 - **S3. Storage Usage Estimate in Settings.** Settings page shows current Dropbox usage for the Archivist folder and a computed retention estimate ("With these settings: ~120 snapshots, estimated ~40 GB"). Updated after each backup.
-- **S4. Mobile Restore (Read-Only).** On mobile, the Backup Browser and File-History modal work as on desktop (collapsed to single-column on narrow viewports). Scheduling is desktop-only.
 - **S5. Pre-Flight Notice for Full Backups.** 5-minute-before-full notice with Start now / Postpone 1h / Skip. Configurable on/off.
 - **S6. Standalone Restore CLI (`scripts/restore.mjs`).** A single-file Node.js script with zero npm dependencies that reconstructs any snapshot from a locally-available `Apps/Archivist/` folder (commonly the Dropbox Desktop app's synced copy — any local mirror with the same layout works) — WITHOUT requiring the plugin to be installed or Obsidian to be running. Rationale: disaster recovery + "trust but verify" + future-proofing if the plugin is ever abandoned. User invokes `node scripts/restore.mjs --dropbox-path <path> --output <dir> [--at <id|latest|date>] [--list-snapshots] [--dry-run] [--verify-only]`. The script verifies every blob's SHA-256 before writing and produces byte-identical output to the plugin's in-app restore.
 - **Acceptance Criteria (S6):**
@@ -220,6 +219,7 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 - **W6. Alternative Storage Backends (S3, Google Drive).** Dropbox only in V1.
 - **W7. Full-Text Search Over Historical Snapshots.** V1 browsing is by timestamp + file path only.
 - **W8. Automatic Client-Side Encryption.** Trade-off with content-addressed deduplication is unresolved; Dropbox account compromise is explicitly out-of-scope V1. Deferred.
+- **W8a. Mobile support (read-only browse + restore + manual backup trigger).** Deferred post-V1. V1 manifest ships with `isDesktopOnly: true`. Re-adding mobile is a separate V2 effort: re-enable the manifest flag, restore the mobile-responsive layout for `BackupBrowserView`, add platform-gated branches for `Vault.adapter` and manual-trigger UX, and test against iOS + Android Obsidian builds. Plan-level impact: approx. one added phase.
 - **W9. Localization.** English-only V1; strings centralized to make V2 localization a straightforward retrofit.
 - **W10. Automatic Migration from `obsidian-dropbox-backups`.** Old backups remain in the old Dropbox folder untouched. V1 shows a deactivation-reminder notice only.
 - **W11. Binary-Diff Incrementals for Large Binaries.** Full CAS blob per byte change is accepted for V1 given the target vault profile (mostly markdown).
@@ -283,7 +283,7 @@ If telemetry is ever added (post-V1), the event schema below is a **reference**,
 
 | Event | Properties | Purpose |
 |-------|------------|---------|
-| `plugin_loaded` | plugin_version, obsidian_version, platform (desktop/mobile), vault_size_bucket | Baseline install-and-active count |
+| `plugin_loaded` | plugin_version, obsidian_version, vault_size_bucket | Baseline install-and-active count |
 | `backup_completed` | type (full/inc), duration_ms, file_count, size_bytes, device_id_hash | Reliability signal; backup-cycle success rate |
 | `backup_failed` | type (full/inc), failure_category (network/auth/quota/other), retry_count | Failure classification; drives reliability work |
 | `restore_initiated` | source (command-palette / backup-browser), file_type (text/binary), age_of_version_hours | Primary-use-case validation |
@@ -301,7 +301,7 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 
 ### Constraints
 
-- **Technical — Obsidian platform.** The plugin runs inside Obsidian's Electron shell on desktop and its Capacitor shell on mobile. Long-running background tasks are not reliable on mobile (OS suspension). Platform API surface is `minAppVersion: 1.5` or higher.
+- **Technical — Obsidian platform.** The plugin runs inside Obsidian's Electron shell on desktop. `minAppVersion: 1.5` or higher. `isDesktopOnly: true` — mobile (Capacitor shell) is deferred post-V1 because long-running background tasks are not reliable on mobile (OS suspension).
 - **Technical — Dropbox API scope model.** Restore requires `files.content.read`, and the plugin must be transparent about this in its README and settings copy. There is no narrower scope that supports file-level restore.
 - **Technical — Deduplication vs. encryption.** Client-side encryption and content-addressed deduplication are architecturally incompatible in their naive forms. V1 chooses dedup; V2 may revisit.
 - **Compliance — Obsidian Community Plugin Review.** The plugin must pass the Obsidian community-plugin review process. No `eval`, no `innerHTML` of user content, no undeclared external network calls.
@@ -313,7 +313,7 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 
 - **User assumption — vault size.** Target vault is ≤ 20k files and ≤ 5 GB. Beyond this, reconcile-scan and manifest-merge performance is untested. Larger vaults are supported in the sense of "will probably work," not "is tested and guaranteed."
 - **User assumption — edit rate.** Target is ≤ 50 edits/day per device. Higher edit rates generate denser incremental manifests, which stresses the retention and GC passes — not currently measured.
-- **User assumption — desktop-first.** The primary backup device is a desktop computer that is online most days. Mobile-only users are unsupported in V1 (no scheduling on mobile).
+- **User assumption — desktop-only in V1.** All users run Archivist exclusively on desktop. Mobile is deferred post-V1 (see W8a).
 - **User assumption — technical literacy.** Users are comfortable with OAuth flows, settings pages with retention tiers, and reading a README. Archivist does not try to be a zero-config product.
 - **Market assumption — incumbent is stale.** The predecessor plugin is publicly unmaintained (last commit 2024-06) and has GitHub issues describing the storage-fill-up problem that go unanswered. Users are actively searching for an alternative.
 - **Dependency assumption — Dropbox SDK stability.** The `dropbox` npm package is still functional despite infrequent releases. A pinned version will remain installable and the underlying API will not break V1 endpoints.
@@ -341,7 +341,7 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 - [x] Resolved: Migration from `obsidian-dropbox-backups` → no automatic migration; V1 detects old plugin and warns (Feature 8 + W10).
 - [x] Resolved: Localization → English-only V1 with centralized strings (W9).
 - [x] Resolved: Client-side encryption → deferred to V2 (W8).
-- [x] Resolved: Mobile scope → read-only Browse + Restore + manual backup trigger; no scheduling (S2, S4).
+- [x] Resolved: Mobile scope → deferred post-V1; `isDesktopOnly: true` in manifest. See W8a for the re-add plan. S4 removed from PRD.
 - [x] Resolved: Telemetry → **no telemetry in V1**. V2 reference schema retained in Tracking Requirements for future reference.
 - [x] Resolved: Storage hard-limit default → **200 GB default**, user-configurable 10 GB – unlimited via Settings → Retention.
 - [x] Resolved: Diagnostic logging → **two-level logger** (default + verbose), toggled by `advanced.diagnostic_logging`. Default level: plugin load/unload, Dropbox connection events, backup-start/end, errors-as-errors (no paths, no hashes, no content). Verbose level: adds per-file paths, raw SDK response metadata, queue-cursor movement. See SDD §Logging.

@@ -19,7 +19,7 @@ phase: 1
 
 **Key Decisions**:
 - TypeScript strict + esbuild (not rollup). Single bundled `main.js`.
-- Plugin id `obsidian-archivist`; `minAppVersion: 1.5`; `isDesktopOnly: false`.
+- Plugin id `obsidian-archivist`; `minAppVersion: 1.5`; `isDesktopOnly: true` (mobile deferred post-V1 per ADR-12 revision).
 - ESLint uses `eslint-plugin-obsidianmd` + a **local rule banning `innerHTML =` on non-literal RHS**.
 - Production build drops `console.*` via esbuild `drop`.
 - Lockfile committed; no `@latest` in dependencies; Dependabot weekly.
@@ -36,9 +36,9 @@ Establishes the project skeleton: buildable plugin that installs into Obsidian, 
 
   1. Prime: Read plugin-manifest requirements `[ref: SDD/Deployment View; Distribution]` and community review rules `[ref: SDD/Constraints; CON-7]`.
   2. Test: `manifest.json` is parseable JSON with required fields (`id`, `name`, `version`, `minAppVersion`, `description`, `author`, `authorUrl`, `isDesktopOnly`); `versions.json` maps `0.1.0 → 1.5.0`.
-  3. Implement: Author `manifest.json`, `versions.json` at repo root. Set `id = "obsidian-archivist"`, `isDesktopOnly = false`, `minAppVersion = "1.5.0"`, `version = "0.1.0"`.
+  3. Implement: Author `manifest.json`, `versions.json` at repo root. Set `id = "obsidian-archivist"`, `isDesktopOnly = true`, `minAppVersion = "1.5.0"`, `version = "0.1.0"`.
   4. Validate: JSON lints; manifest matches Obsidian community-plugin schema; `versions.json` keyed by plugin version.
-  5. Success: Manifest ready for community submission `[ref: PRD/Constraints (Obsidian review)]`; `isDesktopOnly=false` preserves mobile path `[ref: SDD/ADR-12]`.
+  5. Success: Manifest ready for community submission `[ref: PRD/Constraints (Obsidian review)]`; `isDesktopOnly=true` correctly scopes V1 to desktop `[ref: SDD/ADR-12 (revised)]`.
 
 - [ ] **T1.2 Build toolchain (package.json, tsconfig, esbuild)** `[activity: tooling]`
 

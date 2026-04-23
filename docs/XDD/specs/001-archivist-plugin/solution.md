@@ -33,11 +33,11 @@ version: "1.0"
 
 ## Constraints
 
-CON-1 **Obsidian plugin runtime.** Plugin runs inside Obsidian's Electron shell on desktop and Capacitor shell on mobile. `minAppVersion: 1.5`. No `eval`, no `innerHTML` on user content, declared network domains only. Background-scheduler APIs (`setInterval`) unreliable on mobile (OS suspension). Must cleanly unregister all listeners/intervals on `onunload`.
+CON-1 **Obsidian plugin runtime.** Plugin runs inside Obsidian's Electron shell on desktop (`isDesktopOnly: true` — mobile deferred post-V1 per ADR-12). `minAppVersion: 1.5`. No `eval`, no `innerHTML` on user content, declared network domains only. Must cleanly unregister all listeners/intervals on `onunload`.
 
 CON-2 **TypeScript strict + esbuild.** `strict: true`, `strictNullChecks: true`. Built with esbuild (Obsidian-standard, replaces rollup). Single bundled `main.js` ships to users.
 
-CON-3 **Cross-platform crypto.** Must use Web Crypto API (`crypto.subtle.digest`) for SHA-256 — `node:crypto` is unavailable on mobile. Web Crypto is available in Obsidian ≥ 1.5 on both desktop and mobile.
+CON-3 **Crypto.** Use Web Crypto API (`crypto.subtle.digest`) for SHA-256. Uniform across all hot paths; no Node-crypto variants to maintain. (Originally motivated by mobile parity — mobile is deferred per ADR-12 but WebCrypto remains the cleaner choice and preserves the post-V1 mobile re-add path with zero migration.)
 
 CON-4 **Dropbox API scope model.** Restore requires `files.content.read`; upload requires `files.content.write`; listing requires `files.metadata.read`. No narrower scope supports file-level restore. App Folder mode (`Apps/Archivist/*`) provides blast-radius containment at the Dropbox-app level.
 
@@ -178,7 +178,7 @@ CON-9 **Dedup vs encryption.** Content-addressed dedup and client-side encryptio
 
 ```mermaid
 graph TB
-    User[User - Obsidian desktop or mobile]
+    User[User - Obsidian desktop]
     Archivist[Archivist Plugin]
     Vault[(Obsidian Vault FS)]
     PluginData[(Plugin Data<br/>data.json + index.json)]
@@ -244,7 +244,7 @@ outbound:
 data:
   - name: "Obsidian Plugin Data Folder"
     type: Filesystem via Obsidian DataAdapter
-    connection: `this.app.vault.adapter` (FileSystemAdapter desktop / CapacitorAdapter mobile)
+    connection: `this.app.vault.adapter` (FileSystemAdapter — desktop only in V1)
     data_flow: "Persistent state: data.json (tokens + settings), index.json (path→hash snapshot), pending_changes.json (event queue), device.json (device_id + designated flag)."
 
   - name: "Dropbox App Folder"
@@ -586,11 +586,13 @@ export interface EventQueue {
 
 // model/Settings.ts
 export interface RetentionSettings {
+  // V1 MVP: 3 tiers (never-prune + daily + monthly). Hourly and weekly tiers were
+  // specified earlier but cut during post-review simplification — the 5-edit/day
+  // reference profile produces essentially linear retention that the 6-tier model
+  // barely differentiates. May be re-added post-V1 as additional optional tiers.
   never_prune_window_days: number;    // 0..14, default 14
-  recent_hours: number;               // 0..168, default 24
-  hourly_days: number;                // 0..30, default 7
+  recent_hours: number;               // 0..168, default 24 — high-frequency window inside never-prune
   daily_days: number;                 // 0..90, default 30
-  weekly_months: number;              // 0..24, default 6
   monthly_years: number;              // 0..10, default 3
   storage_hard_limit_gb: number;      // default 200
   storage_warn_at_percent: number;    // default 80
@@ -621,7 +623,6 @@ export interface AdvancedSettings {
   dry_run_mode: boolean;              // default false
   vault_prefix: string;               // default: slugified-lowercased vault name
   diagnostic_logging: boolean;        // default false — if true, paths are logged
-  allow_manual_backup_mobile: boolean;// default true
   upload_parallelism: number;         // default 4
   chunk_size_mb: number;              // default 8
 }
@@ -1006,7 +1007,7 @@ OUTPUT: versions: Array<{ snapshot_id, hash, created_at, priorPath?, renamedAt? 
 
 ### Single Application Deployment
 
-- **Environment:** Obsidian desktop (Electron, Node runtime available) and Obsidian mobile (Capacitor, no Node). Single codebase; runtime guards for platform-specific paths.
+- **Environment:** Obsidian desktop (Electron, Node runtime available). Mobile deferred post-V1 (`isDesktopOnly: true`).
 - **Configuration:** No env vars. All settings persisted in `data.json`. First-run requires user to (a) complete PKCE OAuth in browser, (b) toggle "This device performs backups" on the desired device.
 - **Dependencies:** `dropbox@10.x` (exact pin TBD at first `package-lock.json` generation). No other runtime deps.
 - **Performance:** See Quality Requirements below.
@@ -1150,7 +1151,7 @@ stateDiagram-v2
   - Two log levels gated by `advanced.diagnostic_logging`:
     - **Default (toggle OFF, the common case):** emits `plugin_loaded`, `plugin_unloaded`, `dropbox_connected`, `dropbox_disconnected`, `dropbox_reauth_required`, `backup_started`, `backup_completed`, `backup_failed` (error code only), `retention_pass_started`, `retention_pass_completed`, `restore_started`, `restore_completed`, `restore_failed` (error code only). **No paths. No hashes. No content. No counts that could fingerprint a vault.** Errors include stable `code` + retryable flag + operation name, never `error.message` from the SDK verbatim.
     - **Verbose (toggle ON, diagnostic mode):** adds per-file paths logged during reconcile/backup/restore, queue-cursor movements, raw Dropbox error-response `.tag` values, individual upload-session progress. Intended for reproducing a reported bug; user is told to turn it back off after capturing logs. The toggle does NOT switch to `console.debug` — it widens the payload of `console.log` entries emitted by the `Logger`.
-  - Audit trail (separate from console logging): every backup/restore action writes an entry to a dedicated `audit_log.json` in plugin-data (written via `app.vault.adapter.write`, OUTSIDE `data.json` — same reasoning as ADR-11/ADR-7: per-device forensic state should not cross Obsidian Sync). Ring-buffer capped at the last 100 entries (FIFO eviction). Each entry: `{ op, snapshot_id, duration_ms, result, timestamp }`. No paths, no hashes, no content in the audit log — same redaction discipline as default-level console logging.
+  - No persistent audit trail file in V1. Forensic context for bug reports comes from (a) the verbose-mode console logger (user toggles on, reproduces the bug, shares the output), (b) the Dropbox web-UI "file activity" view (user can see what `/Apps/Archivist/` operations landed recently). An earlier draft specified an `audit_log.json` ring-buffer; dropped during post-review simplification as YAGNI for V1 — re-add in V2 only if bug reports require it.
 
 ### Multi-Component Patterns
 
@@ -1216,7 +1217,7 @@ Not applicable — single-component plugin.
   - Confirmed (auto).
 
 - [x] **ADR-10: WebCrypto API (`crypto.subtle.digest`) for all hashing, not Node crypto.**
-  - Rationale: cross-platform (desktop + mobile); hot-path performance ≈ Node crypto; no Node-specific imports needed.
+  - Rationale: uniform desktop implementation; zero migration friction when mobile is re-added post-V1 (ADR-12 rev); hot-path performance ≈ Node crypto; no Node-specific imports needed.
   - Trade-offs: async-only (returns Promise); means streaming-hash is slightly more ergonomic to write in loops.
   - Confirmed (auto).
 
@@ -1225,10 +1226,13 @@ Not applicable — single-component plugin.
   - Trade-offs: two separate storage files to manage; backup of settings alone (via Obsidian Sync) is OK and meaningful.
   - Confirmed (auto).
 
-- [x] **ADR-12: `isDesktopOnly: false` — mobile ships with read-only Browse + Restore + optional manual backup; no scheduling.**
-  - Rationale: PRD S4 calls for mobile restore; scheduling is platform-unsafe on mobile.
-  - Trade-offs: extra code paths guarded by `platform.isMobileApp`; mobile layout collapses 3-column Backup Browser to single-column stack.
-  - Confirmed (auto).
+- [x] **ADR-12 (revised 2026-04-23): `isDesktopOnly: true` — mobile deferred post-V1.**
+  - Decision: manifest ships with `isDesktopOnly: true`. No Capacitor code paths, no mobile-responsive UI variants, no platform-detection branches.
+  - Rationale: mobile added ~1.5 weeks of plan cost (entire Phase 11 + platform branches across phases 9/10/7) for a non-core promise. Primary persona Marcus is desktop-only; secondary persona Alex collapses to "multi-desktop" (office + home). Mobile restore is a nice-to-have the CLI (ADR-19) already partially compensates for — a user on iPad can sync `Apps/Archivist/` to iCloud Drive and run the restore script from a Mac.
+  - Trade-offs: Obsidian users who install from mobile directory see nothing (manifest hides it); users who want mobile restore must wait for V2.
+  - Superseded by this decision: the previous approval (auto) for `isDesktopOnly: false`.
+  - Re-add plan: captured as PRD W8a (Won't-Have) with the concrete checklist to re-enable in V2.
+  - Confirmed (user, 2026-04-23 — scope cut after review).
 
 - [x] **ADR-13: Preview rendering uses ONLY `MarkdownRenderer.render(...)`.**
   - Rationale: rules out XSS-to-Electron-RCE via crafted markdown/HTML in backup content. CRITICAL security property.
@@ -1297,7 +1301,7 @@ Not applicable — single-component plugin.
 - **Usability:**
   - Three-column Backup Browser keyboard-navigable via Tab + arrows.
   - Modal focus trapping (Obsidian `Modal` default — must not be bypassed).
-  - Ribbon `aria-label` reflects state (Idle / Running / Error / Passive / AuthLost / Mobile-manual).
+  - Ribbon `aria-label` reflects state (Idle / Running / Error / Passive / AuthLost).
   - Restore confirmation: Enter does NOT default to the destructive action; Escape closes.
   - No color-only state indicators.
 
@@ -1385,7 +1389,7 @@ Not applicable — single-component plugin.
 No existing code; this is a net-new repository. The "known issues" come from the predecessor plugin and from the platform:
 
 - **Predecessor**: `obsidian-dropbox-backups` stores `code_verifier` in a module-level `let`; leaks across OAuth attempts. Archivist fixes via per-state Map (ADR-8).
-- **Obsidian mobile**: `setInterval` is suspended aggressively by iOS. Mitigation: no scheduler on mobile (ADR-12); manual-only.
+- **Obsidian mobile (not shipped in V1; note for the V2 re-add):** `setInterval` is suspended aggressively by iOS. If mobile is re-added, scheduler must remain desktop-only.
 - **Obsidian vault events on startup**: `create` may fire for every file during initial indexing on some Obsidian versions. Mitigation: gate event consumption on `workspace.onLayoutReady`.
 
 ### Technical Debt
@@ -1424,7 +1428,7 @@ Carry-forward debt to V2:
 | Reconcile scan | A full walk of the vault comparing each file to the local index. | Safety net for changes that bypassed Obsidian events. |
 | Designated device | The one device flagged to perform uploads; others are passive. | V1 multi-device model. |
 | Passive device | A device authenticated to Dropbox but not uploading; can browse and restore. | Complement of designated. |
-| Retention tier | A rule keeping the newest snapshot within a time bucket (hourly/daily/weekly/monthly). | Hierarchical retention policy. |
+| Retention tier | A rule keeping the newest snapshot within a time bucket. V1 MVP has 3 tiers: never-prune-window (with a `recent_hours` high-frequency sub-window), daily, monthly. | Hierarchical retention policy. |
 | Never-prune window | A recent-N-days window in which retention never deletes. | Safety lower bound on history. |
 | Chain-integrity | The property that every retained Inc can be traced back through its parents to a retained Full. | Enforced by the retention algorithm. |
 | Garbage Collection (GC) | Deletion of content blobs no longer referenced by any retained manifest. | Runs after retention passes. |
@@ -1433,7 +1437,6 @@ Carry-forward debt to V2:
 | `tokens.json` | Plugin-data file holding Dropbox access + refresh tokens (plaintext, chmod 600 on desktop); NOT in `data.json`. | Written via `app.vault.adapter.write`; ADR-7. |
 | `index.json` | Plugin-data file holding the local hash/mtime/size index per vault path; NOT in `data.json`. | Source of truth for "what this backup device saw last"; ADR-11. |
 | `pending_changes.json` | Plugin-data file holding the persistent event queue + `committed_through` cursor. | Enables crash-safe resumption of backup cycles. |
-| `audit_log.json` | Plugin-data file holding the last 100 backup/restore operation entries; NOT in `data.json`. | Per-device forensic trail; no paths, no hashes, no content. |
 | Backup owner | Synonym for **designated device** (narrative alias in PRD; canonical term is "designated device"). | The one device that actually writes to Dropbox. |
 
 ### Technical Terms
@@ -1442,7 +1445,7 @@ Carry-forward debt to V2:
 |------|------------|---------|
 | PKCE | Proof Key for Code Exchange — OAuth 2.0 extension for public clients. | Dropbox authorization. |
 | SHA-256 | 256-bit cryptographic hash function. | Content-addressed storage key + integrity check. |
-| WebCrypto | The browser-standard `crypto.subtle` API. | Used for SHA-256; cross-platform (desktop + mobile). |
+| WebCrypto | The browser-standard `crypto.subtle` API. | Used for SHA-256 on desktop; no-migration path when mobile is re-added post-V1. |
 | FSM | Finite state machine. | SchedulerFSM (grace/quiet/ready/running/error). |
 | XSS | Cross-site scripting — injecting HTML/JS into a page. | Risk class that Electron-RCE maps to in Obsidian. |
 | ItemView | Obsidian base class for custom tabs. | Base of Backup Browser. |

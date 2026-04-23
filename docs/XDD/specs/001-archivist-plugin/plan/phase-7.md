@@ -1,11 +1,11 @@
 ---
-title: "Phase 7: Scheduler FSM & Ribbon Status"
+title: "Phase 7: Scheduler FSM, Ribbon Status & Settings UI"
 status: pending
 version: "1.0"
 phase: 7
 ---
 
-# Phase 7: Scheduler FSM & Ribbon Status
+# Phase 7: Scheduler FSM, Ribbon Status & Settings UI
 
 ## Phase Context
 
@@ -14,8 +14,10 @@ phase: 7
 **Specification References**:
 - `[ref: SDD/Cross-Cutting/UI Visualization Guide — Ribbon state machine]`
 - `[ref: SDD/Runtime View/Primary Flow steps 1-4]`
-- `[ref: SDD/Acceptance Criteria — Feature 1]`
-- `[ref: PRD/F1]`
+- `[ref: SDD/Acceptance Criteria — Feature 1, Feature 7]`
+- `[ref: SDD/Cross-Cutting/User Interface & UX]`
+- `[ref: PRD/F1 (automatic backups), F5 (device coordination), F7 (OAuth), F8 (predecessor plugin), F2 (retention UI), S1 (exclusions), S3 (storage estimate), S5 (pre-flight toggle)]`
+- `[ref: SDD/ADR-7, ADR-9, ADR-18]`
 
 **Key Decisions**:
 - Scheduler is a strict FSM: `LOADING → GRACE → QUIET_WAIT → READY ↔ BACKUP_RUNNING | PASSIVE | ERROR | AUTH_LOST`.
@@ -24,14 +26,21 @@ phase: 7
 - Catch-up jobs for overdue fulls enqueue automatically after QUIET_WAIT exits.
 - Ribbon subscribes to FSM state changes and publishes an `aria-label` + tooltip for each state.
 - `NoticeCenter` dedups error toasts (one per burst; resumed-from-error notice on success).
+- Five settings sections in a single Obsidian `PluginSettingTab`: Backup Schedule / Retention / Notifications / Advanced / Dropbox.
+- Retention tab uses **3 tiers** (never-prune / daily / monthly) with live-computed estimate row.
+- Dropbox section is the OAuth UI entry point; disconnected and connected states visually distinct.
+- Predecessor-plugin notice fires one-time on first `onload` after detecting installed+enabled `obsidian-dropbox-backups`.
+- Vault-prefix changes require a confirmation dialog noting migration implications.
 
-**Dependencies**: Phase 2 (strings, time util), Phase 5 (BackupService — Scheduler drives it), Phase 6 (RetentionService — Scheduler triggers after-backup), Phase 4 (EventQueue — for idle-tick check).
+**Dependencies**: Phase 2 (strings, time util), Phase 3 (OAuthConnectFlow, DropboxClient), Phase 4 (EventQueue, PluginStore), Phase 5 (BackupService + DeviceCoordinator — Scheduler drives it), Phase 6 (RetentionService + StorageProbe).
 
 ---
 
 ## Tasks
 
-Produces the autonomous rhythm of the plugin: nothing happens until the scheduler says "go." Also produces the one piece of UI that's always visible — the ribbon icon.
+This phase produces the user-facing config + status layer in its entirety: autonomous rhythm (Scheduler), always-visible status (Ribbon + NoticeCenter), and configuration surface (SettingsTab). Merging was deliberate — all five modules share the same FSM state and settings shape, so they belong in one phase.
+
+### Scheduler + Ribbon + Notices (T7.1 – T7.5)
 
 - [ ] **T7.1 SchedulerFSM (state machine + transitions)** `[activity: backend-api]`
 
@@ -63,7 +72,7 @@ Produces the autonomous rhythm of the plugin: nothing happens until the schedule
      - Clicking `Skip` marks this week's full as skipped; the next run is next week's scheduled time.
      - If a scheduled full's time has passed while the plugin was unloaded, `recoverOnStartup()` enqueues a catch-up full to run after QUIET_WAIT exits.
      - A second overdue full (older than 1 cadence cycle) collapses into a single catch-up (we run one full, not N).
-  3. Implement: Add scheduled-full planning to `SchedulerFSM`. Integrate pre-flight notice via `NoticeCenter` (T7.4). Persist "last full committed" timestamp in `index.json`.
+  3. Implement: Add scheduled-full planning to `SchedulerFSM`. Integrate pre-flight notice via `NoticeCenter` (T7.4). Persist `last_full_commit_at` in `index.json`.
   4. Validate: Unit tests with fake timers + fixed wall-clock.
   5. Success: Pre-flight reliability `[ref: PRD/F1 AC-5]`; catch-up on restart `[ref: PRD/F1 AC-6]`.
 
@@ -74,8 +83,7 @@ Produces the autonomous rhythm of the plugin: nothing happens until the schedule
      - Initial ribbon icon added; tooltip reads the initial state's label.
      - Subscribes to `SchedulerFSM.onStateChange`; on transition, tooltip and `aria-label` update synchronously.
      - Label strings come from `src/ui/strings.ts` (no hard-coded English in this module).
-     - Mobile state: shows only `Tap to back up now` (manual allowed) or `Passive — backups run on desktop` depending on settings + platform.
-     - Click behavior: on desktop opens the Backup Browser; on mobile (if manual backup allowed) triggers a manual backup.
+     - Click behavior: opens the Backup Browser.
      - On `onunload`, icon is removed and the state-change subscription is disposed.
   3. Implement: Create `src/ui/RibbonIcon.ts`. Uses `this.plugin.addRibbonIcon` (registered) + `setTooltip` / `setAttribute('aria-label', ...)`.
   4. Validate: Unit tests with a fake DOM; state-driven label matrix asserted.
@@ -96,11 +104,94 @@ Produces the autonomous rhythm of the plugin: nothing happens until the schedule
 - [ ] **T7.5 Manual "Back up now" command** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/S2]`.
-  2. Test: Command registered as `Archivist: Back up now`; on invocation, if designated + not already in BACKUP_RUNNING, triggers an immediate incremental; on mobile, respects `advanced.allow_manual_backup_mobile` (if false, command is not registered on mobile).
+  2. Test: Command registered as `Archivist: Back up now`; on invocation, if designated + not already in `BACKUP_RUNNING`, triggers an immediate incremental.
   3. Implement: Register command in `src/main.ts` (or a `src/ui/Commands.ts` helper).
   4. Validate: Unit test with mocked SchedulerFSM asserts the right entry point is called.
   5. Success: PRD S2 `[ref: PRD/S2]`.
 
-- [ ] **T7.6 Phase Validation** `[activity: validate]`
+### Settings UI (T7.6 – T7.11)
 
-  - Run all Phase 7 tests. Integration: wire Scheduler + Ribbon + NoticeCenter + a mocked BackupService; simulate 1 day of fake time; verify expected ribbon transitions, pre-flight notice, error dedup, manual trigger. Lint and typecheck pass.
+- [ ] **T7.6 SettingsTab scaffold + five sections** `[activity: frontend-ui]`
+
+  1. Prime: Read `[ref: SDD/Cross-Cutting/UI Visualization Guide]`, `[ref: PRD/Feature Requirements]`.
+  2. Test:
+     - Tab registers via `this.addSettingTab(new ArchivistSettingTab(...))`.
+     - Five `<h2>` section headers in the documented order.
+     - Each setting row uses Obsidian `new Setting(container)`; no direct DOM/innerHTML manipulation.
+     - Settings edits persist immediately via `PluginStore.saveSettings`; values reload correctly after plugin reload.
+     - Invalid input reverts to the prior value with an inline error.
+     - Persistent-banner slot at the top of the tab renders active banners from `NoticeCenter` (Storage, AuthLost, DeviceConflict).
+  3. Implement: Create `src/ui/SettingsTab.ts` extending `PluginSettingTab`. One renderer function per section — public surface: `renderBackupSchedule`, `renderRetention`, `renderNotifications`, `renderAdvanced`, `renderDropbox` — called from the top-level `display()`.
+  4. Validate: Component tests with a fake DOM assert every documented setting is present and wired.
+  5. Success: Each PRD-surfaced setting is reachable `[ref: PRD/Feature Requirements]`.
+
+- [ ] **T7.7 Backup Schedule section** `[activity: frontend-ui]` `[parallel: true]`
+
+  1. Prime: Read `[ref: PRD/F1]`, `[ref: SDD/Building Block View/Interface Specifications/Application Data Models — ScheduleSettings]`.
+  2. Test:
+     - Toggle: "This device performs backups" reflects `device.designated` and triggers `DeviceCoordinator.takeOwnership(true/false)` on change.
+     - Device ID displayed read-only (first 6 chars + copy-to-clipboard).
+     - Full cadence dropdown: weekly/biweekly/monthly; Full day + time pickers.
+     - Incremental interval dropdown: 5/15/30/60 min.
+     - Startup grace + quiet-period number inputs with validation.
+     - Active-window fields disabled by default (C4 could-have); flipping the enable toggle shows them.
+  3. Implement: Add `renderBackupSchedule(container)` to `SettingsTab`.
+  4. Validate: Component tests mock settings.
+  5. Success: PRD F1 + F5 configurable `[ref: PRD/F1, F5]`.
+
+- [ ] **T7.8 Retention section (3 tiers + live estimate)** `[activity: frontend-ui]`
+
+  1. Prime: Read `[ref: PRD/F2, S3]`, `[ref: SDD/Acceptance Criteria — storage_warn]`.
+  2. Test:
+     - Four tier inputs: never-prune-window-days (0–14, default 14), daily-days (0–90, default 30), monthly-years (0–10, default 3), plus `recent_hours` (0–168, default 24) folded into the never-prune tier row as a "high-frequency recent window" sub-control.
+     - Storage hard-limit input (default 200 GB) with warn-percent input (default 80).
+     - Live-estimate row recomputes after each edit: "With these settings, approximately N snapshots kept, ~X GB".
+        - Estimate uses a pure function `estimateRetention(profile, settings)` — takes the reference vault profile (size + edit rate) and the settings, returns `{snapshots, gb}`.
+        - Profile comes from `index.json` statistics (last-known vault size + 7-day average edit rate) or from defaults if the plugin is new.
+     - If current Dropbox usage (from `StorageProbe`) exceeds `warn_percent * hard_limit`, a persistent warning banner is shown at the top of the tab AND in ribbon tooltip.
+  3. Implement: Add `renderRetention(container)` to `SettingsTab`. Create `src/services/retention/estimator.ts` (pure function).
+  4. Validate: Fixture-driven tests for the estimator with the simplified 3-tier model; UI component test asserts the estimate row updates.
+  5. Success: PRD F2 + S3 `[ref: PRD/F2, S3]`; storage warn `[ref: PRD/F2 AC-5]`.
+
+- [ ] **T7.9 Notifications + Advanced sections** `[activity: frontend-ui]` `[parallel: true]`
+
+  1. Prime: Read `[ref: PRD/Notifications defaults, S1 exclusions, Advanced settings]`.
+  2. Test:
+     - Notifications: four toggles (pre-flight, after-inc, after-full, on-error) with documented defaults (inc=OFF, full=ON, error=ON, pre-flight=ON).
+     - Advanced: exclusion-globs textarea (one glob per line); reconcile-scan toggle (ON); dry-run toggle (OFF); vault-prefix input (default slugified vault name — see ADR-18, validation regex `/^[a-z0-9][a-z0-9_-]{1,63}$/`); diagnostic-logging toggle (OFF, default); upload-parallelism slider 1..8 (default 4); chunk-size-MB slider 4..64 (default 8).
+     - Changing vault-prefix opens a confirm modal explaining the migration implication (new path = new history; old history stays at old prefix until user cleans up manually).
+     - Changing exclusion-globs validates each glob pattern syntax; invalid glob shows inline error without persisting.
+  3. Implement: Add `renderNotifications` and `renderAdvanced` to `SettingsTab`.
+  4. Validate: Component tests + glob-validation tests.
+  5. Success: PRD S1 configurable; defaults match `[ref: PRD/Notifications defaults, S1]`.
+
+- [ ] **T7.10 Dropbox section (OAuth UI + Disconnect)** `[activity: frontend-ui]`
+
+  1. Prime: Read `[ref: PRD/F7 acceptance criteria]`, `[ref: research UX — OAuth connect prompt]`, `[ref: SDD/ADR-7, ADR-9]`.
+  2. Test:
+     - Disconnected state: shows `S.OAUTH_CONNECT_PROMPT` (exact copy) and a `[Connect Dropbox]` button.
+     - Click Connect → calls `OAuthConnectFlow.beginAuth()` → opens browser → on callback → shows connected state.
+     - Cancel mid-flow: returns to disconnected state with `[Try again]` button; no partial auth state retained.
+     - Connected state: shows "Connected as \<email\>"; `[Re-authenticate]` + `[Disconnect]` buttons.
+     - Click Disconnect → opens confirmation dialog (`S.CONFIRM_DISCONNECT`) → on confirm, calls revoke + local clear; returns to disconnected state.
+     - Plaintext-token disclosure text rendered inline (`S.TOKEN_DISCLOSURE`).
+     - If plugin-data path is detected under a known iCloud / sync path, a one-time notice fires `S.DATA_JSON_SYNC_WARNING`.
+  3. Implement: Add `renderDropbox(container)` to `SettingsTab`. Wire to `OAuthConnectFlow` + `DropboxClient.disconnect`.
+  4. Validate: Component tests exercise connect / cancel / disconnect with mocked flow.
+  5. Success: F7 acceptance criteria `[ref: PRD/F7]`; disclosure present `[ref: SDD/ADR-7]`.
+
+- [ ] **T7.11 Predecessor plugin detection notice** `[activity: frontend-ui]` `[parallel: true]`
+
+  1. Prime: Read `[ref: PRD/F8]`.
+  2. Test:
+     - On `onload`, check whether plugin `obsidian-dropbox-backups` is installed AND enabled via `this.app.plugins.enabledPlugins.has('obsidian-dropbox-backups')`.
+     - If yes: fire a persistent notice with `S.PREDECESSOR_PLUGIN_WARNING`; include a "Don't show again" button.
+     - If user dismisses: record `data.json.ui.predecessor_notice_dismissed = true`; do not re-show on next load.
+     - If the predecessor plugin is later disabled: the notice state auto-clears.
+  3. Implement: Add `detectPredecessorPlugin()` in `src/main.ts` onload.
+  4. Validate: Unit tests with a fake `app.plugins` surface.
+  5. Success: PRD F8 `[ref: PRD/F8]`.
+
+- [ ] **T7.12 Phase Validation** `[activity: validate]`
+
+  - Run all Phase 7 tests. Integration: wire Scheduler + Ribbon + NoticeCenter + SettingsTab + a mocked BackupService; simulate 1 day of fake time; verify expected ribbon transitions, pre-flight notice, error dedup, manual trigger, settings round-trip, OAuth flow connect/cancel/disconnect, predecessor notice dismissal. Manual sanity-check in a real Obsidian test vault for all five settings sections. Lint and typecheck pass.
