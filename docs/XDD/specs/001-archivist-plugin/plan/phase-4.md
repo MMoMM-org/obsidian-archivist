@@ -51,7 +51,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
      - `loadQueue/saveQueue` same treatment for `pending_changes.json`.
      - Corruption of `index.json` (invalid JSON) causes `loadIndex` to return `null` and logs a warning — the caller enters `INDEX_MISSING` recovery.
      - Schema-version mismatch on load (`data.json` written by a future plugin version) throws `ConfigError('SCHEMA_INCOMPATIBLE')`.
-     - Default settings match the PRD defaults (never-prune 14d, recent 24h, hourly 7d, daily 30d, weekly 6mo, monthly 3y; inc 15min; full weekly Sunday 03:00).
+     - Default settings match the PRD 3-tier defaults: `{never_prune_window_days: 14, recent_hours: 24, daily_days: 30, monthly_years: 3, storage_hard_limit_gb: 200, storage_warn_at_percent: 80}` for retention; `{inc_interval_minutes: 15, full_cadence: 'weekly', full_day_of_week: 0, full_time_of_day: '03:00'}` for schedule. NO `hourly_days` or `weekly_months` fields — those tiers were removed in the 3-tier MVP scope cut.
   3. Implement: Create `src/infra/PluginStore.ts` exporting `PluginStore` class with typed accessors. Use type guards from Phase 2 for every load.
   4. Validate: Unit tests with a fake adapter cover each load/save round-trip and corruption path.
   5. Success: Settings defaults match PRD `[ref: PRD/F2 default retention]`; `index.json` not synced by Obsidian Sync `[ref: SDD/ADR-11]`; `INDEX_MISSING` recovery handoff preserved `[ref: SDD/Acceptance Criteria — edge case]`.
@@ -76,6 +76,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
      - A file modified by an external process with new mtime but unchanged content is NOT added (hash comparison overrides mtime hint).
      - A file listed in `exclusion_globs` is never enqueued.
      - Deleted files (in `index.files` but not in `getFiles()`) are recorded as `delete` entries.
+     - **Intra-file yield (PERF-H2):** given a single 50 MB file in the vault and the reconcile loop reading + hashing it, the function yields to the event loop at least ⌈50 MB / 10 MB⌉ = 5 times during processing of that file (verified by counting `setTimeout(0)` invocations). This guards against a single large-file hash freezing the progress UI. The yield rule is "every 500 files OR every 10 MB processed, whichever comes first."
   3. Implement: Create `src/services/ChangeDetector.ts` wiring vault events into the queue via `VaultAdapter.on`. Expose `async reconcileScan(index: LocalIndex, exclusions: string[]): Promise<QueueEntry[]>`. Use `Hasher` to confirm suspected changes.
   4. Validate: Unit tests with a fake vault that simulates the sync-tool, external-edit, folder-rename, and exclusion scenarios.
   5. Success: External-sync robustness acceptance criterion `[ref: PRD/F6]`; hash-as-authority `[ref: SDD/Acceptance Criteria — Main Flow F6]`.

@@ -244,8 +244,8 @@ Against alternative tooling (rsync scripts, cloud sync folders, third-party back
 10. The restored version immediately enters the backup queue as the current live state.
 
 **Business Rules:**
-- A version list shows all retained versions across all tiers (recent, hourly, daily, weekly, monthly) merged into a single chronological list.
-- Tier tags displayed alongside timestamps help the user understand why a version is retained (e.g., `[weekly]`, `[daily]`, `[14-day never-prune]`).
+- A version list shows all retained versions across all V1 MVP tiers (never-prune + recent, daily, monthly) merged into a single chronological list.
+- Tier tags displayed alongside timestamps help the user understand why a version is retained (e.g., `[daily]`, `[monthly]`, `[14-day never-prune]`). The tag field is tier-agnostic — additional post-V1 tiers would surface their own labels without data-model change.
 - Renamed files: versions under prior paths appear in the same list with a visual marker showing the prior path and rename date. This requires rename history to be represented in the backup data model (see SDD).
 - Restore in place overwrites the vault file atomically (write to temp file in the same directory, then rename). Partial writes must not leave the file in a half-written state.
 - The restored file's SHA-256 hash must match the hash recorded in the snapshot manifest; a mismatch after restore is a critical error surfaced to the user with "Restore integrity check failed — please retry."
@@ -365,7 +365,7 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 | Production / Development | Development (App-Folder apps do not need production approval until >50 users) |
 | Description (shown in OAuth consent) | "Archivist is an open-source Obsidian community plugin that creates versioned backups of your Obsidian vault in its dedicated Dropbox App Folder (`/Apps/Archivist/`). It never reads or writes anything outside this folder. Source: https://github.com/MMoMM-org/obsidian-archivist" |
 | Privacy Policy URL | https://github.com/MMoMM-org/obsidian-archivist/blob/main/PRIVACY.md |
-| App icon | 512×512 PNG — **TODO before community submission** (Phase 12 T12.6) |
+| App icon | 512×512 PNG — **TODO before community submission** (Phase 10 T10.6a) |
 
 **CLIENT_ID propagation:** The CLIENT_ID is NOT secret (PKCE transmits it in the authorization URL). It lands as a compile-time constant in `src/config/dropbox.ts` during Phase 3 T3.3. Do not reuse the predecessor plugin's `CLIENT_ID` (`40ig42vaqj3762d`).
 
@@ -386,8 +386,8 @@ If adopted: no file paths, no file contents, no vault names, no user identifiers
 
 ### Outstanding prerequisites
 
-- [ ] Author `PRIVACY.md` at repo root before the OAuth Description URL resolves (drafted in T12.4 or earlier — a stub can be committed to unblock Dropbox's URL-validation).
-- [ ] App icon (512×512 PNG) uploaded to Dropbox — deferred to Phase 12 T12.6; a placeholder is acceptable during development. Ribbon SVG is a separate deliverable, also Phase 12.
+- [ ] Author `PRIVACY.md` at repo root before the OAuth Description URL resolves (drafted in T10.4 or earlier — a stub can be committed to unblock Dropbox's URL-validation).
+- [ ] App icon (512×512 PNG) uploaded to Dropbox — deferred to Phase 10 T10.6a; a placeholder is acceptable during development. Ribbon SVG is a separate deliverable, also Phase 10.
 
 ---
 

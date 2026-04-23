@@ -59,7 +59,7 @@ Establishes the type foundation and low-level primitives used by every service. 
 
   1. Prime: Read `[ref: SDD/ADR-18 — vault prefix]`, `[ref: SDD/Risks/Implementation Gotchas — case sensitivity]`, `[ref: SDD/Interface Specifications/Data Storage Changes — Dropbox paths]`.
   2. Test:
-     - `util/paths.ts`: `contentPath(prefix, hash)` enforces lowercase prefix; `snapshotPath(manifest)` uses ISO with `-` separators; `assertInAppFolder(path)` throws on any path outside `Apps/Archivist/`; `slugifyVaultName('My Vault')` returns `my-vault`.
+     - `util/paths.ts`: `contentPath(prefix, hash)` enforces lowercase prefix; `snapshotPath(manifest)` uses ISO with `-` separators; `assertInAppFolder(path)` throws on any path outside `Apps/Archivist/`; `slugifyVaultName('My Vault')` returns `my-vault`; `validateVaultPrefix('my-vault')` returns OK, `validateVaultPrefix('Bad Prefix!')` and `validateVaultPrefix('../evil')` throw `PathError('INVALID_VAULT_PREFIX')` — enforces the regex `/^[a-z0-9][a-z0-9_-]{1,63}$/` (SEC-M7).
      - `util/time.ts`: `isoUtc(date)` round-trips; `nextWeeklyFullAt(now, dayOfWeek, hhmm)` returns correct future Date; DST boundary cases (2 AM → 3 AM spring forward) do not double-fire.
      - `util/glob.ts`: `matchAny(['.trash/**', '_templates/**'], path)` returns true/false correctly; `**`, `*`, `?`, `[abc]` character classes supported (minimal implementation — use a tiny library or handwritten).
      - `util/retry.ts`: exponential backoff `1s → 2s → 4s → 8s`, cap `60s`, max 5 tries; honors a user-supplied `retryAfterSeconds` override (429 path); abort signal cancels retries.

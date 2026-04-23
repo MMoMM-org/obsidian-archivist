@@ -60,6 +60,26 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests with fixtures covering rename+edit, pure rename, pure delete, new-file, and a mix.
   5. Success: Rename-aware manifest shape is correct `[ref: SDD/ADR-4]`; schema stable `[ref: SDD/Data Storage Changes]`.
 
+- [ ] **T5.2a SnapshotIndexStore + MaintenanceScheduler (ADR-20 infrastructure)** `[activity: backend-api]` `[parallel: true]`
+
+  1. Prime: Read `[ref: SDD/ADR-20]`, `[ref: SDD/Building Block View/Data Storage Changes — snapshot_index.json]`, `[ref: SDD/ADR-17 + ROB-002]`.
+  2. Test:
+     - **SnapshotIndexStore:**
+       - `append(entry)` writes the new entry to `snapshot_index.json` via promise-chained `adapter.write` (ordering consistent with EventQueue); updates `last_updated_at`; persists.
+       - `read()` returns the current index; returns `null` if the file is missing, throws `CorruptionError('SNAPSHOT_INDEX_INVALID')` on parse failure.
+       - `remove(id)` removes the matching entry and persists; no-op if id not present.
+       - `rebuild(manifestList)` iterates manifests, reads each to extract metadata, writes a fresh `snapshot_index.json` — used by startup recovery when the index is absent/invalid.
+       - Concurrent `append` calls serialize correctly (promise-chain pattern per ROB-003).
+     - **MaintenanceScheduler:**
+       - `scheduleRetentionIfDue()` posts a retention job that runs asynchronously — NEVER blocks the caller's return to `READY` (ROB-002).
+       - Runs retention if `localIndex.last_retention_at > 24h ago`; otherwise no-op.
+       - Catches all errors from the retention pass, logs, and does NOT propagate — a failed pass retries at the next due time.
+       - Exposes a `MAINTENANCE` state event that `RibbonIcon` and `SchedulerFSM` can observe to distinguish "backup running" from "maintenance running" in the ribbon tooltip.
+       - `onunload` cancels any in-flight maintenance job via `AbortController`.
+  3. Implement: Create `src/services/SnapshotIndexStore.ts` and `src/services/MaintenanceScheduler.ts`. Both are referenced by `BackupService.commitSnapshot()` (step 4 + step 7) and consumed by `RetentionService` + `GCService` — closes the Directory Map gap flagged by ROB-015.
+  4. Validate: Unit tests for each module; a concurrency test for SnapshotIndexStore write ordering; a scheduler test asserting the backup-caller returns before the retention job completes.
+  5. Success: ADR-20 infrastructure exists as a concrete module, not a narrative reference `[ref: SDD/Directory Map]`; retention off the hot path `[ref: ROB-002]`.
+
 - [ ] **T5.3 BackupService — Full pipeline (with double-check + snapshot_index)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]` (7-step revised), `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/ADR-20]`.
@@ -99,7 +119,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
      - **Row 7 (manifest committed remotely, local index stale):** startup reconciles local index against the newest manifest referenced by `snapshot_index.json`; re-hashes vault files not already present in `index.files`; ensures the next incremental uploads ONLY the files whose hash has actually changed since the last committed snapshot, NOT every file since last full. Assertion: synthetic fixture — commit a full with file hashes {h1,h2,h3}, simulate local index reset, trigger recovery, run one inc with vault unchanged → zero new blob uploads.
      - If HEAD.json references a snapshot_id that does NOT exist in `snapshots/` (never-committed crash) → rewrites HEAD to the newest existing manifest by `created_at`; logs inconsistency.
      - If `snapshot_index.json` is stale vs. `snapshots/` listing (manifests uploaded but not indexed) → rebuild missing entries by reading the corresponding manifests; persist updated index.
-     - If `gc_lock` is present AND its `started_at` is older than the staleness threshold (ROB-014 clock-skew tolerant) → `StartupState` records a `stale_gc_lock` flag; `MaintenanceScheduler` clears the lock and schedules a new GC pass.
+     - If `gc_lock` is present AND its `started_at` is older than `1h + maxClockSkewMinutes` (defined in phase-6 T6.4 / ROB-014) → `StartupState` records a `stale_gc_lock` flag; `MaintenanceScheduler` clears the lock and schedules a new GC pass.
      - If `snapshots/` is empty → HEAD is deleted; state is `StartupState.FRESH_FOLDER`.
   3. Implement: Add `recoverOnStartup()` coordinated via `ArchivistPlugin.startup()`; introduce `model/StartupState.ts` enum.
   4. Validate: Unit tests — one per matrix row + one per StartupState variant.

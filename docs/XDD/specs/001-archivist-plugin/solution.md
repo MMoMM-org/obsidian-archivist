@@ -757,7 +757,7 @@ async function materializeVaultStateAt(targetSnapshotId: string): Promise<Record
     cursor = m.parent_id;
   }
   if (chain[chain.length - 1].type !== 'full') {
-    throw new IntegrityError('CHAIN_BROKEN', 'No Full ancestor found for snapshot ' + targetSnapshotId, false);
+    throw new ChainError('CHAIN_BROKEN', 'No Full ancestor found for snapshot ' + targetSnapshotId, false);
   }
   // chain is now [T, T.parent, ..., F] — newest to oldest. Replay oldest-to-newest.
   chain.reverse();
@@ -799,7 +799,7 @@ Expected vault state at #4: `A.md=h4, C-renamed.md=h6, D.md=h5`. ✓
 **Edge cases:**
 - If `m.renames` references a `from` not in state (e.g., file was already deleted in an earlier Inc), skip silently (idempotent).
 - If `m.renames` references a `to` already in state, skip the rename (log `WARN: rename-to-collision` with the offending manifest id) and continue replay. This branch is unreachable from a correct writer; it exists so corruption from a future writer bug cannot abort an otherwise valid manifest chain — the restore still produces a usable state.
-- If the chain cannot reach a Full (missing parent manifest), throw `IntegrityError('CHAIN_BROKEN', ...)` — user sees "Restore failed: snapshot history is broken, please file a bug."
+- If the chain cannot reach a Full (missing parent manifest), throw `ChainError('CHAIN_BROKEN', ...)` — user sees "Restore failed: snapshot history is broken, please file a bug."
 
 #### Example: Retention Pass with Transitive Chain-Integrity
 
@@ -863,7 +863,7 @@ async function commitSnapshot(manifest: SnapshotManifest, newBlobs: Map<string, 
   // 2. RE-VERIFY device conflict AFTER blob upload, BEFORE manifest write (ROB-001 double-check).
   //    A concurrent device may have committed a snapshot while we were uploading. Shrinks the race window
   //    to a single RTT. If conflict detected here, our blobs stay in content/ as orphans (next GC cleans them).
-  await deviceCoordinator.verifyNoConflict(); // throws IntegrityError('DEVICE_CONFLICT') on mismatch
+  await deviceCoordinator.verifyNoConflict(); // throws ConflictError('DEVICE_CONFLICT') on mismatch
   // 3. Write the manifest JSON to snapshots/.
   //    If we crash here: manifest exists but HEAD + snapshot_index stale. Recovery: startup scans snapshots/,
   //    picks newest by created_at, re-writes HEAD + rebuilds snapshot_index entries for any missing id.
@@ -901,7 +901,7 @@ async function commitSnapshot(manifest: SnapshotManifest, newBlobs: Map<string, 
 | step 3 done, before step 4 | manifest exists, snapshot_index stale, HEAD stale | startup rebuilds snapshot_index from listing + reads each newer manifest to fill entries; rewrites HEAD |
 | step 4 done, before step 5 | manifest exists, index entry present, HEAD stale | startup sees index includes an id HEAD doesn't; rewrites HEAD to the newest index entry |
 | step 5 mid | HEAD partially written | Dropbox `files/upload` is atomic per file — no partial-HEAD state; either succeeds or old HEAD persists |
-| step 3 done, before step 4 | manifest committed remotely, local index stale | startup reconciles local index against HEAD; re-hashes any files not already in index |
+| step 5 done, before step 6 | remote state consistent (manifest + snapshot_index + HEAD), local index stale | startup reconciles local index against HEAD; re-hashes any files not already in index — the next incremental uploads ONLY files whose hash actually changed (not every file since last full) |
 
 ## Runtime View
 
@@ -1000,9 +1000,9 @@ The Dropbox client is the sole network boundary; all other errors are local logi
 | HTTP 500/503 | `NetworkError` | Yes, exponential (1s→2s→4s→8s, cap 60s, max 5 tries) | If all retries fail → error toast with "retry on next cycle" messaging. |
 | HTTP 507 `insufficient_space` | `QuotaExceededError` | No | Persistent banner in Settings: "Dropbox full — free space or reduce retention." Backup pauses until resolved. |
 | Network (DNS/TCP) | `NetworkError` | Yes | Single toast on first failure; suppress repeats; recovery toast on success. |
-| JSON parse failure (manifest) | `IntegrityError('MANIFEST_CORRUPT')` | No | Treat as absent → recovery protocol (see commit protocol table). |
-| Hash mismatch on restore | `IntegrityError('RESTORE_HASH_MISMATCH')` | No | Surface hard error; do NOT auto-revert. |
-| Device conflict | `IntegrityError('DEVICE_CONFLICT')` | No | Persistent banner; backup refuses until user resolves via toggle. |
+| JSON parse failure (manifest) | `CorruptionError('MANIFEST_CORRUPT')` | No | Treat as absent → recovery protocol (see commit protocol table). |
+| Hash mismatch on restore | `CorruptionError('RESTORE_HASH_MISMATCH')` | No | Surface hard error; do NOT auto-revert. |
+| Device conflict | `ConflictError('DEVICE_CONFLICT')` | No | Persistent banner; backup refuses until user resolves via toggle. |
 | OAuth callback mismatch | `AuthError('OAUTH_STATE_MISMATCH')` | No | Abandon flow; surface "Connection cancelled — try again." |
 
 ### Complex Logic
@@ -1411,7 +1411,7 @@ Not applicable — single-component plugin.
       [--verify-only]
     ```
   - Constraints: single `.mjs` file; uses only Node ≥ 18 stdlib (`node:fs/promises`, `node:path`, `node:crypto`, `node:process`); no npm install required; no Dropbox API; read-only against the source folder.
-  - Trade-offs: the CLI duplicates the manifest-merge logic (cannot share code with the plugin bundle since the plugin imports from `obsidian`). Kept tiny (< 500 lines) — the merge algorithm is the only non-trivial piece. Integration tests in Phase 12 verify byte-for-byte parity with the plugin's in-app restore on a shared fixture.
+  - Trade-offs: the CLI duplicates the manifest-merge logic (cannot share code with the plugin bundle since the plugin imports from `obsidian`). Kept tiny (< 500 lines) — the merge algorithm is the only non-trivial piece. Integration tests in Phase 10 verify byte-for-byte parity with the plugin's in-app restore on a shared fixture.
   - Distribution: the script is committed to the repo AND included as an asset on every GitHub Release — so a user whose only surviving artifact is the release zip can still recover.
   - Confirmed (auto).
 
@@ -1472,7 +1472,7 @@ Not applicable — single-component plugin.
 - [ ] WHEN the user invokes `Archivist: Show history of current file`, THE SYSTEM SHALL open the File-History modal within 2 seconds with versions sorted newest→oldest.
 - [ ] WHEN the user previews a version, THE SYSTEM SHALL render content via MarkdownRenderer within 3 seconds for Markdown files.
 - [ ] WHEN the user confirms restore-in-place, THE SYSTEM SHALL write the content atomically and verify the post-write SHA-256 matches the manifest hash.
-- [ ] IF the post-write SHA-256 does NOT match the manifest hash, THEN THE SYSTEM SHALL surface `IntegrityError('RESTORE_HASH_MISMATCH')` and not overwrite this error with a success toast.
+- [ ] IF the post-write SHA-256 does NOT match the manifest hash, THEN THE SYSTEM SHALL surface `CorruptionError('RESTORE_HASH_MISMATCH')` and not overwrite this error with a success toast. (Note: SEC-M6 pre-write hash compare means this path should be effectively unreachable — the pre-write check catches the same class earlier and without disk side-effects; this post-write invariant remains as a belt-and-suspenders guarantee.)
 - [ ] THE SYSTEM SHALL include renamed-file history by following `renames[]` backward from the current path.
 
 **Main Flow Criteria (PRD Feature 4 — Backup Browser):**
@@ -1482,7 +1482,7 @@ Not applicable — single-component plugin.
 **Main Flow Criteria (PRD Feature 5 — Device Coordination):**
 - [ ] WHILE this device's designated flag is false, THE SYSTEM SHALL NOT upload any blob or manifest to Dropbox.
 - [ ] WHEN a backup starts, THE SYSTEM SHALL read HEAD.json and verify `head.device_id === this.device_id OR head_is_stale(> 2h)` before proceeding.
-- [ ] IF HEAD.json indicates another device committed within the recency window, THEN THE SYSTEM SHALL abort with `IntegrityError('DEVICE_CONFLICT')`.
+- [ ] IF HEAD.json indicates another device committed within the recency window, THEN THE SYSTEM SHALL abort with `ConflictError('DEVICE_CONFLICT')`.
 
 **Main Flow Criteria (PRD Feature 6 — External Sync Robustness):**
 - [ ] THE SYSTEM SHALL treat content SHA-256 as the authoritative change signal; mtime changes alone do NOT trigger an upload.
@@ -1511,7 +1511,7 @@ Not applicable — single-component plugin.
 - [ ] IF any content blob's SHA-256 does not match the manifest hash, THEN THE CLI SHALL exit non-zero with a list of the offending paths and NOT continue writing remaining files.
 - [ ] WHEN invoked with `--dry-run`, THE CLI SHALL print the list of files it would write with their sizes and hashes, without writing anything.
 - [ ] WHEN invoked with `--verify-only`, THE CLI SHALL walk the snapshot chain and verify every referenced content blob's SHA-256 without reconstructing the vault.
-- [ ] THE CLI SHALL produce byte-identical output to the plugin's in-plugin restore for the same snapshot (verified by a shared fixture test in Phase 12).
+- [ ] THE CLI SHALL produce byte-identical output to the plugin's in-plugin restore for the same snapshot (verified by a shared fixture test in Phase 10).
 
 ## Risks and Technical Debt
 

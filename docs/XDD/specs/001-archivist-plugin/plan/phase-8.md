@@ -21,7 +21,7 @@ phase: 8
 **Key Decisions**:
 - `materializeVaultStateAt(snapshotId)` is the core reconstruction primitive; used by both the Backup Browser (show files at a snapshot) and Restore (fetch content for a path).
 - Rename-aware history expands aliases backward — walking from newest to oldest manifests.
-- Restore writes atomically (`writeAtomic`) and post-verifies the SHA-256; mismatch throws `IntegrityError('RESTORE_HASH_MISMATCH')` and does NOT auto-revert.
+- Restore writes atomically (`writeAtomic`) after a pre-write hash compare (SEC-M6); mismatch throws `CorruptionError('RESTORE_HASH_MISMATCH')` and does NOT auto-revert.
 - `MarkdownRenderer.render()` is the ONLY preview path (rules out XSS).
 
 **Dependencies**: Phase 2 (Hasher), Phase 3 (DropboxClient), Phase 4 (VaultAdapter), Phase 5 (ManifestBuilder for manifest type).
@@ -37,7 +37,7 @@ Produces the feature users actually care about — getting an earlier version of
   1. Prime: Read `[ref: SDD/Implementation Examples/Example: Manifest Merge for Restore-at-Time-T]`.
   2. Test:
      - The 4-snapshot walkthrough in the SDD reproduces exactly: `{ A.md=h4, C-renamed.md=h6, D.md=h5 }`.
-     - A chain that terminates in an Inc (no reachable Full) throws `IntegrityError('CHAIN_BROKEN')`.
+     - A chain that terminates in an Inc (no reachable Full) throws `ChainError('CHAIN_BROKEN')`.
      - Rename applied to a path not in state is silently skipped (idempotent).
      - Rename whose target already exists in state is skipped with a warning (resilience).
      - Explicit deletes tombstone correctly; the parent's entry for that path is gone from the merged state.
@@ -109,7 +109,7 @@ Produces the feature users actually care about — getting an earlier version of
      - Cross-platform: the test runs on Ubuntu + macOS in CI (Node 18, 20) and produces identical output.
   3. Implement: Create `scripts/restore.mjs`. Single file, ESM. Module structure inside the file (plain functions): `parseArgs`, `listSnapshots`, `loadManifest`, `resolveSnapshotId`, `materializeState`, `reconstruct`, `verifyBlob`, `main`. Use `crypto.createHash('sha256')` (Node stdlib — not WebCrypto; this is a standalone Node tool where Node-crypto is the idiomatic choice). Write files via `fs.writeFile` with `mkdir -p` for parent directories. Atomic-dir pattern: write to `<output>.tmp` then rename.
   4. Validate: Run the new tests under `tests/cli/` — they spawn `node scripts/restore.mjs` as a subprocess against a fixture folder and assert on stdout + filesystem output. Keep the script under 500 lines.
-  5. Success: Zero-dep contract holds `[ref: SDD/ADR-19]`; byte-identical to in-plugin restore (deferred to T12.x integration parity test) `[ref: SDD/Acceptance Criteria — byte-identical]`; all PRD S6 invariants.
+  5. Success: Zero-dep contract holds `[ref: SDD/ADR-19]`; byte-identical to in-plugin restore (verified by Phase 10 T10.1 `cli-parity.test.ts`) `[ref: SDD/Acceptance Criteria — byte-identical]`; all PRD S6 invariants.
 
 - [ ] **T8.6 Phase Validation** `[activity: validate]`
 
