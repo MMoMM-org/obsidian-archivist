@@ -32,3 +32,13 @@ npm run test:coverage # vitest with v8 coverage
 - Use Plan Mode for any change touching more than 2 files
 - Commit after every completed task
 - When changes affect other repos → create handoff in _outbox/
+
+## Docker Environment
+Dieses Repo benutzt den Docker-Build-Variant `archivist` → Image `claude-code-archivist`. Erbt vom `secure`-Stage und fügt Dev-Tools für Plugin-Arbeit hinzu, die über das Standard-Setup hinausgehen:
+- `rsync` — lokale Vault-Mirror-Tests
+- `httpie` — Dropbox-API-Debug (OAuth/upload_session Flow)
+- `zstd`, `xz-utils` — Kompressions-Experimente
+
+**Template-Quelle:** `miyo-kouzou/claude-docker/claude-docker-template/Dockerfile` (Stage `archivist`, ab template_version 1.2). Lokale Änderungen am gerenderten `claude-docker/`-Output werden beim nächsten `claude-docker-update.sh` überschrieben — Customization gehört ins Kouzou-Template.
+
+**Rebuild:** `~/Kouzou/scripts/claude-docker-update.sh` im Repo-Root.
