@@ -56,8 +56,21 @@ export class TokenStore {
       if (!exists) return null;
       const raw = await adapter.read(path);
       const parsed: unknown = JSON.parse(raw);
-      return toTokens(parsed);
+      const tokens = toTokens(parsed);
+      if (tokens === null) {
+        // Valid JSON but missing fields — same recovery path as corrupt JSON
+        // (user must re-auth). Share the `tokens_corrupt` key so ops only
+        // need one alert rule.
+        this.logger.warn('tokens_corrupt', { reason: 'missing_required_fields' });
+      }
+      return tokens;
     } catch (err) {
+      // Corrupt JSON on disk gets its own key so ops can distinguish a
+      // malformed file (re-auth needed) from a transient I/O error.
+      if (err instanceof SyntaxError) {
+        this.logger.warn('tokens_corrupt', { error: err });
+        return null;
+      }
       // Missing-file is not an error. Surface anything else as a warning and
       // return null so the UI can drive the user to re-auth cleanly.
       this.logger.warn('tokens_load_failed', { error: err });
@@ -68,12 +81,16 @@ export class TokenStore {
   async save(tokens: Tokens): Promise<void> {
     const path = this.tokensPath;
     const payload = {
+      // schema_version is written for future migration gating; load() currently
+      // ignores unknown/incompatible schemas.
       schema_version: SCHEMA_VERSION,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       access_token_expires_at: tokens.access_token_expires_at,
       dropbox_account_email: tokens.dropbox_account_email,
     };
+    // adapter.write replaces in-place; crash mid-write is recoverable via
+    // re-auth (load() returns null on malformed JSON).
     await this.plugin.app.vault.adapter.write(path, JSON.stringify(payload, null, 2));
     await this.chmodIfDesktop(path);
   }
@@ -132,6 +149,8 @@ export class TokenStore {
       await fs.promises.chmod(abs, DEFAULT_CHMOD);
     } catch (err) {
       // chmod failure must NOT block token save — log and move on.
+      // 'path' is redacted by Logger unless diagnostic_logging is enabled —
+      // see Logger.PATH_KEYS.
       this.logger.warn('tokens_chmod_failed', { error: err, path: abs });
     }
   }
