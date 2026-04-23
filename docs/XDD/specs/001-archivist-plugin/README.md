@@ -40,6 +40,7 @@
 | 2026-04-23 | ADR-14 refined | Use latest stable Dropbox SDK at first build (currently `dropbox@10.34.0`, last modified 2025-10-13), pin exactly, then Dependabot-drive updates. Does NOT mean `@latest` in package.json — pinning at build time ensures reproducible bundles. |
 | 2026-04-23 | Dropbox CLIENT_ID placement | `src/config/dropbox.ts` as compile-time constant. PKCE CLIENT_ID is not a secret (transmitted in auth URL); no env var or user config. Do NOT reuse predecessor's `40ig42vaqj3762d` — Marcus registers a new app in Dropbox "App folder" mode before Phase 3. |
 | 2026-04-23 | Dropbox app registered — `ObsidianArchivist` / folder `Archivist` / CLIENT_ID `aanoqah5sn73rjb` | Three scopes granted (`files.content.write`, `files.content.read`, `files.metadata.read`), redirect URI `obsidian://archivist-oauth`, publisher Marcus Breiden. Privacy Policy URL → `PRIVACY.md` in repo (stub committed this pass; fuller version before V1 release). App icon deferred to Phase 12 T12.6a. CLIENT_ID lands in `src/config/dropbox.ts` when Phase 3 starts. |
+| 2026-04-23 | Remaining 16 ADRs approved as-is | User reviewed the list (ADRs 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18) and accepted each without modification. All 19 ADRs now explicitly user-approved (previously ADR-7 and ADR-19 only). |
 
 ## Context
 
