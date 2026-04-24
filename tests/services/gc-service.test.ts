@@ -15,7 +15,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GCService, type GCServiceDeps } from '../../src/services/GCService';
 import { PathError, NetworkError, CorruptionError } from '../../src/model/Errors';
-import { gcLockPath, contentFolderPath, snapshotIndexPath } from '../../src/util/paths';
+import { gcLockPath, contentFolderPath } from '../../src/util/paths';
 import type { ListFolderEntry } from '../../src/infra/DropboxClient';
 import type { SnapshotIndex } from '../../src/model/SnapshotIndex';
 
@@ -27,7 +27,6 @@ const VAULT_PREFIX = 'test-vault';
 const DEVICE_ID = 'aaaa-bbbb-cccc-dddd';
 const GC_LOCK = gcLockPath(VAULT_PREFIX);
 const CONTENT_FOLDER = contentFolderPath(VAULT_PREFIX);
-const SNAPSHOT_INDEX = snapshotIndexPath(VAULT_PREFIX);
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -16,7 +16,7 @@ import { CorruptionError, PathError } from '../model/Errors';
 import type { DropboxClient } from '../infra/DropboxClient';
 import type { Logger } from '../infra/Logger';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
-import { gcLockPath, contentFolderPath, snapshotIndexPath } from '../util/paths';
+import { gcLockPath, contentFolderPath } from '../util/paths';
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -68,7 +68,6 @@ export class GCService {
   private readonly logger: Logger;
   private readonly lockPath: string;
   private readonly contentFolder: string;
-  private readonly snapshotIndexPathStr: string;
   private readonly deviceId: string;
   private readonly now: () => Date;
   private readonly maxClockSkewMinutes: number;
@@ -79,7 +78,6 @@ export class GCService {
     this.logger = deps.logger;
     this.lockPath = gcLockPath(deps.vaultPrefix);
     this.contentFolder = contentFolderPath(deps.vaultPrefix);
-    this.snapshotIndexPathStr = snapshotIndexPath(deps.vaultPrefix);
     this.deviceId = deps.deviceId;
     this.now = deps.now ?? (() => new Date());
     this.maxClockSkewMinutes = deps.maxClockSkewMinutes ?? 5;
