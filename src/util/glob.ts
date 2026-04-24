@@ -65,3 +65,18 @@ export function matchAny(patterns: readonly string[], path: string): boolean {
   }
   return false;
 }
+
+/**
+ * Validate an exclusion-glob line entered in the settings UI (T7.9).
+ * Returns null if the pattern is acceptable, or a human-readable error
+ * otherwise. The underlying compiler accepts every string (it escapes
+ * regex metachars), so this is a UX gate — reject obviously broken entries
+ * before they land in settings, while keeping the grammar permissive.
+ */
+export function validateGlob(pattern: string): string | null {
+  const trimmed = pattern.trim();
+  if (trimmed.length === 0) return 'Empty pattern.';
+  if (trimmed.includes('\0')) return 'Null characters are not allowed.';
+  if (trimmed.startsWith('/')) return 'Patterns must be relative to the vault root (no leading slash).';
+  return null;
+}
