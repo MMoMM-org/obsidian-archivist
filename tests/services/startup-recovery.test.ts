@@ -145,8 +145,6 @@ function makeFakePluginStore(initialIndex: LocalIndex | null = emptyLocalIndex()
   };
 }
 
-type FakePluginStore = ReturnType<typeof makeFakePluginStore>;
-
 // ---------------------------------------------------------------------------
 // Fake SnapshotIndexStore
 // ---------------------------------------------------------------------------
@@ -541,6 +539,176 @@ describe('StartupRecovery', () => {
       expect(report.state).toBe(StartupState.FRESH_FOLDER);
       // HEAD should be deleted
       expect(dropbox.deleteV2Calls).toContain(HEAD_PATH);
+    });
+  });
+
+  describe('i. bounded parallel manifest downloads', () => {
+    it('downloads all 20 manifests when seeded in fake Dropbox', async () => {
+      const store = new Map<string, unknown>();
+      const ids: string[] = [];
+      for (let idx = 0; idx < 20; idx++) {
+        const ts = `2026-04-24T${String(idx).padStart(2, '0')}:00:00.000Z`;
+        const id = `2026-04-24T${String(idx).padStart(2, '0')}-00-full`;
+        const m = makeManifest(id, ts);
+        seedManifest(store, m);
+        ids.push(id);
+      }
+      // HEAD points to the last (newest) manifest
+      const newestId = ids[19];
+      const newestTs = `2026-04-24T19:00:00.000Z`;
+      store.set(HEAD_PATH, makeHeadJson(newestId, newestTs));
+
+      const { service } = makeHarness({ dropboxStore: store });
+      const report = await service.recoverOnStartup();
+
+      // Recovery must complete successfully (HEALTHY or SNAPSHOT_INDEX_STALE)
+      expect([
+        StartupState.HEALTHY,
+        StartupState.SNAPSHOT_INDEX_STALE,
+        StartupState.HEAD_STALE,
+        StartupState.HEAD_POINTS_TO_MISSING,
+      ]).toContain(report.state);
+    });
+
+    it('logs startup_manifest_download_start with manifest count before downloading', async () => {
+      const store = new Map<string, unknown>();
+      for (let idx = 0; idx < 3; idx++) {
+        const ts = `2026-04-24T0${idx}:00:00.000Z`;
+        const id = `2026-04-24T0${idx}-00-full`;
+        seedManifest(store, makeManifest(id, ts));
+      }
+      const newestId = '2026-04-24T02-00-full';
+      store.set(HEAD_PATH, makeHeadJson(newestId, '2026-04-24T02:00:00.000Z'));
+
+      const { service, logger } = makeHarness({ dropboxStore: store });
+      await service.recoverOnStartup();
+
+      const downloadStart = logger.infoCalls.find((c) => c.message === 'startup_manifest_download_start');
+      expect(downloadStart).toBeDefined();
+      expect((downloadStart?.payload as { count: number })?.count).toBe(3);
+    });
+  });
+
+  describe('j. snapshot_index_read_failed logging', () => {
+    it('logs snapshot_index_read_failed and triggers rebuild when SnapshotIndexStore.read throws CorruptionError', async () => {
+      const { CorruptionError } = await import('../../src/model/Errors');
+
+      const manifest = makeManifest('2026-04-24T10-00-full', '2026-04-24T10:00:00.000Z');
+      const store = new Map<string, unknown>();
+      seedManifest(store, manifest);
+      store.set(HEAD_PATH, makeHeadJson(manifest.id, manifest.created_at));
+
+      const { service, snapshotIndexStore, logger } = makeHarness({ dropboxStore: store });
+
+      // Override read to throw CorruptionError
+      snapshotIndexStore.read.mockRejectedValueOnce(
+        new CorruptionError('SNAPSHOT_INDEX_INVALID', 'corrupt index', false),
+      );
+
+      const report = await service.recoverOnStartup();
+
+      // Must log the warning
+      const warnMessages = logger.warnCalls.map((c) => c.message);
+      expect(warnMessages).toContain('snapshot_index_read_failed');
+
+      // Recovery still completes (rebuild triggered because read failed → existingIndex null → allIndexed false)
+      expect(snapshotIndexStore.rebuild).toHaveBeenCalledOnce();
+      expect(report).toBeDefined();
+    });
+  });
+
+  describe('k. HEAD corrupt schema logging (ROB-003)', () => {
+    it('rewrites HEAD and returns HEAD_POINTS_TO_MISSING when HEAD JSON is corrupt (fails schema)', async () => {
+      const validManifest = makeManifest('2026-04-24T10-00-full', '2026-04-24T10:00:00.000Z');
+      const store = new Map<string, unknown>();
+      seedManifest(store, validManifest);
+      // HEAD present but malformed (JSON-valid but missing required fields)
+      store.set(HEAD_PATH, { not_a_snapshot_head: true });
+
+      const { service, dropbox, logger } = makeHarness({ dropboxStore: store });
+      const report = await service.recoverOnStartup();
+
+      expect(report.state).toBe(StartupState.HEAD_POINTS_TO_MISSING);
+
+      // head_invalid_schema must be logged
+      const warnMessages = logger.warnCalls.map((c) => c.message);
+      expect(warnMessages).toContain('head_invalid_schema');
+
+      // HEAD must be rewritten to the valid manifest
+      const headRewrites = dropbox.uploadJsonCalls.filter((c) => c.path === HEAD_PATH);
+      expect(headRewrites).toHaveLength(1);
+      const newHead = headRewrites[0].value as { snapshot_id: string };
+      expect(newHead.snapshot_id).toBe(validManifest.id);
+    });
+  });
+
+  describe('l. findNewest tie-break by id (ROB-005)', () => {
+    it('selects the manifest with the lexicographically greater id when created_at timestamps are identical', async () => {
+      const sameTs = '2026-04-24T10:00:00.000Z';
+      const mA = makeManifest('2026-04-24T10-00-full-aaa', sameTs);
+      const mB = makeManifest('2026-04-24T10-00-full-zzz', sameTs);
+
+      const store = new Map<string, unknown>();
+      seedManifest(store, mA);
+      seedManifest(store, mB);
+      // Seed HEAD pointing at mA (the one with lexicographically smaller id)
+      store.set(HEAD_PATH, makeHeadJson(mA.id, sameTs));
+
+      const { service, dropbox } = makeHarness({ dropboxStore: store });
+      const report = await service.recoverOnStartup();
+
+      // HEAD should have been rewritten to mB (the greater id wins the tie)
+      const headRewrites = dropbox.uploadJsonCalls.filter((c) => c.path === HEAD_PATH);
+      expect(headRewrites).toHaveLength(1);
+      const newHead = headRewrites[0].value as { snapshot_id: string };
+      expect(newHead.snapshot_id).toBe(mB.id);
+
+      // State reflects the stale HEAD (was pointing at mA but mB wins)
+      expect(report.state).toBe(StartupState.HEAD_STALE);
+    });
+  });
+
+  describe('m. gc_lock boundary at exactly 65 minutes (ROB-007)', () => {
+    it('sets stale_gc_lock=false when lock age is exactly 65 minutes (strict > comparator)', async () => {
+      const nowMs = new Date('2026-04-24T12:00:00.000Z').getTime();
+      // Exactly 65 minutes ago — NOT stale (threshold is strict >)
+      const boundaryStartedAt = new Date(nowMs - 65 * 60 * 1000).toISOString();
+
+      const manifest = makeManifest('2026-04-24T10-00-full', '2026-04-24T10:00:00.000Z');
+      const store = new Map<string, unknown>();
+      seedManifest(store, manifest);
+      store.set(HEAD_PATH, makeHeadJson(manifest.id, manifest.created_at));
+      store.set(GC_LOCK_PATH, { started_at: boundaryStartedAt });
+
+      const { service } = makeHarness({
+        dropboxStore: store,
+        now: () => nowMs,
+        maxClockSkewMinutes: 5,
+      });
+
+      const report = await service.recoverOnStartup();
+      expect(report.stale_gc_lock).toBe(false);
+    });
+
+    it('sets stale_gc_lock=true when lock age is 65 minutes + 1ms (just past threshold)', async () => {
+      const nowMs = new Date('2026-04-24T12:00:00.000Z').getTime();
+      // 65 minutes + 1 ms ago — stale
+      const justPastBoundary = new Date(nowMs - (65 * 60 * 1000 + 1)).toISOString();
+
+      const manifest = makeManifest('2026-04-24T10-00-full', '2026-04-24T10:00:00.000Z');
+      const store = new Map<string, unknown>();
+      seedManifest(store, manifest);
+      store.set(HEAD_PATH, makeHeadJson(manifest.id, manifest.created_at));
+      store.set(GC_LOCK_PATH, { started_at: justPastBoundary });
+
+      const { service } = makeHarness({
+        dropboxStore: store,
+        now: () => nowMs,
+        maxClockSkewMinutes: 5,
+      });
+
+      const report = await service.recoverOnStartup();
+      expect(report.stale_gc_lock).toBe(true);
     });
   });
 

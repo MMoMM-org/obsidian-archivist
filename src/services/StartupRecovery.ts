@@ -80,6 +80,8 @@ interface HeadJson {
 
 interface GcLock {
   started_at: string;
+  device_id?: string;
+  schema_version?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,20 +204,31 @@ export class StartupRecovery {
   }
 
   private async downloadAllManifests(entries: Array<{ path: string }>): Promise<SnapshotManifest[]> {
+    this.logger.info('startup_manifest_download_start', { count: entries.length });
+    const CONCURRENCY = 8;
     const manifests: SnapshotManifest[] = [];
-    for (const entry of entries) {
-      try {
-        const raw = await this.dropbox.downloadJson<unknown>(entry.path);
-        if (isSnapshotManifest(raw)) {
-          manifests.push(raw);
-        } else {
-          this.logger.warn('manifest_invalid_schema', { path: entry.path });
-        }
-      } catch (err) {
-        this.logger.warn('manifest_download_failed', {
-          path: entry.path,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    for (let i = 0; i < entries.length; i += CONCURRENCY) {
+      const batch = entries.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (entry) => {
+          try {
+            const raw = await this.dropbox.downloadJson<unknown>(entry.path);
+            if (isSnapshotManifest(raw)) {
+              return raw;
+            }
+            this.logger.warn('manifest_invalid_schema', { path: entry.path });
+            return null;
+          } catch (err) {
+            this.logger.warn('manifest_download_failed', {
+              path: entry.path,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return null;
+          }
+        }),
+      );
+      for (const r of results) {
+        if (r !== null) manifests.push(r);
       }
     }
     return manifests;
@@ -225,7 +238,10 @@ export class StartupRecovery {
     let existingIndex: { snapshots: Array<{ id: string }> } | null = null;
     try {
       existingIndex = await this.snapshotIndexStore.read();
-    } catch {
+    } catch (err) {
+      this.logger.warn('snapshot_index_read_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       existingIndex = null;
     }
 
@@ -257,6 +273,10 @@ export class StartupRecovery {
     const head = parseHead(headRaw);
 
     if (head === null) {
+      // HEAD present but fails schema — log a warning before rewriting
+      if (headRaw !== null) {
+        this.logger.warn('head_invalid_schema', { path: headPath(this.vaultPrefix) });
+      }
       // HEAD absent or invalid — rewrite to newest
       await this.rewriteHead(newestManifest);
       if (report.state === StartupState.HEALTHY || report.state === StartupState.SNAPSHOT_INDEX_STALE) {
@@ -313,7 +333,13 @@ export class StartupRecovery {
     const startedAt = new Date(lockRaw.started_at).getTime();
     const thresholdMs = (GC_LOCK_BASE_HOURS * 60 + this.maxClockSkewMinutes) * 60 * 1000;
 
-    if (this.now() - startedAt > thresholdMs) {
+    const ageMs = this.now() - startedAt;
+    if (ageMs > thresholdMs) {
+      this.logger.warn('gc_lock_stale', {
+        started_at: lockRaw.started_at,
+        age_ms: ageMs,
+        ...(lockRaw.device_id ? { device_id: lockRaw.device_id } : {}),
+      });
       report.stale_gc_lock = true;
       report.notes.push('stale_gc_lock');
     }
@@ -325,7 +351,11 @@ export class StartupRecovery {
 // ---------------------------------------------------------------------------
 
 function findNewest(manifests: SnapshotManifest[]): SnapshotManifest {
-  return manifests.reduce((best, m) => (m.created_at > best.created_at ? m : best));
+  return manifests.reduce((best, m) => {
+    if (m.created_at > best.created_at) return m;
+    if (m.created_at === best.created_at && m.id > best.id) return m;
+    return best;
+  });
 }
 
 /**
