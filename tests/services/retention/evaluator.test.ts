@@ -17,7 +17,7 @@
 //   - Property: idempotency — two runs produce identical output
 //   - Property: orphan Full with no tier match and no kept descendants → pruned
 
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { evaluateTiers } from '../../../src/services/retention/evaluator';
 import type { SnapshotIndexEntry } from '../../../src/model/SnapshotIndex';
 import type { RetentionSettings } from '../../../src/model/Settings';
@@ -26,7 +26,10 @@ import type { RetentionSettings } from '../../../src/model/Settings';
 // Factories
 // ---------------------------------------------------------------------------
 
+// Counter is reset before each test so IDs are unique within a test but
+// cross-describe state cannot leak between tests.
 let _idCounter = 0;
+beforeEach(() => { _idCounter = 0; });
 
 function makeSnapshot(
   created_at: string,
@@ -69,9 +72,6 @@ function subtractHours(isoDate: string, hours: number): string {
   d.setTime(d.getTime() - hours * 60 * 60 * 1000);
   return d.toISOString();
 }
-
-// Reset counter before each test block (counter is module-level, so test isolation relies on unique IDs)
-// We use a per-test factory so IDs are unique per snapshot within the test.
 
 // ---------------------------------------------------------------------------
 // Never-prune window
@@ -311,6 +311,33 @@ describe('evaluateTiers — monthly tier', () => {
     const kept = evaluateTiers([snap], settings, now);
 
     expect(kept.has('monthly-zero')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Monthly cutoff: end-of-month rollover safety
+// ---------------------------------------------------------------------------
+
+describe('evaluateTiers — monthly cutoff end-of-month safety', () => {
+  it('now=2026-03-31, monthly_years=1 → cutoff key is 2025-03 (no rollover skew)', () => {
+    // Date.setMonth on a 31st-of-month date rolls over: new Date('2026-03-31').setMonth(-9)
+    // produces 2025-04-01 (April) instead of 2025-03. Direct arithmetic must yield 2025-03.
+    const now = new Date('2026-03-31T12:00:00.000Z');
+    // A snapshot from March 2025 (inside 12-month window) must be kept as newest in its bucket
+    const snap2025Mar = makeSnapshot('2025-03-15T12:00:00.000Z', { id: 'cutoff-march-2025' });
+    // A snapshot from February 2025 (outside 12-month window) must be pruned
+    const snap2025Feb = makeSnapshot('2025-02-15T12:00:00.000Z', { id: 'cutoff-feb-2025' });
+    const settings = makeSettings({
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 0,
+      monthly_years: 1,
+    });
+
+    const kept = evaluateTiers([snap2025Mar, snap2025Feb], settings, now);
+
+    expect(kept.has('cutoff-march-2025')).toBe(true);
+    expect(kept.has('cutoff-feb-2025')).toBe(false);
   });
 });
 

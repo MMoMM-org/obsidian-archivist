@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Logger } from '../../../src/infra/Logger';
 import { augmentWithAncestors } from '../../../src/services/retention/chainIntegrity';
 import type { ChainSnapshot } from '../../../src/services/retention/chainIntegrity';
+import { ChainError } from '../../../src/model/Errors';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -144,6 +145,19 @@ describe('augmentWithAncestors — missing parent', () => {
     augmentWithAncestors(new Set(['Inc-Z']), snapshots, logger);
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('payload.error is a ChainError instance with code CHAIN_BROKEN', () => {
+    const snapshots = [
+      snap('Inc-Z', 'inc', 'missing-parent-id'),
+    ];
+    const logger = makeMockLogger();
+
+    augmentWithAncestors(new Set(['Inc-Z']), snapshots, logger);
+
+    const [, payload] = (logger.warn as ReturnType<typeof vi.fn>).mock.calls[0] as [string, { error: unknown }];
+    expect(payload.error).toBeInstanceOf(ChainError);
+    expect((payload.error as ChainError).code).toBe('CHAIN_BROKEN');
   });
 });
 

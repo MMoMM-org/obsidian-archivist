@@ -1,4 +1,5 @@
 import type { Logger } from '../../infra/Logger';
+import { ChainError } from '../../model/Errors';
 
 /**
  * Minimal snapshot shape required for chain-integrity walking.
@@ -71,7 +72,15 @@ export function augmentWithAncestors(
         const referrerId: string = cur;
         if (!warnedOrphans.has(referrerId)) {
           warnedOrphans.add(referrerId);
-          logger?.warn('chain_broken', { missing_parent_id: missingId, referrer_id: referrerId });
+          logger?.warn('chain_broken', {
+            missing_parent_id: missingId,
+            referrer_id: referrerId,
+            error: new ChainError(
+              'CHAIN_BROKEN',
+              `Missing parent manifest ${missingId} for ${referrerId}`,
+              false,
+            ),
+          });
         }
         break;
       }

@@ -29,11 +29,17 @@ function localMonthKey(isoTs: string): string {
   return `${y}-${m}`;
 }
 
-/** Returns the local-time month string "YYYY-MM" for a Date object. */
-function localMonthKeyFromDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+/**
+ * Computes the cutoff month key "YYYY-MM" by subtracting totalMonths from now.
+ * Uses direct year/month arithmetic — no Date intermediate, avoids end-of-month rollover
+ * (e.g. Date.setMonth on a 31st-of-month now produces incorrect results).
+ */
+function monthlyCutoffKey(now: Date, totalMonths: number): string {
+  const totalNowMonths = now.getFullYear() * 12 + now.getMonth();
+  const totalCutoff = totalNowMonths - totalMonths;
+  const year = Math.floor(totalCutoff / 12);
+  const month = totalCutoff - year * 12;
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
 }
 
 /** Keeps only the newest snapshot per bucket key. Returns a Set of kept IDs. */
@@ -96,9 +102,7 @@ function applyMonthly(
 ): Set<string> {
   if (settings.monthly_years === 0) return new Set();
   const totalMonths = settings.monthly_years * 12;
-  const cutoffDate = new Date(now);
-  cutoffDate.setMonth(cutoffDate.getMonth() - totalMonths);
-  const cutoffMonthKey = localMonthKeyFromDate(cutoffDate);
+  const cutoffMonthKey = monthlyCutoffKey(now, totalMonths);
   const inWindow = snapshots.filter((s) => localMonthKey(s.created_at) >= cutoffMonthKey);
   return newestPerBucket(inWindow, (s) => localMonthKey(s.created_at));
 }
