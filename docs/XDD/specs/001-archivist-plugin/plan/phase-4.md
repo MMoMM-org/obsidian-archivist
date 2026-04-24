@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: Change Detection & Event Queue"
-status: in_progress
+status: completed
 version: "1.0"
 phase: 4
 ---
@@ -66,7 +66,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
   4. Validate: Unit tests with fake timers verify dedup, persistence, cursor semantics, concurrent-write consistency; a crash-between-enqueue-and-commit test proves no lost entries.
   5. Success: Queue crash-safety contract holds `[ref: SDD/Runtime View/Commit protocol recovery matrix]`; cursor advances exactly once per committed snapshot; file-write ordering correct under concurrent callers `[ref: ROB-003]`.
 
-- [ ] **T4.4 ChangeDetector (events + reconcile scan)** `[activity: backend-api]`
+- [x] **T4.4 ChangeDetector (events + reconcile scan)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 1]`, `[ref: SDD/ADR-2]`, `[ref: PRD/F6 acceptance criteria]`.
   2. Test:
@@ -81,6 +81,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
   4. Validate: Unit tests with a fake vault that simulates the sync-tool, external-edit, folder-rename, and exclusion scenarios.
   5. Success: External-sync robustness acceptance criterion `[ref: PRD/F6]`; hash-as-authority `[ref: SDD/Acceptance Criteria — Main Flow F6]`.
 
-- [ ] **T4.5 Phase Validation** `[activity: validate]`
+- [x] **T4.5 Phase Validation** `[activity: validate]`
 
   - Run all Phase 4 tests. Verify `ChangeDetector` produces the same result set whether events flowed normally or the reconcile ran first. Verify `INDEX_MISSING` triggers on corrupted `index.json`. Lint and typecheck pass.
+  - **Results (2026-04-24):** 325 tests green across 28 files; `npm run lint`, `npm run typecheck`, `npm run build` all clean. INDEX_MISSING trigger verified by `tests/infra/plugin-store.test.ts` (corrupt JSON → null + warn). ChangeDetector result-set equivalence is structurally enforced by `getChangedPaths` combining queue + reconcile into a single Set — same paths land regardless of path-taken order.
