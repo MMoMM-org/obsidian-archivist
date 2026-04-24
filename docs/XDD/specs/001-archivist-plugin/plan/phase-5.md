@@ -80,7 +80,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests for each module; a concurrency test for SnapshotIndexStore write ordering; a scheduler test asserting the backup-caller returns before the retention job completes.
   5. Success: ADR-20 infrastructure exists as a concrete module, not a narrative reference `[ref: SDD/Directory Map]`; retention off the hot path `[ref: ROB-002]`.
 
-- [ ] **T5.3 BackupService — Full pipeline (with double-check + snapshot_index)** `[activity: backend-api]`
+- [x] **T5.3 BackupService — Full pipeline (with double-check + snapshot_index)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Primary Flow]`, `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot]` (7-step revised), `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/ADR-20]`.
   2. Test (end-to-end with mocked DropboxClient + fake Vault):
