@@ -1,20 +1,21 @@
 // T9.3 — ConfirmRestoreModal: destructive-action safety, keyboard guard,
 // dir-creation variant.
 //
-// All tests use a ModalHost driver (a recording impl) to fire keyboard
-// events and assert DOM content without needing real Obsidian or a browser.
+// All tests use a recording ModalHandle to fire keyboard events and assert
+// rendered content without needing real Obsidian or a browser.
+// renderConfirmRestoreContent() is called directly with the recording handle —
+// same logic that ConfirmRestoreModal.onOpen() exercises in production.
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ConfirmRestoreModal,
-  type ConfirmRestoreModalParams,
-  type ModalHost,
+  type ConfirmRestoreOpts,
   type ModalHandle,
+  renderConfirmRestoreContent,
 } from '../../src/ui/ConfirmRestoreModal';
 import { S } from '../../src/ui/strings';
 
 // ---------------------------------------------------------------------------
-// ModalHost recording implementation
+// Recording ModalHandle — test-internal
 // ---------------------------------------------------------------------------
 
 interface RecordedButton {
@@ -30,16 +31,13 @@ interface RecordedContent {
   buttons: RecordedButton[];
 }
 
-function makeModalHost(): {
-  host: ModalHost;
-  handle: ModalHandle & {
-    _closed: boolean;
-    _focusReturnCalled: boolean;
-    _keydownHandlers: Array<(key: string) => void>;
-    recorded: RecordedContent;
-    fireKeydown(key: string): void;
-    clickButton(label: string): void;
-  };
+function makeRecordingHandle(): ModalHandle & {
+  _closed: boolean;
+  _focusReturnCalled: boolean;
+  _keydownHandlers: Array<(key: string) => void>;
+  recorded: RecordedContent;
+  fireKeydown(key: string): void;
+  clickButton(label: string): void;
 } {
   const recorded: RecordedContent = {
     title: '',
@@ -52,7 +50,7 @@ function makeModalHost(): {
   let focusReturnCalled = false;
   const keydownHandlers: Array<(key: string) => void> = [];
 
-  const handle = {
+  return {
     get _closed() {
       return closedCount > 0;
     },
@@ -97,23 +95,13 @@ function makeModalHost(): {
       btn.onClick();
     },
   };
-
-  const host: ModalHost = {
-    open(): ModalHandle {
-      return handle;
-    },
-  };
-
-  return { host, handle };
 }
 
 // ---------------------------------------------------------------------------
 // Test factories
 // ---------------------------------------------------------------------------
 
-function makeInPlaceParams(
-  overrides: Partial<ConfirmRestoreModalParams> = {},
-): ConfirmRestoreModalParams {
+function makeInPlaceParams(overrides: Partial<ConfirmRestoreOpts> = {}): ConfirmRestoreOpts {
   return {
     filePath: 'notes/journal/2025-01-15.md',
     timestamp: '2025-01-15 14:30',
@@ -125,9 +113,7 @@ function makeInPlaceParams(
   };
 }
 
-function makeCreatesDirParams(
-  overrides: Partial<ConfirmRestoreModalParams> = {},
-): ConfirmRestoreModalParams {
+function makeCreatesDirParams(overrides: Partial<ConfirmRestoreOpts> = {}): ConfirmRestoreOpts {
   return makeInPlaceParams({
     missingDirs: ['notes', 'notes/journal'],
     ...overrides,
@@ -138,14 +124,12 @@ function makeCreatesDirParams(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function openModal(params: ConfirmRestoreModalParams): {
-  modal: ConfirmRestoreModal;
-  handle: ReturnType<typeof makeModalHost>['handle'];
+function openModal(params: ConfirmRestoreOpts): {
+  handle: ReturnType<typeof makeRecordingHandle>;
 } {
-  const { host, handle } = makeModalHost();
-  const modal = new ConfirmRestoreModal(params, host);
-  modal.present();
-  return { modal, handle };
+  const handle = makeRecordingHandle();
+  renderConfirmRestoreContent(handle, params);
+  return { handle };
 }
 
 // ---------------------------------------------------------------------------
