@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: Change Detection & Event Queue"
-status: pending
+status: in_progress
 version: "1.0"
 phase: 4
 ---
@@ -33,7 +33,7 @@ phase: 4
 
 Produces the eyes-and-ears of the plugin — everything that turns vault edits into a ready-to-snapshot set.
 
-- [ ] **T4.1 VaultAdapter (Obsidian Vault API wrapper, typed-overload events)** `[activity: backend-api]`
+- [x] **T4.1 VaultAdapter (Obsidian Vault API wrapper, typed-overload events)** `[activity: backend-api]`
 
   1. Prime: Read Obsidian Vault / TFile / TAbstractFile interfaces; `[ref: SDD/Risks/Implementation Gotchas]`.
   2. Test: `getFiles()` returns `TFile[]` mapped to a simple `{path, mtime, size}` shape; `readBytes(path)` returns `Uint8Array`; `writeAtomic(path, bytes)` writes to `<path>.archivist-tmp` then renames and leaves no temp file on success; `writeAtomic` crashes mid-write leaves the original file untouched (verified by aborting between write and rename); folder-rename event produces a single `rename(newFolderPath, oldFolderPath)` event and does NOT re-enqueue N descendants (dedup responsibility is here, not ChangeDetector).
@@ -42,7 +42,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
   4. Validate: Unit tests with an in-memory fake `Vault` adapter (no real Obsidian); file-operation contracts asserted; atomic-write aborts leave no residue; compile-time type tests assert the event signatures.
   5. Success: Every later test can swap `VaultAdapter` for a fake `[ref: SDD/Directory Map]`; atomic-write precondition for restore `[ref: SDD/Acceptance Criteria — restore integrity]`; event-arity safety `[ref: ROB-007]`.
 
-- [ ] **T4.2 PluginStore (data.json + index.json + pending_changes.json persistence)** `[activity: data-architecture]` `[parallel: true]`
+- [x] **T4.2 PluginStore (data.json + index.json + pending_changes.json persistence)** `[activity: data-architecture]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Building Block View/Data Storage Changes]` and `[ref: SDD/ADR-11]`.
   2. Test:

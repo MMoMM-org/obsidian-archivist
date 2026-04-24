@@ -49,7 +49,10 @@ export class PluginStore {
     const next = this.writeQueue.then(() =>
       this.plugin.app.vault.adapter.write(path, data),
     );
-    this.writeQueue = next.catch(() => undefined);
+    // Chain advances on `recovered` (rejection neutralized) so a failed write
+    // does not poison later writes. Caller still sees the raw rejection on `next`.
+    const recovered = next.catch(() => undefined);
+    this.writeQueue = recovered;
     return next;
   }
 
@@ -84,6 +87,10 @@ export class PluginStore {
       this.logger.warn('settings_corrupt', {
         error: err instanceof Error ? err : new Error(String(err)),
       });
+      // data.json.bak is written directly (not via writeQueue) — it targets a
+      // dedicated filename that no other method writes, so no same-path race
+      // is possible. The await keeps loadSettings() from resolving before the
+      // bak lands.
       await this.plugin.app.vault.adapter.write(
         `${this.pluginDataDir}/${DATA_BAK_FILENAME}`,
         JSON.stringify(raw, null, 2),
