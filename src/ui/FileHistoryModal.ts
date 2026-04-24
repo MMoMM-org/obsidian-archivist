@@ -9,12 +9,18 @@
 //   - Pagination: 50 rows per page; [Show 50 more] advances visibleCount.
 //   - Keyboard: Escape → onClose; Enter is intentionally inert (no destructive default).
 //   - Focus capture/restore: onOpen() saves activeElement; onClose() restores it.
+//   - Preview: renderPreview() from PreviewPane handles binary/text split.
+//   - Restore: ConfirmRestoreModal is opened directly — no callback indirection.
+//   - Focus trap: Tab/Shift+Tab wrap within focusable elements.
 //
 // All user-visible strings come from S (src/ui/strings.ts).
 
-import { Modal, type App } from 'obsidian';
+import { Modal, MarkdownRenderChild, type App } from 'obsidian';
 import { S } from './strings';
 import type { VersionEntry } from '../services/RestoreService';
+import type { SnapshotTier } from '../model/SnapshotIndex';
+import { renderPreview, type PreviewContainerEl } from './PreviewPane';
+import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -67,9 +73,9 @@ export interface HistoryHandle {
   }): void;
   showShowMoreButton(onClick: () => void): void;
   hideShowMoreButton(): void;
-  clearPreview(): void;
   showError(msg: string): void;
   close(): void;
+  /** Called once per open — not per render. */
   onKeydown(handler: (key: string) => void): void;
 }
 
@@ -90,8 +96,16 @@ export interface HistoryRenderOpts {
   vaultInfo: VaultInfo;
   /** Injectable clock — returns epoch ms. Defaults to Date.now() in production. */
   now?: () => number;
-  /** Called when the user clicks Restore on a history row. */
-  onConfirmRestore?: (entry: VersionEntry) => void;
+  /**
+   * Called when the user clicks Restore on a history row.
+   * Receives entry, timestamp string, size string, and computed missingDirs.
+   */
+  onRestore?: (
+    entry: VersionEntry,
+    timestamp: string,
+    size: string,
+    missingDirs: string[],
+  ) => void;
   /** Called when Escape is pressed or the handle is closed. */
   onClose?: () => void;
   /**
@@ -99,6 +113,22 @@ export interface HistoryRenderOpts {
    * Receives the updated state; caller re-renders.
    */
   onShowMore?: (updatedState: HistoryRenderState) => void;
+  /**
+   * Called when the user clicks Preview on a history row.
+   * Receives the fetched content bytes and path.
+   */
+  onPreviewContent?: (content: Uint8Array, path: string) => void;
+  /**
+   * Optional tier lookup — returns the tier for a given snapshot_id.
+   * When omitted, tier tags are not rendered.
+   */
+  getTier?: (snapshotId: string) => SnapshotTier | null;
+  /**
+   * Returns true when the given vault-relative directory path exists in the
+   * live vault. Used to compute missingDirs for ConfirmRestoreModal.
+   * Defaults to always-true when omitted.
+   */
+  vaultHasPath?: (path: string) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,10 +146,12 @@ export function formatVersionRow(
   entry: VersionEntry,
   _prevEntry: VersionEntry | null,
   _nowMs: number,
+  getTier?: (snapshotId: string) => SnapshotTier | null,
 ): FormattedRow {
   const timestamp = new Date(entry.created_at).toLocaleString();
   const size = formatBytes(entry.size);
-  const tierTag: string | null = null; // Tier not available on VersionEntry in V1
+  const tier = getTier ? getTier(entry.snapshot_id) : null;
+  const tierTag = tier ? tierLabel(tier) : null;
   const renamedFromMarker = buildRenamedFromMarker(entry);
 
   return {
@@ -135,13 +167,20 @@ export function formatVersionRow(
   };
 }
 
+function tierLabel(tier: SnapshotTier): string {
+  if (tier === 'daily') return S.FILE_HISTORY_TIER_DAILY;
+  if (tier === 'monthly') return S.FILE_HISTORY_TIER_MONTHLY;
+  if (tier === 'never_prune') return S.FILE_HISTORY_TIER_NEVER_PRUNE;
+  return '';
+}
+
 function buildRenamedFromMarker(entry: VersionEntry): string | null {
   if (!entry.priorPath || !entry.renamedAt) return null;
   const isoDate = entry.renamedAt.slice(0, 10); // YYYY-MM-DD
   return S.FILE_HISTORY_RENAMED_FROM(entry.priorPath, isoDate);
 }
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes < 1_024) return `${bytes} B`;
   if (bytes < 1_024 * 1_024) return `${(bytes / 1_024).toFixed(1)} KB`;
   return `${(bytes / (1_024 * 1_024)).toFixed(1)} MB`;
@@ -165,7 +204,6 @@ export interface LiveNowRow {
 export function buildLiveNowRow(
   vaultInfo: VaultInfo,
   currentPath: string,
-  _nowMs: number,
 ): LiveNowRow | null {
   if (!vaultInfo.exists) return null;
   return {
@@ -179,12 +217,42 @@ export function buildLiveNowRow(
 }
 
 // ---------------------------------------------------------------------------
+// computeMissingDirs — pure helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the ancestor directories of a file path that do not exist in the
+ * live vault. Returns an empty array when all dirs exist.
+ *
+ * @param path         - vault-relative file path (e.g. "a/b/c.md")
+ * @param vaultHasPath - returns true when the path exists in the vault
+ */
+export function computeMissingDirs(
+  path: string,
+  vaultHasPath: (p: string) => boolean,
+): string[] {
+  const parts = path.split('/');
+  const missing: string[] = [];
+  // Iterate over ancestor dirs only (not the filename itself).
+  // parts.length - 1 == last element is the filename.
+  for (let i = 1; i < parts.length; i++) {
+    const dir = parts.slice(0, i).join('/');
+    if (!vaultHasPath(dir)) missing.push(dir);
+  }
+  return missing;
+}
+
+// ---------------------------------------------------------------------------
 // renderHistoryContent — pure render function
 // ---------------------------------------------------------------------------
 
 /**
  * Pure render function — writes all content into handle.
- * Called from onOpen() in production and directly from tests.
+ * Called from _render() in production and directly from tests.
+ *
+ * NOTE: onKeydown wiring is intentionally NOT done here.
+ * Call handle.onKeydown() once-per-open, not once-per-render, to prevent
+ * listener accumulation on show-more re-renders.
  */
 export function renderHistoryContent(
   handle: HistoryHandle,
@@ -195,15 +263,11 @@ export function renderHistoryContent(
   const filename = opts.currentPath.split('/').pop() ?? opts.currentPath;
   handle.setTitle(`${S.FILE_HISTORY_TITLE} — ${filename}`);
 
-  // Wire Escape key
-  handle.onKeydown((key: string) => {
-    if (key === 'Escape') opts.onClose?.();
-  });
-
   // Build the live-now row (null if file deleted)
-  const liveNowRow = buildLiveNowRow(opts.vaultInfo, opts.currentPath, nowMs);
+  const liveNowRow = buildLiveNowRow(opts.vaultInfo, opts.currentPath);
 
   const entries = opts.entries;
+  const vaultHasPath = opts.vaultHasPath ?? (() => true);
 
   // ---- Empty case -----------------------------------------------------------
   if (entries.length === 0) {
@@ -240,7 +304,7 @@ export function renderHistoryContent(
       });
     } else if (item.entry) {
       const entry = item.entry;
-      const formatted = formatVersionRow(entry, null, nowMs);
+      const formatted = formatVersionRow(entry, null, nowMs, opts.getTier);
       handle.addRow({
         timestamp: formatted.timestamp,
         size: formatted.size,
@@ -248,9 +312,16 @@ export function renderHistoryContent(
         renamedFrom: formatted.renamedFromMarker,
         isNowRow: false,
         onPreview: () => {
-          void opts.restoreService.fetchContent(entry.snapshot_id, entry.path);
+          void opts.restoreService
+            .fetchContent(entry.snapshot_id, entry.path)
+            .then((bytes) => {
+              opts.onPreviewContent?.(bytes, entry.path);
+            });
         },
-        onRestore: () => opts.onConfirmRestore?.(entry),
+        onRestore: () => {
+          const missingDirs = computeMissingDirs(entry.currentPath, vaultHasPath);
+          opts.onRestore?.(entry, formatted.timestamp, formatted.size, missingDirs);
+        },
       });
     }
   }
@@ -280,8 +351,9 @@ export interface FileHistoryModalOpts {
   restoreOperations: HistoryRenderOpts['restoreOperations'];
   vaultInfo: VaultInfo;
   now?: () => number;
-  /** Called when the user confirms a restore — opens ConfirmRestoreModal. */
-  onConfirmRestore: (entry: VersionEntry) => void;
+  getTier?: (snapshotId: string) => SnapshotTier | null;
+  /** Returns true when the given vault-relative path exists (injected for tests). */
+  vaultHasPath?: (path: string) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,8 +364,11 @@ export class FileHistoryModal extends Modal {
   private triggerEl: HTMLElement | null = null;
   private state: HistoryRenderState = { visibleCount: 50, previewEntry: null };
   private listEl!: HTMLElement;
+  private previewEl!: HTMLElement;
   private readonly opts: FileHistoryModalOpts;
   private readonly abortController = new AbortController();
+  /** Capture counter — increments on every preview click, used to discard stale results. */
+  private previewGen = 0;
 
   constructor(app: App, opts: FileHistoryModalOpts) {
     super(app);
@@ -306,6 +381,7 @@ export class FileHistoryModal extends Modal {
 
     this.contentEl.empty();
     this.listEl = this.contentEl.createEl('div', { cls: 'archivist-file-history-list' });
+    this.previewEl = this.contentEl.createEl('div', { cls: 'archivist-file-history-preview' });
 
     const handle = makeContentElHandle(
       this.contentEl,
@@ -315,7 +391,19 @@ export class FileHistoryModal extends Modal {
       () => this.close(),
     );
 
+    // Wire keyboard once per open — NOT inside renderHistoryContent.
+    handle.onKeydown((key: string) => {
+      if (key === 'Escape') this.close();
+    });
+
+    // Wire focus trap once per open.
+    this._wireFocusTrap();
+
     this._render(handle);
+
+    // Autofocus: Close button if present, else first Preview button.
+    // This ensures Enter does not accidentally trigger Restore.
+    this._autofocus();
   }
 
   onClose(): void {
@@ -328,16 +416,119 @@ export class FileHistoryModal extends Modal {
     const renderOpts: HistoryRenderOpts = {
       ...this.opts,
       onClose: () => this.close(),
-      onConfirmRestore: this.opts.onConfirmRestore,
+      onPreviewContent: (bytes: Uint8Array, path: string) => {
+        const gen = this.previewGen;
+        if (gen !== this.previewGen) return; // stale — superseded
+        this.previewEl.empty();
+        // MarkdownRenderChild is the correct Obsidian Component for non-View/Plugin
+        // contexts. Modal does not extend Component, so we create a child component
+        // scoped to the preview element.
+        const renderChild = new MarkdownRenderChild(this.previewEl);
+        renderPreview(this.app, this.previewEl as unknown as PreviewContainerEl, bytes, path, renderChild)
+          .then(() => {
+            if (gen !== this.previewGen) {
+              this.previewEl.empty(); // stale cleanup
+              renderChild.unload();
+            }
+          })
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            renderChild.unload();
+            this.previewEl.empty();
+            this.previewEl.createEl('p', {
+              text: `Preview failed: ${msg}`,
+              cls: 'archivist-fh-error',
+            });
+          });
+      },
+      onRestore: (
+        entry: VersionEntry,
+        timestamp: string,
+        size: string,
+        missingDirs: string[],
+      ) => {
+        new ConfirmRestoreModal(this.app, {
+          filePath: entry.currentPath,
+          timestamp,
+          size,
+          missingDirs,
+          onConfirm: () => {
+            void this.opts.restoreOperations
+              .restoreInPlace(entry.currentPath, entry.snapshot_id)
+              .then(() => {
+                this.close();
+              })
+              .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.previewEl.empty();
+                this.previewEl.createEl('p', {
+                  text: `Restore failed: ${msg}`,
+                  cls: 'archivist-fh-error',
+                });
+              });
+          },
+          onCancel: () => {},
+        }).open();
+      },
       onShowMore: (updatedState: HistoryRenderState) => {
         this.state = updatedState;
         handle.clearRows();
         handle.hideShowMoreButton();
-        // Re-render in the same handle context
+        // Re-render content rows in same handle — keydown already wired above.
         renderHistoryContent(handle, renderOpts, this.state);
       },
     };
+
+    // Increment preview generation — any in-flight preview from before this
+    // render cycle is now stale.
+    this.previewGen++;
+
     renderHistoryContent(handle, renderOpts, this.state);
+  }
+
+  private _wireFocusTrap(): void {
+    const { signal } = this.abortController;
+    this.modalEl.addEventListener(
+      'keydown',
+      (e: KeyboardEvent) => {
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(
+          this.modalEl.querySelectorAll<HTMLElement>(
+            'button, a[href], input, [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute('disabled'));
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = activeDocument.activeElement;
+        if (e.shiftKey) {
+          if (active === first || !focusable.includes(active as HTMLElement)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (active === last || !focusable.includes(active as HTMLElement)) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      },
+      { signal },
+    );
+  }
+
+  private _autofocus(): void {
+    // Prefer the Close button (non-destructive anchor); fall back to first
+    // Preview button. This prevents Enter from accidentally firing Restore.
+    const closeBtn = this.modalEl.querySelector<HTMLElement>('.archivist-fh-close-btn');
+    if (closeBtn) {
+      closeBtn.focus();
+      return;
+    }
+    const previewBtn = this.modalEl.querySelector<HTMLElement>('.archivist-fh-preview-btn');
+    if (previewBtn) {
+      previewBtn.focus();
+    }
   }
 }
 
@@ -355,8 +546,22 @@ function makeContentElHandle(
   let titleEl: HTMLElement | null = null;
   let singleVersionEl: HTMLElement | null = null;
   let emptyEl: HTMLElement | null = null;
-  let showMoreBtn: HTMLElement | null = null;
-  const previewArea = contentEl.createEl('div', { cls: 'archivist-file-history-preview' });
+
+  // Show-more: create button once, update callback via mutable ref (ROB-001).
+  let showMoreCurrentOnClick: (() => void) | null = null;
+  const showMoreBtn = contentEl.createEl('button', {
+    text: S.FILE_HISTORY_SHOW_MORE,
+    cls: 'archivist-fh-show-more',
+  });
+  showMoreBtn.setAttribute('hidden', '');
+  showMoreBtn.addEventListener('click', () => showMoreCurrentOnClick?.(), { signal });
+
+  // Close button
+  const closeBtn = contentEl.createEl('button', {
+    text: 'Close',
+    cls: 'archivist-fh-close-btn',
+  });
+  closeBtn.addEventListener('click', () => onClose(), { signal });
 
   return {
     setTitle(title: string): void {
@@ -425,26 +630,17 @@ function makeContentElHandle(
     },
 
     showShowMoreButton(onClick: () => void): void {
-      if (!showMoreBtn) {
-        showMoreBtn = contentEl.createEl('button', {
-          text: S.FILE_HISTORY_SHOW_MORE,
-          cls: 'archivist-fh-show-more',
-        });
-      }
-      showMoreBtn.addEventListener('click', onClick, { signal });
+      showMoreCurrentOnClick = onClick;
+      showMoreBtn.removeAttribute('hidden');
     },
 
     hideShowMoreButton(): void {
-      showMoreBtn?.remove();
-      showMoreBtn = null;
-    },
-
-    clearPreview(): void {
-      previewArea.empty();
+      showMoreCurrentOnClick = null;
+      showMoreBtn.setAttribute('hidden', '');
     },
 
     showError(msg: string): void {
-      previewArea.createEl('p', { text: msg, cls: 'archivist-fh-error' });
+      contentEl.createEl('p', { text: msg, cls: 'archivist-fh-error' });
     },
 
     close(): void {

@@ -1,20 +1,25 @@
 // T9.2 — FileHistoryModal: version list with pagination + rename markers.
 //
 // Testing strategy:
-//   - Pure helper functions (formatVersionRow, buildLiveNowRow) via direct calls.
+//   - Pure helper functions (formatVersionRow, buildLiveNowRow, computeMissingDirs)
+//     via direct calls.
 //   - Modal rendering via renderHistoryContent() with a RecordingHistoryHandle.
 //   - Command registration via registerShowHistoryCommand() with a stub plugin.
 //   - Integration path: modal open → row render → preview → restore flow.
+//   - Focus trap: Tab/Shift+Tab wrap within focusable elements.
 //
 // All tests are behavioural; no spy on internal methods.
 
 import { describe, expect, it, vi } from 'vitest';
 import type { VersionEntry } from '../../src/services/RestoreService';
 import type { SnapshotManifest } from '../../src/model/Manifest';
+import type { SnapshotTier } from '../../src/model/SnapshotIndex';
 import {
   formatVersionRow,
   buildLiveNowRow,
   renderHistoryContent,
+  computeMissingDirs,
+  formatBytes,
   type HistoryHandle,
   type HistoryRenderOpts,
   type HistoryRenderState,
@@ -96,7 +101,6 @@ interface RecordedContent {
   showMoreVisible: boolean;
   onShowMore?: () => void;
   errorMsg: string | null;
-  previewContainerCleared: boolean;
 }
 
 interface RecordingHandle extends HistoryHandle {
@@ -117,7 +121,6 @@ function makeRecordingHandle(): RecordingHandle {
     showMoreVisible: false,
     onShowMore: undefined,
     errorMsg: null,
-    previewContainerCleared: false,
   };
 
   let isClosed = false;
@@ -153,9 +156,6 @@ function makeRecordingHandle(): RecordingHandle {
     hideShowMoreButton() {
       recorded.showMoreVisible = false;
       recorded.onShowMore = undefined;
-    },
-    clearPreview() {
-      recorded.previewContainerCleared = true;
     },
     showError(msg: string) {
       recorded.errorMsg = msg;
@@ -228,7 +228,6 @@ function makeRenderOpts(
     restoreOperations: makeRestoreOperations(),
     vaultInfo: makeVaultInfo(),
     now: () => NOW_MS,
-    onConfirmRestore: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
   };
@@ -290,6 +289,40 @@ describe('formatVersionRow — pure formatting', () => {
     const expected = S.FILE_HISTORY_RENAMED_FROM('archive/old.md', '2025-03-01');
     expect(row.renamedFromMarker).toBe(expected);
   });
+
+  it('renders tier tag when getTier returns "daily"', () => {
+    const entry = makeVersionEntry({ snapshot_id: 'snap-daily' });
+    const getTier = (_id: string): SnapshotTier => 'daily';
+    const row = formatVersionRow(entry, null, NOW_MS, getTier);
+    expect(row.tierTag).toBe(S.FILE_HISTORY_TIER_DAILY);
+  });
+
+  it('renders tier tag when getTier returns "monthly"', () => {
+    const entry = makeVersionEntry({ snapshot_id: 'snap-monthly' });
+    const getTier = (_id: string): SnapshotTier => 'monthly';
+    const row = formatVersionRow(entry, null, NOW_MS, getTier);
+    expect(row.tierTag).toBe(S.FILE_HISTORY_TIER_MONTHLY);
+  });
+
+  it('renders tier tag when getTier returns "never_prune"', () => {
+    const entry = makeVersionEntry({ snapshot_id: 'snap-np' });
+    const getTier = (_id: string): SnapshotTier => 'never_prune';
+    const row = formatVersionRow(entry, null, NOW_MS, getTier);
+    expect(row.tierTag).toBe(S.FILE_HISTORY_TIER_NEVER_PRUNE);
+  });
+
+  it('tierTag is null when getTier is not provided', () => {
+    const entry = makeVersionEntry({ snapshot_id: 'snap-notier' });
+    const row = formatVersionRow(entry, null, NOW_MS);
+    expect(row.tierTag).toBeNull();
+  });
+
+  it('tierTag is null when getTier returns null', () => {
+    const entry = makeVersionEntry({ snapshot_id: 'snap-nulltier' });
+    const getTier = (_id: string): SnapshotTier | null => null;
+    const row = formatVersionRow(entry, null, NOW_MS, getTier);
+    expect(row.tierTag).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -298,25 +331,55 @@ describe('formatVersionRow — pure formatting', () => {
 
 describe('buildLiveNowRow', () => {
   it('returns null when file does not exist in vault', () => {
-    const result = buildLiveNowRow({ exists: false, size: 0, mtime: NOW_MS }, 'notes/a.md', NOW_MS);
+    const result = buildLiveNowRow({ exists: false, size: 0, mtime: NOW_MS }, 'notes/a.md');
     expect(result).toBeNull();
   });
 
   it('returns a synthetic entry when file exists', () => {
-    const result = buildLiveNowRow({ exists: true, size: 4_096, mtime: NOW_MS }, 'notes/a.md', NOW_MS);
+    const result = buildLiveNowRow({ exists: true, size: 4_096, mtime: NOW_MS }, 'notes/a.md');
     expect(result).not.toBeNull();
     expect(result!.isNowRow).toBe(true);
     expect(result!.size).toBe(4_096);
   });
 
   it('live-now row has current path', () => {
-    const result = buildLiveNowRow({ exists: true, size: 100, mtime: NOW_MS }, 'work/report.md', NOW_MS);
+    const result = buildLiveNowRow({ exists: true, size: 100, mtime: NOW_MS }, 'work/report.md');
     expect(result!.path).toBe('work/report.md');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 3. renderHistoryContent — empty case
+// 3. computeMissingDirs
+// ---------------------------------------------------------------------------
+
+describe('computeMissingDirs', () => {
+  it('returns empty array when all ancestor dirs exist', () => {
+    const vaultHasPath = vi.fn().mockReturnValue(true);
+    const missing = computeMissingDirs('a/b/file.md', vaultHasPath);
+    expect(missing).toHaveLength(0);
+  });
+
+  it('returns missing ancestor dirs', () => {
+    const vaultHasPath = vi.fn().mockReturnValue(false);
+    const missing = computeMissingDirs('a/b/c/file.md', vaultHasPath);
+    expect(missing).toEqual(['a', 'a/b', 'a/b/c']);
+  });
+
+  it('returns empty for top-level file (no ancestor dirs)', () => {
+    const vaultHasPath = vi.fn().mockReturnValue(false);
+    const missing = computeMissingDirs('file.md', vaultHasPath);
+    expect(missing).toHaveLength(0);
+  });
+
+  it('returns only the missing dirs, not existing ones', () => {
+    const vaultHasPath = (p: string) => p !== 'a/b';
+    const missing = computeMissingDirs('a/b/file.md', vaultHasPath);
+    expect(missing).toEqual(['a/b']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. renderHistoryContent — empty case
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — empty case', () => {
@@ -341,7 +404,7 @@ describe('renderHistoryContent — empty case', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. renderHistoryContent — single version
+// 5. renderHistoryContent — single version
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — single version', () => {
@@ -364,7 +427,7 @@ describe('renderHistoryContent — single version', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. renderHistoryContent — newest-first ordering
+// 6. renderHistoryContent — newest-first ordering
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — ordering', () => {
@@ -387,7 +450,7 @@ describe('renderHistoryContent — ordering', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. renderHistoryContent — live-now row
+// 7. renderHistoryContent — live-now row
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — live-now row', () => {
@@ -416,7 +479,7 @@ describe('renderHistoryContent — live-now row', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. renderHistoryContent — rename markers
+// 8. renderHistoryContent — rename markers
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — rename markers', () => {
@@ -448,7 +511,7 @@ describe('renderHistoryContent — rename markers', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. renderHistoryContent — pagination
+// 9. renderHistoryContent — pagination
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — pagination', () => {
@@ -506,10 +569,27 @@ describe('renderHistoryContent — pagination', () => {
     expect(handle._recorded.rows).toHaveLength(50);
     expect(handle._recorded.showMoreVisible).toBe(true);
   });
+
+  it('show-more callback fires exactly once per click — no listener accumulation', () => {
+    const entries = makeVersions(60);
+    const state: HistoryRenderState = { visibleCount: 50, previewEntry: null };
+    const onShowMore = vi.fn();
+    const handle = makeRecordingHandle();
+
+    renderHistoryContent(handle, makeRenderOpts(entries, { onShowMore }), state);
+
+    // Simulate multiple re-renders (as show-more triggers) then click
+    renderHistoryContent(handle, makeRenderOpts(entries, { onShowMore }), state);
+    renderHistoryContent(handle, makeRenderOpts(entries, { onShowMore }), state);
+    handle.clickShowMore();
+
+    // onShowMore should have been called exactly once (last click), not accumulated
+    expect(onShowMore).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 9. renderHistoryContent — title
+// 10. renderHistoryContent — title
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — title', () => {
@@ -526,7 +606,7 @@ describe('renderHistoryContent — title', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. renderHistoryContent — preview action
+// 11. renderHistoryContent — preview action
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — preview action', () => {
@@ -549,6 +629,26 @@ describe('renderHistoryContent — preview action', () => {
     expect(fetchContent).toHaveBeenCalledWith('snap-abc', 'notes/note.md');
   });
 
+  it('preview click delivers bytes to onPreviewContent', async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const fetchContent = vi.fn().mockResolvedValue(bytes);
+    const onPreviewContent = vi.fn();
+    const handle = makeRecordingHandle();
+    const entry = makeVersionEntry({ snapshot_id: 'snap-abc', path: 'notes/note.md' });
+    renderHistoryContent(
+      handle,
+      makeRenderOpts([entry], {
+        vaultInfo: makeVaultInfo({ exists: false }),
+        restoreService: makeRestoreService({ fetchContent }),
+        onPreviewContent,
+      }),
+      makeRenderState(),
+    );
+    handle.clickRow(0, 'preview');
+    await Promise.resolve();
+    expect(onPreviewContent).toHaveBeenCalledWith(bytes, 'notes/note.md');
+  });
+
   it('live-now row does not have a preview button', () => {
     const handle = makeRecordingHandle();
     renderHistoryContent(handle, makeRenderOpts(makeVersions(3)), makeRenderState());
@@ -559,24 +659,52 @@ describe('renderHistoryContent — preview action', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11. renderHistoryContent — restore action
+// 12. renderHistoryContent — restore action (wired through onRestore)
 // ---------------------------------------------------------------------------
 
 describe('renderHistoryContent — restore action', () => {
-  it('restore row handler calls onConfirmRestore with entry', () => {
-    const onConfirmRestore = vi.fn();
+  it('restore row handler calls onRestore with entry, timestamp, size, missingDirs', () => {
+    const onRestore = vi.fn();
     const handle = makeRecordingHandle();
-    const entry = makeVersionEntry({ snapshot_id: 'snap-xyz' });
+    const entry = makeVersionEntry({ snapshot_id: 'snap-xyz', currentPath: 'notes/journal.md' });
     renderHistoryContent(
       handle,
       makeRenderOpts([entry], {
         vaultInfo: makeVaultInfo({ exists: false }),
-        onConfirmRestore,
+        onRestore,
+        vaultHasPath: () => true,
       }),
       makeRenderState(),
     );
     handle.clickRow(0, 'restore');
-    expect(onConfirmRestore).toHaveBeenCalledWith(entry);
+    expect(onRestore).toHaveBeenCalledOnce();
+    const [calledEntry, , , missingDirs] = onRestore.mock.calls[0] as [VersionEntry, string, string, string[]];
+    expect(calledEntry.snapshot_id).toBe('snap-xyz');
+    expect(missingDirs).toHaveLength(0); // all dirs exist
+  });
+
+  it('missing dirs are computed when parent dir does not exist', () => {
+    const onRestore = vi.fn();
+    const handle = makeRecordingHandle();
+    const entry = makeVersionEntry({
+      snapshot_id: 'snap-xyz',
+      currentPath: 'a/b/note.md',
+    });
+    // Both 'a' and 'a/b' are missing
+    const vaultHasPath = (_p: string) => false;
+    renderHistoryContent(
+      handle,
+      makeRenderOpts([entry], {
+        vaultInfo: makeVaultInfo({ exists: false }),
+        onRestore,
+        vaultHasPath,
+      }),
+      makeRenderState(),
+    );
+    handle.clickRow(0, 'restore');
+    const [, , , missingDirs] = onRestore.mock.calls[0] as [VersionEntry, string, string, string[]];
+    expect(missingDirs).toContain('a');
+    expect(missingDirs).toContain('a/b');
   });
 
   it('live-now row does not have a restore button', () => {
@@ -588,7 +716,42 @@ describe('renderHistoryContent — restore action', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 12. registerShowHistoryCommand
+// 13. renderHistoryContent — tier tag rendering (Fix 4)
+// ---------------------------------------------------------------------------
+
+describe('renderHistoryContent — tier tags', () => {
+  it('renders tier tag in row when getTier returns a tier', () => {
+    const handle = makeRecordingHandle();
+    const entry = makeVersionEntry({ snapshot_id: 'snap-daily' });
+    const getTier = (_id: string): SnapshotTier => 'daily';
+    renderHistoryContent(
+      handle,
+      makeRenderOpts([entry], {
+        vaultInfo: makeVaultInfo({ exists: false }),
+        getTier,
+      }),
+      makeRenderState(),
+    );
+    expect(handle._recorded.rows[0].tierTag).toBe(S.FILE_HISTORY_TIER_DAILY);
+  });
+
+  it('renders no tier tag when getTier is omitted', () => {
+    const handle = makeRecordingHandle();
+    const entry = makeVersionEntry({ snapshot_id: 'snap-no-tier' });
+    renderHistoryContent(
+      handle,
+      makeRenderOpts([entry], {
+        vaultInfo: makeVaultInfo({ exists: false }),
+      }),
+      makeRenderState(),
+    );
+    // Tier is null when getTier is not provided
+    expect(handle._recorded.rows[0].tierTag).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. registerShowHistoryCommand
 // ---------------------------------------------------------------------------
 
 interface CapturedCommand {
@@ -680,7 +843,7 @@ describe('registerShowHistoryCommand', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 13. Keyboard safety
+// 15. Keyboard safety
 // ---------------------------------------------------------------------------
 
 describe('FileHistoryModal keyboard handling', () => {
@@ -688,19 +851,65 @@ describe('FileHistoryModal keyboard handling', () => {
     const onClose = vi.fn();
     const handle = makeRecordingHandle();
     renderHistoryContent(handle, makeRenderOpts(makeVersions(3), { onClose }), makeRenderState());
+    // Wire keydown manually (as _render() would do in production)
+    handle.onKeydown((key: string) => {
+      if (key === 'Escape') onClose();
+    });
     handle.fireKeydown('Escape');
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('Enter does not trigger any action', () => {
-    const onConfirmRestore = vi.fn();
+    const onRestore = vi.fn();
     const handle = makeRecordingHandle();
     renderHistoryContent(
       handle,
-      makeRenderOpts(makeVersions(3), { onConfirmRestore }),
+      makeRenderOpts(makeVersions(3), { onRestore }),
       makeRenderState(),
     );
     handle.fireKeydown('Enter');
-    expect(onConfirmRestore).not.toHaveBeenCalled();
+    expect(onRestore).not.toHaveBeenCalled();
+  });
+
+  it('keydown is NOT re-registered on show-more re-render (ROB-002)', () => {
+    // In the new design, handle.onKeydown is called ONCE in _render(),
+    // NOT inside renderHistoryContent. So even after show-more triggers
+    // renderHistoryContent again, there should not be extra keydown registrations.
+    const onClose = vi.fn();
+    const handle = makeRecordingHandle();
+    const entries = makeVersions(60);
+    const state: HistoryRenderState = { visibleCount: 50, previewEntry: null };
+
+    // Simulate what _render() does: wire keydown once, then call renderHistoryContent
+    handle.onKeydown((key: string) => {
+      if (key === 'Escape') onClose();
+    });
+
+    renderHistoryContent(handle, makeRenderOpts(entries, { onClose }), state);
+
+    // Simulate show-more re-render (renderHistoryContent called again, NO extra onKeydown)
+    renderHistoryContent(handle, makeRenderOpts(entries, { onClose }), { ...state, visibleCount: 100 });
+
+    // Press Escape — should fire exactly once (one keydown registration)
+    handle.fireKeydown('Escape');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. formatBytes helper
+// ---------------------------------------------------------------------------
+
+describe('formatBytes', () => {
+  it('formats bytes under 1 KB as "N B"', () => {
+    expect(formatBytes(512)).toBe('512 B');
+  });
+
+  it('formats bytes in KB range', () => {
+    expect(formatBytes(1_024)).toBe('1.0 KB');
+  });
+
+  it('formats bytes in MB range', () => {
+    expect(formatBytes(1_048_576)).toBe('1.0 MB');
   });
 });
