@@ -80,7 +80,7 @@ Produces the UI surfaces for restore — the features that fulfill the PRD promi
   4. Validate: Component tests with keyboard drivers assert Enter is not destructive.
   5. Success: Destructive-action safety `[ref: research UX ACC-6]`.
 
-- [ ] **T9.4 Preview pane safe rendering (+ co-installed plugin boundary notice)** `[activity: security]` `[parallel: true]`
+- [x] **T9.4 Preview pane safe rendering (+ co-installed plugin boundary notice)** `[activity: security]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-13 (revised)]`, `[ref: SDD/System-Wide Patterns/Security]`.
   2. Test:
