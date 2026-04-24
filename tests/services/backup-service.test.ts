@@ -1,6 +1,7 @@
 // T5.3 — BackupService.runFull(): 7-step crash-safe commit protocol.
+// T5.4 — BackupService.runIncremental(): incremental pipeline (rename-aware, queue-cursor, empty-queue short-circuit).
 //
-// Test scenarios:
+// runFull test scenarios:
 //   1. 100-file vault: 100 blobs uploaded, manifest written, snapshot_index appended, HEAD written, LocalIndex + queue advanced
 //   2. Dedup: two calls on unchanged vault → 2 snapshots, 0 new blobs on 2nd call
 //   3. Double-check (ROB-001): verifyNoConflict called twice; conflict on 2nd call aborts before manifest write
@@ -8,6 +9,14 @@
 //   5. Crash between blob upload and manifest write: orphan blobs on Dropbox, no manifest
 //   6. Crash between manifest write and snapshot_index update: manifest on Dropbox, snapshot_index untouched
 //   7. Crash between snapshot_index update and HEAD write: index updated, HEAD still at prior snapshot
+//
+// runIncremental test scenarios (T5.4):
+//   a. Full + modify + rename → Inc manifest: 1 file entry (modified path), 1 rename entry, parent_id = Full
+//   b. Rename + content edit → rename entry AND files entry under new path
+//   c. Explicit delete → entry in deleted[]
+//   d. Queue cursor advances to max observed_at of consumed entries
+//   e. Empty queue → 0 Dropbox API calls, no manifest, no HEAD update
+//   f. verifyNoConflict failure → clean abort (queue intact, no manifest, HEAD unchanged)
 
 import { describe, expect, it, vi } from 'vitest';
 import { BackupService, type BackupServiceDeps } from '../../src/services/BackupService';
@@ -16,7 +25,7 @@ import type { PluginSettings } from '../../src/model/Settings';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
 import type { LocalIndex } from '../../src/model/Index';
 import { emptyLocalIndex } from '../../src/model/Index';
-import type { EventQueue } from '../../src/model/QueueEntry';
+import type { EventQueue, QueueEntry } from '../../src/model/QueueEntry';
 import { emptyEventQueue } from '../../src/model/QueueEntry';
 import { headPath, snapshotIndexPath } from '../../src/util/paths';
 
@@ -135,9 +144,10 @@ function makeFakeDeviceCoordinator(opts?: { conflictOnCall?: number }) {
 function makeFakePluginStore(
   initialIndex?: Partial<LocalIndex>,
   settingsOverrides?: Partial<PluginSettings['advanced']>,
+  initialQueue?: Partial<EventQueue>,
 ) {
   let index: LocalIndex = { ...emptyLocalIndex(), ...initialIndex };
-  let queue: EventQueue = { ...emptyEventQueue() };
+  let queue: EventQueue = { ...emptyEventQueue(), ...initialQueue };
   const settings: PluginSettings = {
     ...DEFAULT_SETTINGS,
     advanced: {
@@ -150,6 +160,7 @@ function makeFakePluginStore(
   return {
     getIndex: () => index,
     getQueue: () => queue,
+    setQueue: (q: EventQueue) => { queue = { ...q }; },
     loadIndex: vi.fn(async () => index),
     saveIndex: vi.fn(async (i: LocalIndex) => { index = { ...i }; }),
     loadQueue: vi.fn(async () => queue),
@@ -191,6 +202,7 @@ function makeHarness(
     conflictOnCall?: number;
     settingsOverrides?: Partial<PluginSettings['advanced']>;
     initialIndex?: Partial<LocalIndex>;
+    initialQueue?: Partial<EventQueue>;
     now?: () => string;
     snapshotIndexStore?: ReturnType<typeof makeFakeSnapshotIndexStore>;
   } = {},
@@ -198,7 +210,7 @@ function makeHarness(
   const dropbox = opts.dropbox ?? makeFakeDropbox();
   const vault = makeFakeVault(vaultFiles);
   const coordinator = makeFakeDeviceCoordinator({ conflictOnCall: opts.conflictOnCall });
-  const pluginStore = makeFakePluginStore(opts.initialIndex, opts.settingsOverrides);
+  const pluginStore = makeFakePluginStore(opts.initialIndex, opts.settingsOverrides, opts.initialQueue);
   const snapshotIndexStore = opts.snapshotIndexStore ?? makeFakeSnapshotIndexStore(dropbox);
 
   const deps: BackupServiceDeps = {
@@ -751,5 +763,368 @@ describe('BackupService.runFull — crash at step 6 and 7', () => {
     expect(pluginStore.getQueue()).toEqual(preRunQueue);
 
     // Error propagates
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: BackupService.runIncremental (T5.4)
+// ---------------------------------------------------------------------------
+
+// Helpers for building queue entries used by incremental tests.
+
+let _entrySeq = 0;
+function makeEntry(
+  overrides: Partial<QueueEntry> & Pick<QueueEntry, 'type' | 'path' | 'observed_at'>,
+): QueueEntry {
+  _entrySeq++;
+  return {
+    id: `entry-${_entrySeq}`,
+    prev_path: null,
+    ...overrides,
+  };
+}
+
+function makeRenameEntry(from: string, to: string, observedAt: string): QueueEntry {
+  return makeEntry({ type: 'rename', path: to, prev_path: from, observed_at: observedAt });
+}
+
+/**
+ * Run a full backup on the harness to produce a committed Full snapshot
+ * (primes LocalIndex and HEAD for subsequent incremental runs).
+ */
+async function runFullAndPrime(
+  service: BackupService,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pluginStore: any,
+) {
+  await service.runFull();
+  // After runFull the queue was advanced — reset queue cursor so incremental
+  // tests can inject fresh entries without fighting the existing committed_through.
+  pluginStore.setQueue(emptyEventQueue());
+}
+
+describe('BackupService.runIncremental — scenario a: Full + modify + rename', () => {
+  it('produces Inc manifest with 1 files entry (modified path), 1 renames entry, parent_id = Full id', async () => {
+    // Set up vault: two files — one will be modified, one will be renamed.
+    const vaultFiles = new Map([
+      ['notes/static.md', new TextEncoder().encode('static content')],
+      ['notes/modified.md', new TextEncoder().encode('original content')],
+      ['notes/new-name.md', new TextEncoder().encode('renamed content')],
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z', // Full: created_at
+      '2026-04-24T10:01:00.000Z', // Full: committed_at
+      '2026-04-24T11:00:00.000Z', // Inc: created_at
+      '2026-04-24T11:01:00.000Z', // Inc: committed_at
+    ];
+
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    // Prime: commit a Full snapshot
+    await runFullAndPrime(service, pluginStore);
+    const fullManifestPath = getManifestPaths(dropbox.store)[0];
+    const fullManifest = dropbox.store.get(fullManifestPath) as Record<string, unknown>;
+    const fullId = fullManifest.id as string;
+
+    // Simulate: modify notes/modified.md content
+    vaultFiles.set('notes/modified.md', new TextEncoder().encode('CHANGED content'));
+    // Simulate: rename notes/old-name.md → notes/new-name.md (already present in vault as new-name.md)
+    // The queue carries the rename event; new-name.md is already in vault.
+
+    // Seed queue with a modify + rename event
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        makeEntry({ type: 'modify', path: 'notes/modified.md', observed_at: '2026-04-24T10:30:00.000Z' }),
+        makeRenameEntry('notes/old-name.md', 'notes/new-name.md', '2026-04-24T10:31:00.000Z'),
+      ],
+    });
+
+    // Rebuild vault so vault.getFiles() reflects current state including new-name.md
+    // (already in vaultFiles map)
+
+    await service.runIncremental();
+
+    // Two manifest paths: Full + Inc
+    const manifestPaths = getManifestPaths(dropbox.store);
+    expect(manifestPaths).toHaveLength(2);
+    const incPath = manifestPaths.find((p) => p.includes('inc'))!;
+    expect(incPath).toBeDefined();
+    const incManifest = dropbox.store.get(incPath) as Record<string, unknown>;
+
+    // type = inc
+    expect(incManifest.type).toBe('inc');
+
+    // parent_id points to the Full snapshot id
+    expect(incManifest.parent_id).toBe(fullId);
+
+    // files has exactly 1 entry: the modified path (notes/modified.md)
+    // notes/new-name.md is a pure rename (content unchanged) → should NOT be in files
+    const files = incManifest.files as Record<string, unknown>;
+    expect(Object.keys(files)).toHaveLength(1);
+    expect(files['notes/modified.md']).toBeDefined();
+
+    // renames has 1 entry: old-name → new-name
+    const renames = incManifest.renames as Array<{ from: string; to: string }>;
+    expect(renames).toHaveLength(1);
+    expect(renames[0]).toEqual({ from: 'notes/old-name.md', to: 'notes/new-name.md' });
+
+    // deleted is empty
+    expect(incManifest.deleted).toEqual([]);
+
+    // HEAD updated to Inc
+    const head = dropbox.store.get(HEAD_PATH) as Record<string, unknown>;
+    expect(head.snapshot_type).toBe('inc');
+    expect(head.snapshot_id).toBe(incManifest.id);
+
+    // LocalIndex: last_inc_snapshot_id updated
+    expect(pluginStore.getIndex().last_inc_snapshot_id).toBe(incManifest.id);
+  });
+});
+
+describe('BackupService.runIncremental — scenario b: rename + content edit', () => {
+  it('produces both a rename entry AND a files entry under the new path when content changed', async () => {
+    const vaultFiles = new Map([
+      ['notes/before.md', new TextEncoder().encode('original')],
+      ['notes/after.md', new TextEncoder().encode('original')], // same content, to be changed
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    await runFullAndPrime(service, pluginStore);
+
+    // After Full: change content of notes/after.md to simulate rename + edit
+    vaultFiles.set('notes/after.md', new TextEncoder().encode('CHANGED after rename'));
+    // Remove old path from vault (renamed away)
+    vaultFiles.delete('notes/before.md');
+
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        // rename: before.md → after.md; then content of after.md also changed
+        makeRenameEntry('notes/before.md', 'notes/after.md', '2026-04-24T10:30:00.000Z'),
+        makeEntry({ type: 'modify', path: 'notes/after.md', observed_at: '2026-04-24T10:31:00.000Z' }),
+      ],
+    });
+
+    await service.runIncremental();
+
+    const manifestPaths = getManifestPaths(dropbox.store);
+    const incPath = manifestPaths.find((p) => p.includes('inc'))!;
+    const incManifest = dropbox.store.get(incPath) as Record<string, unknown>;
+
+    // renames entry records the rename
+    const renames = incManifest.renames as Array<{ from: string; to: string }>;
+    expect(renames).toHaveLength(1);
+    expect(renames[0]).toEqual({ from: 'notes/before.md', to: 'notes/after.md' });
+
+    // files entry under new path (content changed after rename)
+    const files = incManifest.files as Record<string, unknown>;
+    expect(files['notes/after.md']).toBeDefined();
+    expect(files['notes/before.md']).toBeUndefined();
+  });
+});
+
+describe('BackupService.runIncremental — scenario c: explicit file deletion', () => {
+  it('produces entry in deleted[] for deleted files', async () => {
+    const vaultFiles = new Map([
+      ['notes/keep.md', new TextEncoder().encode('keep')],
+      ['notes/to-delete.md', new TextEncoder().encode('will be deleted')],
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    await runFullAndPrime(service, pluginStore);
+
+    // Remove file from vault (simulates deletion)
+    vaultFiles.delete('notes/to-delete.md');
+
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        makeEntry({ type: 'delete', path: 'notes/to-delete.md', observed_at: '2026-04-24T10:30:00.000Z' }),
+      ],
+    });
+
+    await service.runIncremental();
+
+    const manifestPaths = getManifestPaths(dropbox.store);
+    const incPath = manifestPaths.find((p) => p.includes('inc'))!;
+    const incManifest = dropbox.store.get(incPath) as Record<string, unknown>;
+
+    const deleted = incManifest.deleted as string[];
+    expect(deleted).toContain('notes/to-delete.md');
+
+    // files is empty (no content changes)
+    const files = incManifest.files as Record<string, unknown>;
+    expect(Object.keys(files)).toHaveLength(0);
+
+    // LocalIndex.files no longer includes the deleted path
+    expect(pluginStore.getIndex().files['notes/to-delete.md']).toBeUndefined();
+  });
+});
+
+describe('BackupService.runIncremental — scenario d: queue cursor advances to max observed_at', () => {
+  it('advances committed_through to max observed_at of consumed entries and leaves queue empty', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+      ['notes/b.md', new TextEncoder().encode('b')],
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    const { service, pluginStore, dropbox } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    await runFullAndPrime(service, pluginStore);
+
+    // Modify b.md
+    vaultFiles.set('notes/b.md', new TextEncoder().encode('b modified'));
+
+    const t1 = '2026-04-24T10:20:00.000Z';
+    const t2 = '2026-04-24T10:25:00.000Z';
+    const t3 = '2026-04-24T10:30:00.000Z';
+
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        makeEntry({ type: 'modify', path: 'notes/a.md', observed_at: t1 }),
+        makeEntry({ type: 'modify', path: 'notes/b.md', observed_at: t2 }),
+        makeEntry({ type: 'modify', path: 'notes/a.md', observed_at: t3 }),
+      ],
+    });
+
+    await service.runIncremental();
+
+    // All 3 entries consumed — committed_through = max = t3
+    expect(pluginStore.getQueue().committed_through).toBe(t3);
+    expect(pluginStore.getQueue().entries).toHaveLength(0);
+
+    // Manifest written and HEAD updated
+    const incPath = getManifestPaths(dropbox.store).find((p) => p.includes('inc'));
+    expect(incPath).toBeDefined();
+  });
+});
+
+describe('BackupService.runIncremental — scenario e: empty queue short-circuits', () => {
+  it('returns immediately with 0 Dropbox API calls when queue is empty', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+    ]);
+
+    // Prime a Full so index is valid
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+    ];
+
+    const { service, dropbox, pluginStore, coordinator } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    await runFullAndPrime(service, pluginStore);
+
+    // Reset all call counters AFTER the Full backup priming
+    dropbox.uploadJson.mockClear();
+    dropbox.uploadLarge.mockClear();
+    coordinator.verifyNoConflict.mockClear();
+
+    // Queue is empty (setQueue to empty after priming)
+    pluginStore.setQueue(emptyEventQueue());
+
+    await service.runIncremental();
+
+    // No Dropbox API calls at all — short-circuit before verifyNoConflict
+    expect(dropbox.uploadJson).not.toHaveBeenCalled();
+    expect(dropbox.uploadLarge).not.toHaveBeenCalled();
+    // verifyNoConflict must NOT be called in the empty-queue path
+    expect(coordinator.verifyNoConflict).not.toHaveBeenCalled();
+
+    // No Inc manifest written
+    const incPaths = getManifestPaths(dropbox.store).filter((p) => p.includes('inc'));
+    expect(incPaths).toHaveLength(0);
+
+    // HEAD still points at Full (unchanged)
+    const head = dropbox.store.get(HEAD_PATH) as Record<string, unknown>;
+    expect(head.snapshot_type).toBe('full');
+  });
+});
+
+describe('BackupService.runIncremental — scenario f: verifyNoConflict failure', () => {
+  it('aborts cleanly on conflict: no manifest uploaded, HEAD unchanged, queue intact', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    // conflictOnCall=3: first two calls are from runFull (prime), third call is Inc's first verifyNoConflict
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, {
+      conflictOnCall: 3,
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+    });
+
+    await service.runFull(); // call 1 + 2 — no conflict yet
+    pluginStore.setQueue(emptyEventQueue()); // reset after full
+
+    vaultFiles.set('notes/a.md', new TextEncoder().encode('modified'));
+
+    const queueEntries: QueueEntry[] = [
+      makeEntry({ type: 'modify', path: 'notes/a.md', observed_at: '2026-04-24T10:30:00.000Z' }),
+    ];
+    pluginStore.setQueue({ ...emptyEventQueue(), entries: queueEntries });
+
+    const headBeforeInc = JSON.parse(JSON.stringify(dropbox.store.get(HEAD_PATH)));
+    const snapshotCountBefore = getManifestPaths(dropbox.store).length;
+
+    await expect(service.runIncremental()).rejects.toThrow(ConflictError);
+
+    // No new manifest written
+    expect(getManifestPaths(dropbox.store)).toHaveLength(snapshotCountBefore);
+
+    // HEAD unchanged
+    expect(dropbox.store.get(HEAD_PATH)).toEqual(headBeforeInc);
+
+    // Queue entries still intact
+    expect(pluginStore.getQueue().entries).toHaveLength(1);
+    expect(pluginStore.getQueue().entries[0].path).toBe('notes/a.md');
   });
 });
