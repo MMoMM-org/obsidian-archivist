@@ -41,8 +41,8 @@ function m(opts: ManifestOptions): SnapshotManifest {
     parent_id: opts.parent_id ?? null,
     device_id: 'd0',
     created_at: opts.created_at ?? opts.id, // id-as-timestamp keeps ordering intuitive
-    vault_name: 'v',
-    vault_prefix: 'v',
+    vault_name: 'vault',
+    vault_prefix: 'test-vault',
     files: opts.files ?? {},
     deleted: opts.deleted ?? [],
     renames: opts.renames ?? [],
@@ -337,5 +337,71 @@ describe('listVersionsForPath — invariants', () => {
   it('does not leak unrelated files (Z.md stays out of history for C.md)', () => {
     const versions = service.listVersionsForPath('C.md', newestToOldest);
     expect(versions.some((v) => v.path === 'Z.md')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T8.4 — fetchContent: download + hash verify
+// ---------------------------------------------------------------------------
+
+describe('fetchContent', () => {
+  // Valid 64-char lowercase hex SHA-256 fixtures.
+  const HASH_A = 'a'.repeat(64);
+  const HASH_B = 'b'.repeat(64);
+  const fullFx = m({
+    id: 'full',
+    type: 'full',
+    parent_id: null,
+    files: { 'a.md': { hash: HASH_A, size: 5, mtime: 0 } },
+  });
+
+  function makeServiceWithDropbox(opts: {
+    bytes?: Uint8Array;
+    hash?: string;
+    throwOn?: string;
+  }): { service: RestoreService; downloadedPaths: string[] } {
+    const downloadedPaths: string[] = [];
+    const dropbox = {
+      downloadBytes: async (path: string): Promise<Uint8Array> => {
+        downloadedPaths.push(path);
+        if (opts.throwOn === path) throw new Error(`fixture: refuse ${path}`);
+        return opts.bytes ?? new Uint8Array([1, 2, 3]);
+      },
+    };
+    const service = new RestoreService({
+      loader: loader([fullFx]),
+      dropbox,
+      logger: makeLogger(),
+      hasher: async () => opts.hash ?? HASH_A,
+    });
+    return { service, downloadedPaths };
+  }
+
+  it('fetches bytes and returns them when hash matches', async () => {
+    const bytes = new Uint8Array([7, 7, 7, 7, 7]);
+    const { service } = makeServiceWithDropbox({ bytes, hash: HASH_A });
+    const out = await service.fetchContent('full', 'a.md');
+    expect(out).toEqual(bytes);
+  });
+
+  it('throws PathError(PATH_NOT_IN_SNAPSHOT) when path is absent', async () => {
+    const { service } = makeServiceWithDropbox({ hash: HASH_A });
+    await expect(service.fetchContent('full', 'nope.md')).rejects.toMatchObject({
+      code: 'PATH_NOT_IN_SNAPSHOT',
+    });
+  });
+
+  it('throws CorruptionError(CONTENT_HASH_MISMATCH) when bytes do not hash back', async () => {
+    const { service } = makeServiceWithDropbox({ hash: HASH_B });
+    await expect(service.fetchContent('full', 'a.md')).rejects.toMatchObject({
+      code: 'CONTENT_HASH_MISMATCH',
+    });
+  });
+
+  it('downloads from the vault_prefix in the target manifest', async () => {
+    const { service, downloadedPaths } = makeServiceWithDropbox({ hash: HASH_A });
+    await service.fetchContent('full', 'a.md');
+    expect(downloadedPaths[0]).toContain('content/');
+    expect(downloadedPaths[0]).toContain(HASH_A);
   });
 });

@@ -14,9 +14,11 @@
 //     production will wire it to DropboxClient.downloadJson; tests use an
 //     in-memory fixture chain.
 
-import { ChainError } from '../model/Errors';
+import { ChainError, CorruptionError, PathError } from '../model/Errors';
 import type { FileEntry, SnapshotManifest } from '../model/Manifest';
 import type { Logger } from '../infra/Logger';
+import { sha256hex } from '../infra/Hasher';
+import { contentPath } from '../util/paths';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,9 +28,17 @@ export interface ManifestLoader {
   loadManifest(id: string): Promise<SnapshotManifest>;
 }
 
+export interface DropboxByteReader {
+  downloadBytes(path: string): Promise<Uint8Array>;
+}
+
 export interface RestoreServiceDeps {
   loader: ManifestLoader;
+  /** Optional — only required for fetchContent. */
+  dropbox?: DropboxByteReader;
   logger: Logger;
+  /** Injectable hasher for tests; defaults to WebCrypto sha256hex. */
+  hasher?: (bytes: Uint8Array) => Promise<string>;
 }
 
 export interface VersionEntry {
@@ -50,7 +60,54 @@ export interface VersionEntry {
 // ---------------------------------------------------------------------------
 
 export class RestoreService {
-  constructor(private readonly deps: RestoreServiceDeps) {}
+  private readonly hasher: (bytes: Uint8Array) => Promise<string>;
+
+  constructor(private readonly deps: RestoreServiceDeps) {
+    this.hasher = deps.hasher ?? sha256hex;
+  }
+
+  /**
+   * Fetch the bytes of `path` as it existed at `snapshotId`, verifying the
+   * SHA-256 of the downloaded blob against the manifest's recorded hash.
+   *
+   * Failure modes:
+   *   - `PATH_NOT_IN_SNAPSHOT` — the materialized state has no entry for path
+   *   - `CONTENT_HASH_MISMATCH` — downloaded bytes don't hash to manifest hash
+   *   - `ChainError` propagated from materializeVaultStateAt
+   *
+   * No side-effects on failure — all state lives in returned values.
+   */
+  async fetchContent(snapshotId: string, path: string): Promise<Uint8Array> {
+    if (!this.deps.dropbox) {
+      throw new Error('fetchContent requires a DropboxByteReader dependency');
+    }
+
+    const state = await this.materializeVaultStateAt(snapshotId);
+    const entry = state[path];
+    if (!entry) {
+      throw new PathError(
+        'PATH_NOT_IN_SNAPSHOT',
+        `Path "${path}" is not present at snapshot ${snapshotId}`,
+        false,
+      );
+    }
+
+    // Need the manifest at the target snapshot to resolve vault_prefix for
+    // the content path. The loader already cached it during materialize.
+    const manifest = await this.deps.loader.loadManifest(snapshotId);
+    const bytes = await this.deps.dropbox.downloadBytes(
+      contentPath(manifest.vault_prefix, entry.hash),
+    );
+    const actualHash = await this.hasher(bytes);
+    if (actualHash !== entry.hash) {
+      throw new CorruptionError(
+        'CONTENT_HASH_MISMATCH',
+        `Content hash mismatch for ${path}@${snapshotId}: expected ${entry.hash}, got ${actualHash}`,
+        false,
+      );
+    }
+    return bytes;
+  }
 
   /**
    * Reconstruct the vault state as it was at the target snapshot. Walks from
