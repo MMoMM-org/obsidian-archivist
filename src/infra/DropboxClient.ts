@@ -388,8 +388,12 @@ export class DropboxClient {
    *
    * The upload_session dance (start → append* → finish) lives behind a single
    * method by design: callers don't want to manage cursors and offsets.
+   *
+   * `opts.chunkBytes` overrides the instance-level `uploadChunkBytes` for this
+   * call only (PERF-M2 adaptive chunk size: 8 MB for files < 50 MB, 150 MB for
+   * files >= 50 MB). The instance default is used when not provided.
    */
-  async uploadLarge(path: string, bytes: Uint8Array, opts?: { mode?: 'overwrite' | 'add' }): Promise<void> {
+  async uploadLarge(path: string, bytes: Uint8Array, opts?: { mode?: 'overwrite' | 'add'; chunkBytes?: number }): Promise<void> {
     if (bytes.length <= this.singleShotMaxBytes) {
       await this.uploadBlob(path, bytes, opts);
       return;
@@ -398,7 +402,7 @@ export class DropboxClient {
     const mode = opts?.mode ?? 'overwrite';
     await this.runOp(
       async () => {
-        const chunk = this.uploadChunkBytes;
+        const chunk = opts?.chunkBytes ?? this.uploadChunkBytes;
         const firstChunk = bytes.subarray(0, Math.min(chunk, bytes.length));
 
         const startResp = await this.sdk.filesUploadSessionStart({
