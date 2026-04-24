@@ -22,12 +22,18 @@ function _correctSignatures(va: VaultAdapter): void {
   va.onVaultRename((_file: TAbstractFile, _oldPath: string) => {});
 }
 
-// Wrong signatures — must each produce a TS error
+// Wrong signatures — each must produce a TS error.
+//
+// NOTE on "too-few-params" cases: TypeScript's callback-parameter rule treats a
+// handler with FEWER params as assignable to a function type that expects MORE
+// (the caller simply ignores the missing param). That means a spec claim of
+// "rename handler with only one param fails at compile time" is not something
+// TS can enforce in isolation — tsc will happily accept `(_file) => {}` as a
+// `(file, oldPath) => void`. Runtime tests cover the real contract (oldPath is
+// actually passed). What we CAN enforce here is the symmetric case — passing
+// MORE params than the handler type declares — plus a structural equality
+// check on the declared parameter types.
 function _wrongSignatures(va: VaultAdapter): void {
-  // onVaultRename with only one argument (missing oldPath)
-  // @ts-expect-error — rename handler must accept two parameters
-  va.onVaultRename((_file: TAbstractFile) => {});
-
   // onVaultCreate with two arguments (too many)
   // @ts-expect-error — create handler must accept exactly one parameter
   va.onVaultCreate((_file: TAbstractFile, _extra: string) => {});
@@ -39,7 +45,22 @@ function _wrongSignatures(va: VaultAdapter): void {
   // onVaultDelete with two arguments
   // @ts-expect-error — delete handler must accept exactly one parameter
   va.onVaultDelete((_file: TAbstractFile, _extra: string) => {});
+
+  // onVaultRename with three arguments (too many)
+  // @ts-expect-error — rename handler accepts exactly two parameters
+  va.onVaultRename((_file: TAbstractFile, _oldPath: string, _extra: number) => {});
 }
+
+// Positive structural check: the declared handler type must accept the
+// expected parameters. If the signature narrows (e.g. `file` no longer
+// `TAbstractFile`) these assignments will stop compiling.
+type _RenameHandlerType = Parameters<VaultAdapter['onVaultRename']>[0];
+type _CreateHandlerType = Parameters<VaultAdapter['onVaultCreate']>[0];
+
+const _renameShapeOk: _RenameHandlerType = (_file: TAbstractFile, _oldPath: string) => {};
+const _createShapeOk: _CreateHandlerType = (_file: TAbstractFile) => {};
+void _renameShapeOk;
+void _createShapeOk;
 
 // Silence "unused" warnings — values are never used at runtime
 void _correctSignatures;

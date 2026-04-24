@@ -109,20 +109,25 @@ describe('VaultAdapter.writeAtomic()', () => {
     expect(app.vault._getFileBytes('notes/out.md')).toEqual(bytes);
   });
 
-  it('failure path: rename throws → original file untouched', async () => {
+  it('failure path: rename throws → original file untouched, temp was written', async () => {
     const { app, adapter } = makeSetup();
 
     // Pre-existing original file
     const original = new Uint8Array([9, 8, 7]);
     app.vault._setFileBytes('notes/existing.md', original);
 
-    // Make rename fail
+    // Make rename fail — writeBinary still runs successfully first.
     app.vault.adapter.rename = vi.fn().mockRejectedValueOnce(new Error('rename failed'));
 
     await expect(adapter.writeAtomic('notes/existing.md', new Uint8Array([1]))).rejects.toThrow();
 
-    // Original must be untouched
+    // Original must be untouched — this distinguishes "rename failed after a
+    // successful temp write" from "writeBinary itself failed before touching
+    // anything". If the implementation ever swapped the write/rename order
+    // this test would still pass on the original assertion alone, so we also
+    // assert the temp file IS present to pin the write-then-rename sequence.
     expect(app.vault._getFileBytes('notes/existing.md')).toEqual(original);
+    expect(app.vault._hasFile('notes/existing.md.archivist-tmp')).toBe(true);
   });
 
   it('failure path: rename throws → error is propagated to caller', async () => {
