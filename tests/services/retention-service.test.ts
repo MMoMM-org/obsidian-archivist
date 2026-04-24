@@ -387,9 +387,10 @@ describe('RetentionService', () => {
       );
 
       const corruptStore = makeFakeSnapshotIndexStore();
-      corruptStore.read = vi.fn().mockRejectedValue(
-        new CorruptionError('SNAPSHOT_INDEX_INVALID', 'bad data', false),
-      );
+      // Throw on first read (corrupt); subsequent reads (after rebuild) return normally.
+      corruptStore.read = vi.fn()
+        .mockRejectedValueOnce(new CorruptionError('SNAPSHOT_INDEX_INVALID', 'bad data', false))
+        .mockImplementation(async () => corruptStore.storedIndex);
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
@@ -422,9 +423,10 @@ describe('RetentionService', () => {
       });
 
       const corruptStore = makeFakeSnapshotIndexStore();
-      corruptStore.read = vi.fn().mockRejectedValue(
-        new CorruptionError('SNAPSHOT_INDEX_INVALID', 'bad data', false),
-      );
+      // Throw on first read (corrupt); subsequent reads (after rebuild) return normally.
+      corruptStore.read = vi.fn()
+        .mockRejectedValueOnce(new CorruptionError('SNAPSHOT_INDEX_INVALID', 'bad data', false))
+        .mockImplementation(async () => corruptStore.storedIndex);
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
