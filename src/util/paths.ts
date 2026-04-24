@@ -86,6 +86,10 @@ export function snapshotPath(manifest: Pick<SnapshotManifest, 'vault_prefix' | '
   return `${snapshotsDir(manifest.vault_prefix)}/${manifest.id}.json`;
 }
 
+export function contentFolderPath(prefix: string): string {
+  return `${vaultRoot(prefix)}/content`;
+}
+
 export function contentPath(prefix: string, sha256hex: string): string {
   if (!/^[0-9a-f]{64}$/.test(sha256hex)) {
     throw new PathError('INVALID_CONTENT_HASH', `content hash must be 64 lowercase hex chars: ${sha256hex}`, false);
