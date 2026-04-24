@@ -57,6 +57,7 @@ export const S = {
   TOAST_RESTORE_DONE: 'File restored.',
   TOAST_OFFLINE:
     'Offline — versions known but content unreachable. Reconnect and try again.',
+  TOAST_ERRORS_RESOLVED: 'Archivist recovered from recent errors.',
 
   // ─── Confirm-restore dialog (F3) ─────────────────────────────────
   RESTORE_CONFIRM_TITLE: 'Restore this version?',
