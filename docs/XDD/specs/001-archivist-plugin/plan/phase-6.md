@@ -75,7 +75,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
   4. Validate: Unit tests with a mocked DropboxClient containing a known `snapshots/` listing; assert the correct deletions.
   5. Success: Retention cadence + throttling `[ref: SDD/ADR-17]`; prune correctness `[ref: PRD/F2 AC-1]`.
 
-- [ ] **T6.4 GCService — orphan blob sweep with lock** `[activity: backend-api]`
+- [x] **T6.4 GCService — orphan blob sweep with lock** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/ADR-5]`, `[ref: SDD/ADR-20]`, `[ref: SDD/Risks/Implementation Gotchas — list_folder not snapshot-isolated]`.
   2. Test:
