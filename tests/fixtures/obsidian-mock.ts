@@ -350,6 +350,67 @@ export class Notice {
 }
 
 // ---------------------------------------------------------------------------
+// PluginSettingTab + Setting + setIcon + setTooltip — Phase 7 additions
+// ---------------------------------------------------------------------------
+// These stubs are intentionally minimal. UI tests bypass them by exercising
+// section renderers directly with a RecordingSectionHost (see
+// tests/fixtures/recording-section-host.ts). The stubs exist so modules that
+// `import { PluginSettingTab, Setting } from 'obsidian'` can load in vitest.
+
+export class PluginSettingTab {
+  app: App;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  plugin: any;
+  containerEl: { empty: () => void; createEl: (...args: unknown[]) => unknown; createDiv: (...args: unknown[]) => unknown };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(app: App, plugin: any) {
+    this.app = app;
+    this.plugin = plugin;
+    this.containerEl = {
+      empty: (): void => {},
+      createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+      createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+    };
+  }
+
+  display(): void {}
+  hide(): void {}
+}
+
+export class Setting {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  constructor(_container: unknown) {}
+  setName(_n: string): this {
+    return this;
+  }
+  setDesc(_d: string): this {
+    return this;
+  }
+  addText(_cb: (t: unknown) => void): this {
+    return this;
+  }
+  addTextArea(_cb: (t: unknown) => void): this {
+    return this;
+  }
+  addToggle(_cb: (t: unknown) => void): this {
+    return this;
+  }
+  addDropdown(_cb: (d: unknown) => void): this {
+    return this;
+  }
+  addButton(_cb: (b: unknown) => void): this {
+    return this;
+  }
+  addSlider(_cb: (s: unknown) => void): this {
+    return this;
+  }
+}
+
+export function setIcon(_el: unknown, _iconName: string): void {}
+export function setTooltip(_el: unknown, _tooltip: string): void {}
+
+// ---------------------------------------------------------------------------
 // requestUrl (Phase 3 addition)
 // ---------------------------------------------------------------------------
 // Default no-network stub. Tests that exercise OAuth / HTTP paths inject their
