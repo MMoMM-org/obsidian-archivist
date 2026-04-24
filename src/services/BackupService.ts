@@ -99,14 +99,18 @@ export class BackupService {
 
     const deviceId = await this.coordinator.getOrCreateDeviceId();
     const settings = await this.pluginStore.loadSettings();
-    const parallelism = settings.advanced.upload_parallelism ?? DEFAULT_UPLOAD_PARALLELISM;
+    const rawParallelism = settings.advanced.upload_parallelism ?? DEFAULT_UPLOAD_PARALLELISM;
+    const parallelism = Number.isFinite(rawParallelism) && rawParallelism >= 1
+      ? Math.floor(rawParallelism)
+      : DEFAULT_UPLOAD_PARALLELISM;
 
-    // --- Hash all vault files ---
+    // --- Read, hash, and collect all vault files in one batched pass (TOCTOU fix) ---
     const vaultFiles = this.vault.getFiles();
-    const hashes = await this.hashFiles(vaultFiles.map((f) => f.path));
+    const fileData = await this.readAndHashFiles(vaultFiles.map((f) => f.path), parallelism);
+    const hashes = new Map(Array.from(fileData.entries()).map(([p, d]) => [p, d.hash]));
 
     // --- Step 1: Upload new content blobs (CAS, idempotent) ---
-    const newBlobs = await this.collectNewBlobs(vaultFiles.map((f) => f.path), hashes);
+    const newBlobs = this.collectNewBlobs(fileData);
     await this.uploadBlobs(newBlobs, parallelism);
 
     // --- Step 2: Second conflict check BEFORE manifest write (ROB-001) ---
@@ -137,16 +141,19 @@ export class BackupService {
     });
 
     // --- Step 5: Write HEAD ---
+    // Capture committedAt here so HEAD.committed_at and LocalIndex.last_full_commit_at
+    // are identical — both represent when the commit landed (not when authoring began).
+    const committedAt = this.now();
     await this.dropbox.uploadJson(headPath(this.vaultPrefix), {
       schema_version: '1.0',
       snapshot_id: manifest.id,
       snapshot_type: manifest.type,
       device_id: manifest.device_id,
-      committed_at: this.now(),
+      committed_at: committedAt,
     });
 
     // --- Step 6: Update LocalIndex ---
-    await this.saveLocalIndex(manifest);
+    await this.saveLocalIndex(manifest, committedAt);
 
     // --- Step 7: Advance queue cursor ---
     await this.advanceQueueCursor(manifest.created_at);
@@ -156,49 +163,45 @@ export class BackupService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private async hashFiles(paths: string[]): Promise<Map<string, string>> {
-    const hashes = new Map<string, string>();
-    // Hash in parallel — bounded by upload_parallelism is unnecessary here since
-    // hashing is CPU-bound and we want all hashes before we know what's "new".
-    const results = await Promise.all(
-      paths.map(async (path) => {
-        const bytes = await this.vault.readBytes(path);
+  /**
+   * Read each file exactly once and compute its hash in the same step.
+   * This eliminates the TOCTOU window where hashing and uploading used separate
+   * readBytes calls — if a file changes between reads, the manifest hash and the
+   * uploaded blob would have diverged, corrupting the CAS entry.
+   * Batched by parallelism to bound I/O concurrency (fixes EMFILE risk on large vaults).
+   */
+  private async readAndHashFiles(
+    paths: string[],
+    parallelism: number,
+  ): Promise<Map<string, { hash: string; bytes: Uint8Array }>> {
+    const map = new Map<string, { hash: string; bytes: Uint8Array }>();
+    for (let i = 0; i < paths.length; i += parallelism) {
+      const batch = paths.slice(i, i + parallelism);
+      const results = await Promise.all(batch.map(async (p) => {
+        const bytes = await this.vault.readBytes(p);
         const hash = await this.hasher(bytes);
-        return { path, hash };
-      }),
-    );
-    for (const { path, hash } of results) {
-      hashes.set(path, hash);
+        return { path: p, bytes, hash };
+      }));
+      for (const r of results) map.set(r.path, { hash: r.hash, bytes: r.bytes });
     }
-    return hashes;
+    return map;
   }
 
   /**
-   * CAS dedup: only upload blobs not already present in the Dropbox content store.
-   * We use mode=overwrite on the content-hash path — idempotent, no pre-check needed.
-   * Returns a Map<hash, bytes> of blobs that need to be uploaded.
-   *
-   * For Full backups the "already uploaded" set is determined by checking whether
-   * the content path exists via uploadBlob overwrite semantics. Since uploadBlob is
-   * idempotent, we can upload all unique-hash blobs unconditionally — but we dedup
-   * by hash so two files with the same content produce one upload.
+   * CAS dedup: derive upload set from the already-read file data — no second readBytes call.
+   * Returns a Map<hash, bytes> of unique-hash blobs to upload. Idempotent overwrite means
+   * no pre-check is needed; dedup is at the content-hash level, not the API-call level.
    */
-  private async collectNewBlobs(
-    paths: string[],
-    hashes: Map<string, string>,
-  ): Promise<Map<string, Uint8Array>> {
+  private collectNewBlobs(
+    fileData: Map<string, { hash: string; bytes: Uint8Array }>,
+  ): Map<string, Uint8Array> {
     const seen = new Set<string>();
     const blobs = new Map<string, Uint8Array>();
-
-    for (const path of paths) {
-      const hash = hashes.get(path)!;
+    for (const { hash, bytes } of fileData.values()) {
       if (seen.has(hash)) continue;
       seen.add(hash);
-
-      const bytes = await this.vault.readBytes(path);
       blobs.set(hash, bytes);
     }
-
     return blobs;
   }
 
@@ -223,12 +226,15 @@ export class BackupService {
     await this.dropbox.uploadLarge(path, bytes, { mode: 'overwrite', chunkBytes });
   }
 
-  private async saveLocalIndex(manifest: SnapshotManifest): Promise<void> {
+  private async saveLocalIndex(manifest: SnapshotManifest, committedAt: string): Promise<void> {
     const existing = await this.pluginStore.loadIndex();
     const updated: LocalIndex = {
       schema_version: '1.0',
       last_full_snapshot_id: manifest.id,
-      last_full_commit_at: manifest.created_at,
+      // Use committedAt (same value as HEAD.committed_at) — not manifest.created_at.
+      // The field name reflects when the commit landed; for long backups these diverge
+      // by the upload duration. HEAD and LocalIndex must agree. (solution.md:881)
+      last_full_commit_at: committedAt,
       last_inc_snapshot_id: existing?.last_inc_snapshot_id ?? null,
       last_inc_commit_at: existing?.last_inc_commit_at ?? null,
       last_retention_at: existing?.last_retention_at ?? null,

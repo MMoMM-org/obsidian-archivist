@@ -286,7 +286,7 @@ describe('BackupService.runFull — 100-file vault', () => {
 // ---------------------------------------------------------------------------
 
 describe('BackupService.runFull — CAS dedup', () => {
-  it('second call on unchanged vault uploads 0 new blobs', async () => {
+  it('second call on unchanged vault adds 0 new blob objects to content-addressed storage (CAS idempotent overwrite)', async () => {
     const vaultFiles = makeVaultFiles(5);
     let tick = 0;
     const timestamps = [
@@ -304,9 +304,15 @@ describe('BackupService.runFull — CAS dedup', () => {
     await service.runFull();
     const blobCountAfterSecond = getContentPaths(dropbox.store).length;
 
-    // No new blobs uploaded on second call
+    // Idempotent overwrite per ADR-3: the second run still issues uploadLarge calls,
+    // but they land on the same content-hash paths, so the set of distinct blob objects
+    // in storage does not grow. Test asserts the storage-level invariant, not the API
+    // call count.
     expect(blobCountAfterSecond).toBe(blobCountAfterFirst);
     expect(blobCountAfterFirst).toBe(5);
+    // The second run re-issues uploadLarge for all 5 blobs (idempotent overwrite at the
+    // storage layer — dedup is at content-hash level per ADR-3, not at the API-call level).
+    expect(dropbox.uploadLargeCalls.length).toBe(2 * 5);
 
     // Two distinct snapshots in index
     const idx = dropbox.store.get(SNAPSHOT_INDEX_PATH) as { snapshots: unknown[] };
@@ -404,6 +410,23 @@ describe('BackupService.runFull — PERF-M2 adaptive chunk size', () => {
       expect(call.chunkBytes).toBe(150 * MB);
     }
   });
+
+  it('file exactly 50 MB → uploadLarge called with chunkBytes = 150 MB (boundary pins strict-less-than operator)', async () => {
+    const MB = 1024 * 1024;
+    // Exactly 50 MB: the threshold check is `< 50 MB` (strict less-than), so
+    // exactly-50-MB must take the large-file branch → 150 MB chunks.
+    const exactlyThresholdFile = new Uint8Array(50 * MB);
+    const vaultFiles = new Map([['notes/exact-50mb.bin', exactlyThresholdFile]]);
+    const { service, dropbox } = makeHarness(vaultFiles);
+
+    await service.runFull();
+
+    const largeCalls = dropbox.uploadLargeCalls;
+    expect(largeCalls.length).toBeGreaterThan(0);
+    for (const call of largeCalls) {
+      expect(call.chunkBytes).toBe(150 * MB);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -430,7 +453,7 @@ describe('BackupService.runFull — crash simulation', () => {
 
     await expect(service.runFull()).rejects.toThrow('simulated crash before manifest');
 
-    // Orphan blobs exist (uploaded via uploadBlob before crash)
+    // Orphan blobs exist (uploaded via uploadLarge before crash)
     expect(getContentPaths(dropbox.store).length).toBeGreaterThan(0);
 
     // No manifest
@@ -496,96 +519,239 @@ describe('BackupService.runFull — crash simulation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// DropboxClient.uploadLarge — per-call chunkBytes override (PERF-M2)
+// Tests: upload_parallelism validation (ROB-001)
 // ---------------------------------------------------------------------------
 
-describe('DropboxClient.uploadLarge — per-call chunkBytes option', () => {
-  it('uses per-call chunkBytes when provided, overriding instance uploadChunkBytes', async () => {
-    const { DropboxClient } = await import('../../src/infra/DropboxClient');
-    const { TokenStore } = await import('../../src/infra/TokenStore');
-    const { makeFakeSdk, sdkResponse } = await import('../fixtures/dropbox-sdk-mock');
-
-    const appendOffsets: number[] = [];
-    const sdk = makeFakeSdk({
-      filesUploadSessionStart: () => sdkResponse({ session_id: 'sx' }),
-      filesUploadSessionAppendV2: (arg) => {
-        const a = arg as { cursor: { offset: number } };
-        appendOffsets.push(a.cursor.offset);
-        return sdkResponse(undefined);
-      },
-      filesUploadSessionFinish: () => sdkResponse({
-        id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z',
-      }),
+describe('BackupService.runFull — upload_parallelism validation', () => {
+  it('parallelism=0 falls back to DEFAULT_UPLOAD_PARALLELISM — all blobs uploaded, no hang', async () => {
+    const vaultFiles = makeVaultFiles(3);
+    const { service, dropbox } = makeHarness(vaultFiles, {
+      settingsOverrides: { upload_parallelism: 0 },
     });
 
-    const fakeTokenStore = {
-      load: async () => null,
-      save: async () => undefined,
-      clear: async () => undefined,
-      isAccessTokenNearExpiry: () => false,
-    } as unknown as InstanceType<typeof TokenStore>;
+    // Wrap in a Promise.race with a 2s timeout — if parallelism=0 causes an infinite
+    // loop the timeout wins and the test fails with a clear error.
+    const runWithTimeout = Promise.race([
+      service.runFull(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('runFull timed out — possible infinite loop from parallelism=0')), 2000),
+      ),
+    ]);
 
-    const client = new DropboxClient(
-      sdk as never,
-      fakeTokenStore,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      {
-        singleShotMaxBytes: 1,  // force upload_session path
-        uploadChunkBytes: 4,    // instance default = 4 bytes
-        retry: { maxAttempts: 1, sleep: async () => undefined },
-      },
-    );
+    await expect(runWithTimeout).resolves.toBeUndefined();
 
-    // 6 bytes, call-level chunkBytes=2 → start=2, append=2, finish=2
-    const payload = new Uint8Array([1, 2, 3, 4, 5, 6]);
-    await client.uploadLarge('/test.bin', payload, { chunkBytes: 2 });
-
-    // With chunkBytes=2: start(2) + append(2) at offset 2, finish(2) at offset 4
-    expect(sdk.filesUploadSessionAppendV2).toHaveBeenCalledTimes(1);
-    expect(appendOffsets[0]).toBe(2);
+    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (4) was used
+    expect(getContentPaths(dropbox.store)).toHaveLength(3);
   });
 
-  it('falls back to instance uploadChunkBytes when no per-call chunkBytes provided', async () => {
-    const { DropboxClient } = await import('../../src/infra/DropboxClient');
-    const { TokenStore } = await import('../../src/infra/TokenStore');
-    const { makeFakeSdk, sdkResponse } = await import('../fixtures/dropbox-sdk-mock');
-
-    const appendOffsets: number[] = [];
-    const sdk = makeFakeSdk({
-      filesUploadSessionStart: () => sdkResponse({ session_id: 'sx' }),
-      filesUploadSessionAppendV2: (arg) => {
-        const a = arg as { cursor: { offset: number } };
-        appendOffsets.push(a.cursor.offset);
-        return sdkResponse(undefined);
-      },
-      filesUploadSessionFinish: () => sdkResponse({
-        id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z',
-      }),
+  it('parallelism=NaN falls back to DEFAULT_UPLOAD_PARALLELISM — all blobs uploaded', async () => {
+    const vaultFiles = makeVaultFiles(3);
+    const { service, dropbox } = makeHarness(vaultFiles, {
+      settingsOverrides: { upload_parallelism: NaN },
     });
 
-    const fakeTokenStore = {
-      load: async () => null,
-      save: async () => undefined,
-      clear: async () => undefined,
-      isAccessTokenNearExpiry: () => false,
-    } as unknown as InstanceType<typeof TokenStore>;
+    await service.runFull();
 
-    const client = new DropboxClient(
-      sdk as never,
-      fakeTokenStore,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      {
-        singleShotMaxBytes: 1,
-        uploadChunkBytes: 3,  // instance default = 3 bytes
-        retry: { maxAttempts: 1, sleep: async () => undefined },
-      },
-    );
+    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (4) was used
+    expect(getContentPaths(dropbox.store)).toHaveLength(3);
+  });
+});
 
-    // 7 bytes, instance chunk=3 → start(3) + append(3) at offset 3, finish(1) at offset 6
-    const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7]);
-    await client.uploadLarge('/test.bin', payload);
+// ---------------------------------------------------------------------------
+// Tests: TOCTOU fix — single readBytes call per file (ROB-003)
+// ---------------------------------------------------------------------------
 
-    expect(sdk.filesUploadSessionAppendV2).toHaveBeenCalledTimes(1);
-    expect(appendOffsets[0]).toBe(3);
+describe('BackupService.runFull — TOCTOU single-read guarantee', () => {
+  it('uses the same bytes for hashing and uploading even if vault changes between hypothetical reads', async () => {
+    // Seed the fake vault so readBytes('a.md') returns DIFFERENT bytes on the
+    // 1st vs 2nd call, simulating a file edit between two separate reads.
+    // With the TOCTOU fix, readBytes is called exactly once per file — so the
+    // hash in the manifest and the uploaded blob always match.
+    let readCount = 0;
+    const firstBytes = new TextEncoder().encode('version-one');
+    const secondBytes = new TextEncoder().encode('version-two-different');
+
+    const vaultFiles = new Map([['notes/a.md', firstBytes]]);
+
+    // Build a custom vault that returns different bytes on the 2nd read of a.md
+    const fakeVault = {
+      getFiles: vi.fn(() => [{ path: 'notes/a.md', mtime: 1000, size: firstBytes.length }]),
+      readBytes: vi.fn(async (path: string) => {
+        if (path === 'notes/a.md') {
+          readCount++;
+          return readCount === 1 ? firstBytes : secondBytes;
+        }
+        throw new Error(`FakeVault: file not found: ${path}`);
+      }),
+    };
+
+    const dropbox = makeFakeDropbox();
+    const coordinator = makeFakeDeviceCoordinator();
+    const pluginStore = makeFakePluginStore();
+    const snapshotIndexStore = makeFakeSnapshotIndexStore(dropbox);
+
+    const service = new BackupService({
+      dropbox: dropbox as never,
+      vault: fakeVault as never,
+      hasher: fakeHasher,
+      deviceCoordinator: coordinator as never,
+      pluginStore: pluginStore as never,
+      snapshotIndexStore: snapshotIndexStore as never,
+      vaultPrefix: VAULT_PREFIX,
+      vaultName: VAULT_NAME,
+      now: () => '2026-04-24T10:00:00.000Z',
+    });
+
+    await service.runFull();
+
+    // The manifest should record the hash of version-one (first and only read)
+    const manifestPaths = getManifestPaths(dropbox.store);
+    expect(manifestPaths).toHaveLength(1);
+    const manifest = dropbox.store.get(manifestPaths[0]) as Record<string, unknown>;
+    const files = manifest.files as Record<string, { hash: string }>;
+    const recordedHash = files['notes/a.md']?.hash;
+    expect(recordedHash).toBeDefined();
+
+    // Compute what the hash of firstBytes should be
+    const expectedHash = await fakeHasher(firstBytes);
+    expect(recordedHash).toBe(expectedHash);
+
+    // The uploaded blob for that CAS path must also match firstBytes
+    const contentPaths = getContentPaths(dropbox.store);
+    expect(contentPaths).toHaveLength(1);
+    const uploadedBlob = dropbox.store.get(contentPaths[0]) as Uint8Array;
+    expect(uploadedBlob).toEqual(firstBytes);
+
+    // readBytes was called exactly once (the TOCTOU fix — one pass for both hash + bytes)
+    expect(readCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: HEAD.committed_at === LocalIndex.last_full_commit_at (ROB-006)
+// ---------------------------------------------------------------------------
+
+describe('BackupService.runFull — committed_at consistency', () => {
+  it('HEAD.committed_at and LocalIndex.last_full_commit_at are identical and strictly later than manifest.created_at', async () => {
+    const vaultFiles = makeVaultFiles(2);
+
+    // now() returns strictly incrementing timestamps per call
+    let callIndex = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',  // call 0 → createdAt (manifest authoring time)
+      '2026-04-24T10:05:00.000Z',  // call 1 → committedAt (after upload completes)
+    ];
+    const now = () => timestamps[Math.min(callIndex++, timestamps.length - 1)];
+
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, { now });
+
+    await service.runFull();
+
+    const head = dropbox.store.get(HEAD_PATH) as Record<string, string> | undefined;
+    const localIndex = pluginStore.getIndex();
+
+    // Both must be the committedAt timestamp (call 1), not the createdAt (call 0)
+    expect(head?.committed_at).toBe('2026-04-24T10:05:00.000Z');
+    expect(localIndex.last_full_commit_at).toBe('2026-04-24T10:05:00.000Z');
+
+    // They must be identical to each other
+    expect(head?.committed_at).toBe(localIndex.last_full_commit_at);
+
+    // And strictly later than manifest.created_at
+    const manifestPaths = getManifestPaths(dropbox.store);
+    const manifest = dropbox.store.get(manifestPaths[0]) as Record<string, string>;
+    expect(manifest.created_at).toBe('2026-04-24T10:00:00.000Z');
+    expect(head!.committed_at > manifest.created_at).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: crash at steps 6 and 7 (ROB-007)
+// ---------------------------------------------------------------------------
+
+describe('BackupService.runFull — crash at step 6 and 7', () => {
+  it('crash at step 6 (saveIndex throws after HEAD is written): HEAD exists, snapshot_index updated, LocalIndex unchanged', async () => {
+    const vaultFiles = makeVaultFiles(3);
+    const dropbox = makeFakeDropbox();
+    const snapshotIndexStore = makeFakeSnapshotIndexStore(dropbox);
+
+    // Capture pre-runFull LocalIndex state
+    const pluginStore = makeFakePluginStore();
+    const preRunIndex = { ...pluginStore.getIndex() };
+
+    // Make saveIndex throw after HEAD is written
+    const origSaveIndex = pluginStore.saveIndex.getMockImplementation()!;
+    pluginStore.saveIndex = vi.fn(async (i: Parameters<typeof origSaveIndex>[0]) => {
+      throw new Error('simulated crash at saveIndex (step 6)');
+    });
+
+    const service = new BackupService({
+      dropbox: dropbox as never,
+      vault: makeFakeVault(vaultFiles) as never,
+      hasher: fakeHasher,
+      deviceCoordinator: makeFakeDeviceCoordinator() as never,
+      pluginStore: pluginStore as never,
+      snapshotIndexStore: snapshotIndexStore as never,
+      vaultPrefix: VAULT_PREFIX,
+      vaultName: VAULT_NAME,
+      now: () => '2026-04-24T10:00:00.000Z',
+    });
+
+    await expect(service.runFull()).rejects.toThrow('simulated crash at saveIndex (step 6)');
+
+    // HEAD was written (step 5 completed before crash)
+    expect(dropbox.store.has(HEAD_PATH)).toBe(true);
+
+    // snapshot_index has the new entry (step 4 completed)
+    const idx = dropbox.store.get(SNAPSHOT_INDEX_PATH) as { snapshots: unknown[] } | undefined;
+    expect(idx?.snapshots).toHaveLength(1);
+
+    // LocalIndex is unchanged from pre-runFull state (step 6 threw)
+    expect(pluginStore.getIndex()).toEqual(preRunIndex);
+
+    // Error propagates
+  });
+
+  it('crash at step 7 (saveQueue throws after saveIndex succeeds): HEAD + snapshot_index + LocalIndex all updated, queue cursor unchanged', async () => {
+    const vaultFiles = makeVaultFiles(3);
+    const dropbox = makeFakeDropbox();
+    const snapshotIndexStore = makeFakeSnapshotIndexStore(dropbox);
+    const pluginStore = makeFakePluginStore();
+    const preRunQueue = { ...pluginStore.getQueue() };
+
+    // Make saveQueue throw
+    pluginStore.saveQueue = vi.fn(async () => {
+      throw new Error('simulated crash at saveQueue (step 7)');
+    });
+
+    const service = new BackupService({
+      dropbox: dropbox as never,
+      vault: makeFakeVault(vaultFiles) as never,
+      hasher: fakeHasher,
+      deviceCoordinator: makeFakeDeviceCoordinator() as never,
+      pluginStore: pluginStore as never,
+      snapshotIndexStore: snapshotIndexStore as never,
+      vaultPrefix: VAULT_PREFIX,
+      vaultName: VAULT_NAME,
+      now: () => '2026-04-24T10:00:00.000Z',
+    });
+
+    await expect(service.runFull()).rejects.toThrow('simulated crash at saveQueue (step 7)');
+
+    // HEAD written (step 5 completed)
+    expect(dropbox.store.has(HEAD_PATH)).toBe(true);
+
+    // snapshot_index updated (step 4 completed)
+    const idx = dropbox.store.get(SNAPSHOT_INDEX_PATH) as { snapshots: unknown[] } | undefined;
+    expect(idx?.snapshots).toHaveLength(1);
+
+    // LocalIndex updated (step 6 completed)
+    const localIndex = pluginStore.getIndex();
+    expect(localIndex.last_full_snapshot_id).not.toBeNull();
+
+    // Queue cursor unchanged from pre-runFull state (step 7 threw before saveQueue persisted)
+    expect(pluginStore.getQueue()).toEqual(preRunQueue);
+
+    // Error propagates
   });
 });

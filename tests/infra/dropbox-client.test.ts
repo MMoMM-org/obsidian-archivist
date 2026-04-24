@@ -570,6 +570,112 @@ describe('DropboxClient', () => {
     expect(tokenStore._saved[0]!.access_token).toBe('sl.u.NEW_CONCURRENT');
   });
 
+  it('uploadLarge_uses_per_call_chunkBytes_overriding_instance_default', async () => {
+    // Moved from backup-service.test.ts (ROB-008): DropboxClient chunk-size behaviour
+    // belongs here, not in the BackupService integration suite.
+    const appendOffsets: number[] = [];
+    const { client, sdk } = buildClient({
+      filesUploadSessionStart: () => sdkResponse({ session_id: 'sx' }),
+      filesUploadSessionAppendV2: (arg) => {
+        const a = arg as { cursor: { offset: number } };
+        appendOffsets.push(a.cursor.offset);
+        return sdkResponse(undefined);
+      },
+      filesUploadSessionFinish: () => sdkResponse({
+        id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z',
+      }),
+    });
+
+    // Override singleShotMaxBytes and chunkBytes via a new client so the chunk
+    // math is tiny and deterministic (the buildClient helper uses default sizes).
+    const { DropboxClient } = await import('../../src/infra/DropboxClient');
+    const { TokenStore } = await import('../../src/infra/TokenStore');
+    const { makeFakeSdk: mkSdk, sdkResponse: sdkR } = await import('../fixtures/dropbox-sdk-mock');
+
+    const appendOffsets2: number[] = [];
+    const sdk2 = mkSdk({
+      filesUploadSessionStart: () => sdkR({ session_id: 'sx2' }),
+      filesUploadSessionAppendV2: (arg) => {
+        const a = arg as { cursor: { offset: number } };
+        appendOffsets2.push(a.cursor.offset);
+        return sdkR(undefined);
+      },
+      filesUploadSessionFinish: () => sdkR({
+        id: 'id:2', rev: 'r2', size: 0, server_modified: '2026-04-23T00:00:00Z',
+      }),
+    });
+
+    const fakeTokenStore = {
+      load: async () => null,
+      save: async () => undefined,
+      clear: async () => undefined,
+      isAccessTokenNearExpiry: () => false,
+    } as unknown as InstanceType<typeof TokenStore>;
+
+    const client2 = new DropboxClient(
+      sdk2 as never,
+      fakeTokenStore,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        singleShotMaxBytes: 1,  // force upload_session path
+        uploadChunkBytes: 4,    // instance default = 4 bytes
+        retry: { maxAttempts: 1, sleep: async () => undefined },
+      },
+    );
+
+    // 6 bytes, call-level chunkBytes=2 → start(2), append at offset 2, finish at offset 4
+    const payload = new Uint8Array([1, 2, 3, 4, 5, 6]);
+    await client2.uploadLarge('/test.bin', payload, { chunkBytes: 2 });
+
+    expect(sdk2.filesUploadSessionAppendV2).toHaveBeenCalledTimes(1);
+    expect(appendOffsets2[0]).toBe(2);
+  });
+
+  it('uploadLarge_falls_back_to_instance_uploadChunkBytes_when_no_per_call_override', async () => {
+    // Moved from backup-service.test.ts (ROB-008).
+    const { DropboxClient } = await import('../../src/infra/DropboxClient');
+    const { TokenStore } = await import('../../src/infra/TokenStore');
+    const { makeFakeSdk, sdkResponse } = await import('../fixtures/dropbox-sdk-mock');
+
+    const appendOffsets: number[] = [];
+    const sdk = makeFakeSdk({
+      filesUploadSessionStart: () => sdkResponse({ session_id: 'sx' }),
+      filesUploadSessionAppendV2: (arg) => {
+        const a = arg as { cursor: { offset: number } };
+        appendOffsets.push(a.cursor.offset);
+        return sdkResponse(undefined);
+      },
+      filesUploadSessionFinish: () => sdkResponse({
+        id: 'id:1', rev: 'r1', size: 0, server_modified: '2026-04-23T00:00:00Z',
+      }),
+    });
+
+    const fakeTokenStore = {
+      load: async () => null,
+      save: async () => undefined,
+      clear: async () => undefined,
+      isAccessTokenNearExpiry: () => false,
+    } as unknown as InstanceType<typeof TokenStore>;
+
+    const client = new DropboxClient(
+      sdk as never,
+      fakeTokenStore,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      {
+        singleShotMaxBytes: 1,
+        uploadChunkBytes: 3,  // instance default = 3 bytes
+        retry: { maxAttempts: 1, sleep: async () => undefined },
+      },
+    );
+
+    // 7 bytes, instance chunk=3 → start(3) + append(3) at offset 3, finish(1) at offset 6
+    const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7]);
+    await client.uploadLarge('/test.bin', payload);
+
+    expect(sdk.filesUploadSessionAppendV2).toHaveBeenCalledTimes(1);
+    expect(appendOffsets[0]).toBe(3);
+  });
+
   it('thrown_error_contract_no_sdk_field_leakage', async () => {
     // Raw SDK-shaped error with `headers` (with .get) and `error` object —
     // classifyError must wrap it in a NetworkError subclass of ArchivistError
