@@ -51,7 +51,7 @@ Produces the UI surfaces for restore — the features that fulfill the PRD promi
   4. Validate: Component tests with a fake DOM + mocked `RestoreService`; accessibility test ensures tab-order is correct.
   5. Success: Feature 4 acceptance criteria `[ref: PRD/F4]`; safe preview `[ref: SDD/ADR-13]`.
 
-- [ ] **T9.2 FileHistoryModal (version list with pagination + rename markers)** `[activity: frontend-ui]`
+- [x] **T9.2 FileHistoryModal (version list with pagination + rename markers)** `[activity: frontend-ui]`
 
   1. Prime: Read `[ref: PRD/F3 user journey + AC-1..AC-5]`, `[ref: SDD/Runtime View/Primary Flow: File-Level Restore]`.
   2. Test:
