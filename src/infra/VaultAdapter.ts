@@ -82,11 +82,24 @@ export class VaultAdapter {
   /**
    * Write `bytes` to `path` atomically: write to a temp file first, then
    * rename.  On rename failure the original file (if any) is untouched.
+   * If any step throws, the tmp is best-effort cleaned up before the error
+   * propagates (T8.3 TEST-C1: no `.archivist-tmp` lingers after a failure).
    */
   async writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
     const tmp = `${path}.archivist-tmp`;
-    await this.plugin.app.vault.adapter.writeBinary(tmp, bytes.buffer as ArrayBuffer);
-    await this.plugin.app.vault.adapter.rename(tmp, path);
+    try {
+      await this.plugin.app.vault.adapter.writeBinary(tmp, bytes.buffer as ArrayBuffer);
+      await this.plugin.app.vault.adapter.rename(tmp, path);
+    } catch (err) {
+      try {
+        await this.plugin.app.vault.adapter.remove(tmp);
+      } catch {
+        // Tmp may never have been written, or remove may fail if the adapter
+        // raced with a concurrent rename. Swallow — the outer throw carries
+        // the real reason and the tmp is stale regardless.
+      }
+      throw err;
+    }
   }
 
   // ---- Typed event methods (ROB-007) ---------------------------------------
