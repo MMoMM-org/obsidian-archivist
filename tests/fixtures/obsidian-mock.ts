@@ -142,10 +142,18 @@ export class Vault {
 
   // ---- Test helpers --------------------------------------------------------
 
-  /** Register a TFile and seed its binary content. */
+  /**
+   * Register a TFile and seed its binary content.
+   * Automatically seeds an empty Uint8Array of `stat.size` bytes so that
+   * `readBinary` calls on this file do not throw ENOENT.  Tests that need
+   * specific content should call `_setFileBytes` afterwards.
+   */
   _addFile(path: string, stat: { mtime: number; size: number }): TFile {
     const file = new TFile(path, stat);
     this._files.push(file);
+    if (!this._binaryStore.has(path)) {
+      this._binaryStore.set(path, new Uint8Array(stat.size));
+    }
     return file;
   }
 

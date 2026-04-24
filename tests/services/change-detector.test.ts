@@ -52,10 +52,9 @@ function makeLogger(): Logger {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-function makeYieldFn(): { fn: () => Promise<void>; count: number } {
-  const state = { count: 0 };
-  const fn = async () => { state.count++; };
-  return { fn, count: 0, ...state };
+/** Drain the microtask queue so fire-and-forget enqueue promises resolve. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
 /**
@@ -138,6 +137,7 @@ describe('event handling — before/after onLayoutReady', () => {
 
     const file = app.vault._addFile('notes/a.md', { mtime: 100, size: 10 });
     app.vault._fire('create', file);
+    await flushMicrotasks();
 
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
@@ -153,6 +153,7 @@ describe('event handling — before/after onLayoutReady', () => {
 
     const file = app.vault._addFile('notes/b.md', { mtime: 200, size: 20 });
     app.vault._fire('modify', file);
+    await flushMicrotasks();
 
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
@@ -166,6 +167,7 @@ describe('event handling — before/after onLayoutReady', () => {
 
     const file = app.vault._addFile('notes/c.md', { mtime: 300, size: 30 });
     app.vault._fire('delete', file);
+    await flushMicrotasks();
 
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
@@ -179,6 +181,7 @@ describe('event handling — before/after onLayoutReady', () => {
 
     const file = app.vault._addFile('notes/new.md', { mtime: 400, size: 40 });
     app.vault._fire('rename', file, 'notes/old.md');
+    await flushMicrotasks();
 
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
@@ -213,6 +216,7 @@ describe('event handling — exclusions drop events', () => {
 
     const file = app.vault._addFile('.obsidian/workspace.json', { mtime: 100, size: 10 });
     app.vault._fire('create', file);
+    await flushMicrotasks();
 
     expect(queue.peekSince(null)).toHaveLength(0);
   });
@@ -226,6 +230,7 @@ describe('event handling — exclusions drop events', () => {
     const noteFile = app.vault._addFile('notes/a.md', { mtime: 200, size: 20 });
     app.vault._fire('create', obsFile);
     app.vault._fire('create', noteFile);
+    await flushMicrotasks();
 
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
