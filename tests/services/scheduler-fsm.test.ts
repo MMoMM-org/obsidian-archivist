@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SchedulerFSM,
   type FSMState,
+  type PendingBackup,
+  type PreflightActions,
+  type PreflightHost,
   type SchedulerFSMDeps,
 } from '../../src/services/SchedulerFSM';
 import type { ScheduleSettings } from '../../src/model/Settings';
@@ -35,12 +38,24 @@ function makeSchedule(overrides: Partial<ScheduleSettings> = {}): ScheduleSettin
   };
 }
 
+function makePreflightHost(): PreflightHost & { shown: PreflightActions[] } {
+  const shown: PreflightActions[] = [];
+  return {
+    shown,
+    showPreflight(actions: PreflightActions): void {
+      shown.push(actions);
+    },
+  };
+}
+
 interface HarnessOpts {
   designated?: boolean;
   queueSize?: number;
   lastIncCommitAt?: number | null;
+  lastFullCommitAt?: number | null;
   schedule?: Partial<ScheduleSettings>;
   now?: () => number;
+  preflightHost?: PreflightHost;
 }
 
 function makeFSM(opts: HarnessOpts = {}): {
@@ -49,18 +64,26 @@ function makeFSM(opts: HarnessOpts = {}): {
   setDesignated: (v: boolean) => void;
   setQueueSize: (n: number) => void;
   setLastIncCommitAt: (ms: number | null) => void;
+  setLastFullCommitAt: (ms: number | null) => void;
   logger: Logger;
+  preflightHost: PreflightHost & { shown: PreflightActions[] };
 } {
   let designated = opts.designated ?? true;
   let queueSize = opts.queueSize ?? 0;
   let lastIncCommitAt: number | null = opts.lastIncCommitAt ?? null;
+  let lastFullCommitAt: number | null = opts.lastFullCommitAt ?? null;
   const logger = makeLogger();
+  const preflightHost = (opts.preflightHost ?? makePreflightHost()) as PreflightHost & {
+    shown: PreflightActions[];
+  };
 
   const deps: SchedulerFSMDeps = {
     schedule: makeSchedule(opts.schedule),
     isDesignated: () => designated,
     getQueueSize: () => queueSize,
     getLastIncCommitAt: () => lastIncCommitAt,
+    getLastFullCommitAt: () => lastFullCommitAt,
+    preflightHost,
     logger,
     now: opts.now,
   };
@@ -77,7 +100,11 @@ function makeFSM(opts: HarnessOpts = {}): {
     setLastIncCommitAt: (ms) => {
       lastIncCommitAt = ms;
     },
+    setLastFullCommitAt: (ms) => {
+      lastFullCommitAt = ms;
+    },
     logger,
+    preflightHost,
   };
 }
 
@@ -544,5 +571,295 @@ describe('SchedulerFSM — onunload', () => {
 
     fsm.onunload();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7.2 — Scheduled full computation
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — getNextScheduledFullAt', () => {
+  it('returns weekly Sunday 03:00 given default schedule', () => {
+    const now = new Date('2026-04-23T12:00:00'); // Thursday
+    const { fsm } = makeFSM({ now: () => now.getTime() });
+    const nextMs = fsm.getNextScheduledFullAt();
+    const next = new Date(nextMs);
+    expect(next.getDay()).toBe(0); // Sunday
+    expect(next.getHours()).toBe(3);
+    expect(next.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it('returns biweekly anchored to lastFullAt', () => {
+    const lastFull = new Date('2026-04-19T03:00:00').getTime();
+    const now = new Date('2026-04-20T12:00:00').getTime();
+    const { fsm } = makeFSM({
+      schedule: { full_cadence: 'biweekly' },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+    const nextMs = fsm.getNextScheduledFullAt();
+    const expected = new Date('2026-05-03T03:00:00').getTime();
+    expect(nextMs).toBe(expected);
+  });
+
+  it('returns monthly first-Sunday for monthly cadence', () => {
+    const now = new Date('2026-04-01T00:00:00').getTime();
+    const { fsm } = makeFSM({
+      schedule: { full_cadence: 'monthly' },
+      now: () => now,
+    });
+    const nextMs = fsm.getNextScheduledFullAt();
+    const next = new Date(nextMs);
+    expect(next.getDate()).toBe(5); // first Sunday of April 2026
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7.2 — Pre-flight notice window
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — pre-flight notice', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function fsmAtReady(
+    nowRef: { value: number },
+    schedule: Partial<ScheduleSettings> = {},
+  ): ReturnType<typeof makeFSM> {
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1, ...schedule },
+      now: () => nowRef.value,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    return h;
+  }
+
+  it('fires exactly once at scheduled - 5 min', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(1);
+
+    // Another tick inside the same window — must NOT re-fire
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(1);
+  });
+
+  it('does NOT fire before the 5-minute window opens', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 6 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(0);
+  });
+
+  it('"Start now" advances scheduled full to now (next tick fires BACKUP_RUNNING full)', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    preflightHost.shown[0].onStartNow();
+
+    fsm.tick();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'scheduled' });
+  });
+
+  it('"Postpone 1h" advances scheduled by 1 hour; preflight re-fires before new time', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(1);
+    preflightHost.shown[0].onPostpone1h();
+
+    // At original scheduled time — should NOT fire backup (postponed)
+    nowRef.value = scheduled;
+    fsm.tick();
+    expect(fsm.getState()).toBe('READY');
+
+    // At (scheduled + 1h) - 5min — pre-flight re-fires
+    nowRef.value = scheduled + 60 * 60 * 1000 - 5 * 60 * 1000;
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(2);
+  });
+
+  it('"Skip" marks this cycle as skipped; next scheduled is next cycle', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nextScheduled = new Date('2026-05-03T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    preflightHost.shown[0].onSkip();
+
+    expect(fsm.getNextScheduledFullAt()).toBe(nextScheduled);
+  });
+
+  it('FSM always calls preflightHost in the window — notice gating lives in NoticeCenter, not FSM', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7.2 — Scheduled full triggers BACKUP_RUNNING
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — scheduled full trigger', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('tick at or past scheduled full time → BACKUP_RUNNING with pending=full/scheduled', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      now: () => scheduled,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    expect(h.fsm.getState()).toBe('READY');
+
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'scheduled' });
+  });
+
+  it('scheduled full takes priority over incremental when both are due', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      queueSize: 3,
+      now: () => scheduled,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    h.setQueueSize(5); // inc also pending
+    h.fsm.tick();
+    expect(h.fsm.getPendingBackup()?.type).toBe('full');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7.2 — Catch-up on startup
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — recoverOnStartup catch-up', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('enqueues catch-up full when scheduled time passed while unloaded', () => {
+    // lastFull was 10 days ago; schedule is weekly Sunday 03:00 — at least one
+    // scheduled full has passed without being run.
+    const now = new Date('2026-04-23T12:00:00').getTime();
+    const lastFull = now - 10 * 24 * 3600 * 1000;
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+
+    h.fsm.recoverOnStartup();
+    expect(h.fsm.hasPendingCatchup()).toBe(true);
+
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    expect(h.fsm.getState()).toBe('READY');
+
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'catchup' });
+  });
+
+  it('multiple overdue scheduled fulls collapse to ONE catch-up', () => {
+    const now = new Date('2026-04-23T12:00:00').getTime();
+    const lastFull = now - 60 * 24 * 3600 * 1000; // 60 days ago — many cycles missed
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+
+    h.fsm.recoverOnStartup();
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+
+    h.fsm.tick();
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'catchup' });
+
+    // After success, no lingering catch-up — should go back to inc/idle logic.
+    h.fsm.onBackupSuccess();
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+
+  it('does NOT flag catch-up when no full has ever run (fresh install)', () => {
+    const h = makeFSM({ lastFullCommitAt: null });
+    h.fsm.recoverOnStartup();
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+
+  it('does NOT flag catch-up when lastFull < one cadence cycle ago', () => {
+    const now = new Date('2026-04-23T12:00:00').getTime();
+    const lastFull = now - 3 * 24 * 3600 * 1000; // 3 days ago, weekly cadence
+    const h = makeFSM({
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+    h.fsm.recoverOnStartup();
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7.2 — Pending backup tracking
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — getPendingBackup', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('is null initially', () => {
+    const { fsm } = makeFSM();
+    expect(fsm.getPendingBackup()).toBeNull();
+  });
+
+  it('is {type:"inc"} when incremental triggers', () => {
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    h.setQueueSize(3);
+    h.fsm.tick();
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'inc' });
+  });
+
+  it('is cleared after onBackupSuccess', () => {
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    h.setQueueSize(3);
+    h.fsm.tick();
+    expect(h.fsm.getPendingBackup()).not.toBeNull();
+    h.fsm.onBackupSuccess();
+    expect(h.fsm.getPendingBackup()).toBeNull();
+  });
+
+  // Satisfies unused-import lint for the PendingBackup type.
+  it('type alias is exported', () => {
+    const p: PendingBackup = { type: 'inc' };
+    expect(p.type).toBe('inc');
   });
 });

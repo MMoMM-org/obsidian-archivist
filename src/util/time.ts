@@ -43,11 +43,14 @@ export function nextWeeklyFullAt(
 
   const currentDow = candidate.getDay();
   let deltaDays = (dayOfWeek - currentDow + 7) % 7;
-  if (deltaDays === 0 && candidate.getTime() <= now.getTime()) {
+  // Equality is returned as-is so the FSM tick fires exactly at the scheduled
+  // instant instead of slipping to next week; the strict inequality only skips
+  // when the candidate is genuinely in the past.
+  if (deltaDays === 0 && candidate.getTime() < now.getTime()) {
     deltaDays = 7;
   }
   candidate.setDate(candidate.getDate() + deltaDays);
-  if (candidate.getTime() <= now.getTime()) {
+  if (candidate.getTime() < now.getTime()) {
     candidate.setDate(candidate.getDate() + 7);
   }
   return candidate;
@@ -72,4 +75,83 @@ export function addMinutes(d: Date, minutes: number): Date {
 
 export function minutesBetween(a: Date, b: Date): number {
   return (b.getTime() - a.getTime()) / 60_000;
+}
+
+export type FullCadence = 'weekly' | 'biweekly' | 'monthly';
+
+/**
+ * Next biweekly occurrence. Anchored to the prior full if present (exactly
+ * 14 days after it at `hhmm`); otherwise falls back to `nextWeeklyFullAt`.
+ */
+export function nextBiweeklyFullAt(
+  now: Date,
+  dayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6,
+  hhmm: string,
+  lastFullAt: Date | null,
+): Date {
+  if (!lastFullAt) return nextWeeklyFullAt(now, dayOfWeek, hhmm);
+  const { hours, minutes } = parseHHMM(hhmm);
+  // Walk forward from lastFullAt in 14-day increments until at-or-after now.
+  // Strict `<` (not `<=`) so the tick at the exact scheduled instant fires.
+  const candidate = new Date(lastFullAt.getTime());
+  candidate.setHours(hours, minutes, 0, 0);
+  while (candidate.getTime() < now.getTime()) {
+    candidate.setDate(candidate.getDate() + 14);
+  }
+  return candidate;
+}
+
+/**
+ * First occurrence of `dayOfWeek` at `hhmm` in the current or next month.
+ * Example: "first Sunday of the month at 03:00".
+ */
+export function nextMonthlyFullAt(
+  now: Date,
+  dayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6,
+  hhmm: string,
+): Date {
+  const { hours, minutes } = parseHHMM(hhmm);
+  const candidate = firstDowOfMonth(now.getFullYear(), now.getMonth(), dayOfWeek, hours, minutes);
+  if (candidate.getTime() >= now.getTime()) return candidate;
+
+  // Move to next month
+  const nextMonth = now.getMonth() + 1;
+  const y = now.getFullYear() + (nextMonth > 11 ? 1 : 0);
+  const m = nextMonth % 12;
+  return firstDowOfMonth(y, m, dayOfWeek, hours, minutes);
+}
+
+function firstDowOfMonth(
+  year: number,
+  month: number,
+  dayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6,
+  hours: number,
+  minutes: number,
+): Date {
+  const first = new Date(year, month, 1, hours, minutes, 0, 0);
+  const offset = (dayOfWeek - first.getDay() + 7) % 7;
+  first.setDate(1 + offset);
+  return first;
+}
+
+/**
+ * Cadence-aware next scheduled full. Unified entry point for the FSM's
+ * scheduler. `lastFullAt` anchors biweekly drift; it is ignored by weekly
+ * and monthly.
+ */
+export function nextFullAt(
+  now: Date,
+  cadence: FullCadence,
+  dayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6,
+  hhmm: string,
+  lastFullAt: Date | null,
+): Date {
+  switch (cadence) {
+    case 'weekly':
+      return nextWeeklyFullAt(now, dayOfWeek, hhmm);
+    case 'biweekly':
+      return nextBiweeklyFullAt(now, dayOfWeek, hhmm, lastFullAt);
+    case 'monthly':
+      return nextMonthlyFullAt(now, dayOfWeek, hhmm);
+  }
 }
