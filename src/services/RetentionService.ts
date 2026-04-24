@@ -28,7 +28,8 @@ export type RetentionState =
   | 'skipped_throttle'
   | 'pruned'
   | 'no_op_fresh'
-  | 'no_op_all_kept';
+  | 'no_op_all_kept'
+  | 'all_deletes_failed';
 
 export interface RetentionResult {
   ran: boolean;
@@ -104,12 +105,16 @@ export class RetentionService {
     await this.persistTimestamp(localIndex, now);
 
     if (pruned.length > 0) {
-      void this.triggerGcSweep?.();
+      try {
+        void this.triggerGcSweep?.();
+      } catch (err) {
+        this.logger.warn('gc_sweep_trigger_failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
-    const state: RetentionState = pruned.length === 0 && failed.length === 0
-      ? 'no_op_all_kept'
-      : 'pruned';
+    const state: RetentionState = resolveState(pruned, failed);
 
     return { ran: true, pruned_ids: pruned, failed_deletes: failed, state };
   }
@@ -204,4 +209,19 @@ export class RetentionService {
       last_retention_at: now.toISOString(),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+/** Resolve the retention result state from pruned/failed counts.
+ *  - pruned > 0               → 'pruned'          (at least one success)
+ *  - pruned === 0, failed > 0 → 'all_deletes_failed'
+ *  - pruned === 0, failed === 0 → 'no_op_all_kept'
+ */
+function resolveState(pruned: string[], failed: string[]): RetentionState {
+  if (pruned.length > 0) return 'pruned';
+  if (failed.length > 0) return 'all_deletes_failed';
+  return 'no_op_all_kept';
 }

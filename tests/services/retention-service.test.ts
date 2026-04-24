@@ -516,6 +516,44 @@ describe('RetentionService', () => {
   });
 
   describe('triggerGcSweep', () => {
+    it('does not propagate a synchronous throw from triggerGcSweep — logs warn instead', async () => {
+      const entries: SnapshotIndexEntry[] = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+      ];
+
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex({ last_retention_at: null }),
+        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const logger = makeFakeLogger();
+
+      const throwingGcSweep = vi.fn(() => {
+        throw new Error('boom from gc');
+      });
+
+      const deps = {
+        dropbox: makeFakeDropbox() as unknown as RetentionServiceDeps['dropbox'],
+        pluginStore: pluginStore as unknown as RetentionServiceDeps['pluginStore'],
+        snapshotIndexStore: snapshotIndexStore as unknown as RetentionServiceDeps['snapshotIndexStore'],
+        logger,
+        vaultPrefix: VAULT_PREFIX,
+        triggerGcSweep: throwingGcSweep,
+        now: () => NOW,
+      };
+      const svc = new RetentionService(deps);
+
+      // Must not throw despite the callback throwing synchronously
+      const result = await svc.runIfDue(NOW);
+
+      expect(result.ran).toBe(true);
+      const warnCall = logger.warn.mock.calls.find(
+        (args: unknown[]) => args[0] === 'gc_sweep_trigger_failed',
+      );
+      expect(warnCall).toBeDefined();
+      expect((warnCall as unknown[])[1]).toMatchObject({ error: 'boom from gc' });
+    });
+
     it('fires triggerGcSweep once after prunes without awaiting', async () => {
       const entries: SnapshotIndexEntry[] = [
         makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
@@ -617,6 +655,34 @@ describe('RetentionService', () => {
       expect(result.state).toBe('pruned');
       expect(result.pruned_ids).toHaveLength(2);
       expect(result.pruned_ids.sort()).toEqual([IDS.F1, IDS.F2].sort());
+    });
+
+    it('returns all_deletes_failed when every attempted delete fails (pruned_ids is empty)', async () => {
+      const entries: SnapshotIndexEntry[] = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.F2, '2026-01-02T10:00:00.000Z'),
+      ];
+
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex({ last_retention_at: null }),
+        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const dropbox = makeFakeDropbox();
+      // All deletes fail
+      dropbox.deleteV2 = vi.fn(async () => {
+        throw new NetworkError('NETWORK_ERROR', 'timeout', true);
+      });
+
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+
+      const svc = makeService({ pluginStore, dropbox, snapshotIndexStore });
+      const result = await svc.runIfDue(NOW);
+
+      expect(result.ran).toBe(true);
+      expect(result.state).toBe('all_deletes_failed');
+      expect(result.pruned_ids).toHaveLength(0);
+      expect(result.failed_deletes).toHaveLength(2);
+      expect(result.failed_deletes.sort()).toEqual([IDS.F1, IDS.F2].sort());
     });
   });
 });

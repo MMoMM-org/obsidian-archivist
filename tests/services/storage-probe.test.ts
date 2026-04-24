@@ -237,6 +237,16 @@ describe('StorageProbe.estimateUsage', () => {
     expect(report.limit_bytes).toBe(2 * GB);
   });
 
+  it('returns banner=ok and percent_used=0 when storage_hard_limit_gb is 0 (unconfigured)', async () => {
+    const settings = makeSettings({ storage_hard_limit_gb: 0, storage_warn_at_percent: 80 });
+    const entries = makeEntries([500 * MB]); // non-zero usage, but limit is unconfigured
+    const { probe } = makeProbe({ entries, settings });
+    const report = await probe.estimateUsage();
+    expect(report.banner).toBe('ok');
+    expect(report.percent_used).toBe(0);
+    expect(report.limit_bytes).toBe(0);
+  });
+
   it('skips folder and deleted entries (only sums file entries)', async () => {
     const entries: ListFolderEntry[] = [
       { tag: 'file', path: 'Apps/Archivist/my-vault/file.md', size: 500 },

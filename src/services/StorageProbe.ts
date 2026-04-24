@@ -98,6 +98,8 @@ export class StorageProbe {
     const entries = await this.dropbox.listFolder(root, { recursive: true });
 
     const total_bytes = this.sumEntries(entries);
+    // limit_bytes === 0 means "unconfigured / unlimited": treat as 0% used so
+    // the banner stays 'ok' and we never emit a spurious warn/exceeded.
     const percent_used = limit_bytes > 0 ? (total_bytes / limit_bytes) * 100 : 0;
     const banner = computeBanner(percent_used, storage_warn_at_percent);
     const measured_at = this.now().toISOString();
