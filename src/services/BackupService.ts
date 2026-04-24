@@ -23,7 +23,7 @@ import type { DropboxClient } from '../infra/DropboxClient';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { LocalIndex } from '../model/Index';
-import type { QueueEntry } from '../model/QueueEntry';
+import type { EventQueue, QueueEntry } from '../model/QueueEntry';
 import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
 import { contentPath, headPath, snapshotPath } from '../util/paths';
 
@@ -122,12 +122,18 @@ export class BackupService {
       exclusionsApplied,
     });
 
+    // Full pre-uploaded blobs at step 1 above to preserve the crash-recovery
+    // matrix semantics. `fileBytes` is still passed for interface symmetry
+    // but commitSnapshot's blob-upload branch is gated on manifest.type === 'inc'.
+
     // --- Steps 2-7: crash-safe commit protocol ---
+    const queueForFull = await this.pluginStore.loadQueue();
     await this.commitSnapshot({
       manifest,
       fileBytes: fileData,
       parallelism,
       queueCursorAdvanceTo: manifest.created_at,
+      baseQueueSnapshot: queueForFull,
     });
   }
 
@@ -171,9 +177,8 @@ export class BackupService {
     );
     const fileData = await this.readAndHashFiles(existingPaths, parallelism);
 
-    // --- Filter: skip files whose hash is unchanged vs index (unless from a rename event) ---
-    const renameTargets = new Set(renames.map((r) => r.to));
-    const changes = buildChanges(fileData, index, renameTargets);
+    // --- Filter: skip files whose hash is unchanged vs index ---
+    const changes = buildChanges(fileData, changesPaths, index);
 
     // --- Determine parent snapshot ---
     const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
@@ -213,6 +218,7 @@ export class BackupService {
       fileBytes: fileData,
       parallelism,
       queueCursorAdvanceTo: maxObservedAt,
+      baseQueueSnapshot: queue,
     });
   }
 
@@ -237,8 +243,9 @@ export class BackupService {
     fileBytes: Map<string, { hash: string; bytes: Uint8Array }>;
     parallelism: number;
     queueCursorAdvanceTo: string;
+    baseQueueSnapshot: EventQueue;
   }): Promise<void> {
-    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo } = args;
+    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo, baseQueueSnapshot } = args;
 
     // --- Step 1: Upload new content blobs ---
     // runFull pre-uploads blobs before calling commitSnapshot (so a crash between blob upload
@@ -279,7 +286,7 @@ export class BackupService {
     await this.saveLocalIndex(manifest, committedAt);
 
     // --- Step 7: Advance queue cursor ---
-    await this.advanceQueueCursor(queueCursorAdvanceTo);
+    await this.advanceQueueCursor(queueCursorAdvanceTo, baseQueueSnapshot);
   }
 
   // ---------------------------------------------------------------------------
@@ -357,8 +364,8 @@ export class BackupService {
         schema_version: '1.0',
         last_full_snapshot_id: manifest.id,
         last_full_commit_at: committedAt,
-        last_inc_snapshot_id: existing?.last_inc_snapshot_id ?? null,
-        last_inc_commit_at: existing?.last_inc_commit_at ?? null,
+        last_inc_snapshot_id: null,
+        last_inc_commit_at: null,
         last_retention_at: existing?.last_retention_at ?? null,
         index_missing_recovery_required: false,
         files: { ...manifest.files },
@@ -410,14 +417,14 @@ export class BackupService {
     await this.pluginStore.saveIndex(updated);
   }
 
-  private async advanceQueueCursor(committedThrough: string): Promise<void> {
-    const queue = await this.pluginStore.loadQueue();
-    const updated = {
-      ...queue,
+  private async advanceQueueCursor(
+    committedThrough: string,
+    baseSnapshot: EventQueue,
+  ): Promise<void> {
+    const updated: EventQueue = {
+      ...baseSnapshot,
       committed_through: committedThrough,
-      entries: queue.entries.filter(
-        (e) => e.observed_at > committedThrough,
-      ),
+      entries: baseSnapshot.entries.filter((e) => e.observed_at > committedThrough),
     };
     await this.pluginStore.saveQueue(updated);
   }
@@ -461,12 +468,19 @@ function bucketQueueEntries(entries: QueueEntry[]): {
 
   for (const entry of entries) {
     if (entry.type === 'create' || entry.type === 'modify') {
-      if (!deletedSet.has(entry.path)) {
-        changesSet.add(entry.path);
-      }
+      deletedSet.delete(entry.path); // later create/modify supersedes earlier delete
+      changesSet.add(entry.path);
     } else if (entry.type === 'delete') {
       changesSet.delete(entry.path);
       deletedSet.add(entry.path);
+      // If this path was a rename target, the rename is superseded.
+      // The 'from' side must also be recorded as deleted.
+      for (const [from, to] of renamesMap) {
+        if (to === entry.path) {
+          renamesMap.delete(from);
+          deletedSet.add(from);
+        }
+      }
     } else if (entry.type === 'rename' && entry.prev_path !== null) {
       renamesMap.set(entry.prev_path, entry.path);
       // Add the rename target to changes (its content may have changed)
@@ -492,21 +506,16 @@ function bucketQueueEntries(entries: QueueEntry[]): {
  * For rename targets: include only if hash changed (pure rename → renames[] only, not files[]).
  */
 function buildChanges(
-  fileData: Map<string, { hash: string; bytes: Uint8Array }>,
+  hashMap: Map<string, { hash: string; bytes: Uint8Array }>,
+  changesPaths: string[],
   index: LocalIndex,
-  renameTargets: Set<string>,
 ): string[] {
   const changed: string[] = [];
-  for (const [path, { hash }] of fileData.entries()) {
-    const indexHash = index.files[path]?.hash;
-    if (hash === indexHash && renameTargets.has(path)) {
-      // Pure rename (hash matches index entry at new path OR no prior index entry): skip files[]
-      continue;
-    }
-    if (hash === indexHash && !renameTargets.has(path)) {
-      // Spurious event — content unchanged
-      continue;
-    }
+  for (const path of changesPaths) {
+    const hashed = hashMap.get(path);
+    if (!hashed) continue; // file was deleted before we got to read it
+    const { hash } = hashed;
+    if (hash === index.files[path]?.hash) continue; // unchanged content (spurious or pure rename)
     changed.push(path);
   }
   return changed;
