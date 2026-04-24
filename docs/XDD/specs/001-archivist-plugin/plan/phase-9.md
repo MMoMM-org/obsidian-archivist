@@ -1,6 +1,6 @@
 ---
 title: "Phase 9: Backup Browser, File-History Modal & Restore UI"
-status: in_progress
+status: complete
 version: "1.0"
 phase: 9
 ---
@@ -94,6 +94,6 @@ Produces the UI surfaces for restore — the features that fulfill the PRD promi
   4. Validate: Injection tests with malicious payloads; verify zero executions. Advisory tests with fake `app.plugins.enabledPlugins`.
   5. Success: XSS-to-Electron-RCE class ruled out for the common case `[ref: SDD/ADR-13]`; user informed about plugin-interaction boundary `[ref: SDD/ADR-13 threat-model boundary]`.
 
-- [ ] **T9.5 Phase Validation** `[activity: validate]`
+- [x] **T9.5 Phase Validation** `[activity: validate]`
 
   - Run all Phase 9 tests. Integration: with mocked RestoreService, open Backup Browser, navigate a 10k-file snapshot, select a deleted-path file, confirm restore-in-place, verify the callback is called with the right args. Run `FileHistoryModal` on a 500-version fixture, confirm pagination works. Lint and typecheck pass.
