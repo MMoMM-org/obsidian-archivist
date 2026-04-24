@@ -220,7 +220,7 @@ describe('DeviceCoordinator.getOrCreateDeviceId', () => {
     await coordinator.getOrCreateDeviceId();
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls;
-    const found = infoCalls.some(([msg]: [string]) => msg === 'device_id_generated');
+    const found = infoCalls.some((call) => call[0] === "device_id_generated");
     expect(found, 'expected device_id_generated info log').toBe(true);
   });
 });
@@ -315,7 +315,7 @@ describe('DeviceCoordinator.takeOwnership / releaseOwnership', () => {
     await coordinator.takeOwnership();
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls;
-    const found = infoCalls.some(([msg]: [string]) => msg === 'ownership_taken');
+    const found = infoCalls.some((call) => call[0] === "ownership_taken");
     expect(found, 'expected ownership_taken log').toBe(true);
   });
 
@@ -342,7 +342,7 @@ describe('DeviceCoordinator.takeOwnership / releaseOwnership', () => {
     await coordinator.releaseOwnership();
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls;
-    const found = infoCalls.some(([msg]: [string]) => msg === 'ownership_released');
+    const found = infoCalls.some((call) => call[0] === "ownership_released");
     expect(found, 'expected ownership_released log').toBe(true);
   });
 });
@@ -436,6 +436,27 @@ describe('DeviceCoordinator.verifyNoConflict — DEVICE_CONFLICT', () => {
     expect(thrown).toBeInstanceOf(ConflictError);
     expect(thrown!.code).toBe('DEVICE_CONFLICT');
     expect(thrown!.message).toContain(OTHER_DEVICE_ID);
+    // Spec requires the error message to include the committed_at age so the
+    // UI layer (Phase 7) can surface "the other device wrote X hours ago".
+    expect(thrown!.message).toMatch(/\d+(?:\.\d+)?\s*h/);
+  });
+
+  it('SEC-M4 covers snapshot_type outside {full, inc} — treated as absent', async () => {
+    // Pin the "malformed enum field" branch that the validator already
+    // rejects: if someone ever loosens validateHeadSchema to accept unknown
+    // snapshot_type values, this test catches the regression.
+    const logger = makeLogger();
+    const now = Date.now();
+    const committedAt = new Date(now - 60 * 60 * 1000).toISOString();
+    const head = {
+      ...makeValidHead(OTHER_DEVICE_ID, committedAt),
+      snapshot_type: 'delta', // not 'full' or 'inc' — must be rejected
+    };
+    const dropbox = makeFakeDropbox(head);
+    const { coordinator } = makeCoordinator(dropbox, logger, { now: () => now });
+
+    await expect(coordinator.verifyNoConflict()).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
   });
 
   it('respects custom recentWindowHours option', async () => {
