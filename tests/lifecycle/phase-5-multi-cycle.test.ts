@@ -19,7 +19,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { BackupService, type BackupServiceDeps } from '../../src/services/BackupService';
-import { ConflictError } from '../../src/model/Errors';
 import type { PluginSettings } from '../../src/model/Settings';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
 import type { LocalIndex } from '../../src/model/Index';
