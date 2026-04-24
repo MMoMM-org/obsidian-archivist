@@ -95,7 +95,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: End-to-end test with the mocked client exercises the crash points.
   5. Success: Commit protocol crash-safety `[ref: SDD/Acceptance Criteria — crash-recovery]`; dedup working `[ref: PRD/F2 AC-3]`; double-check race fix `[ref: SDD/ADR-20 + ROB-001]`.
 
-- [ ] **T5.4 BackupService — Incremental pipeline** `[activity: backend-api]`
+- [x] **T5.4 BackupService — Incremental pipeline** `[activity: backend-api]`
 
   1. Prime: Same as T5.3 plus `[ref: SDD/Runtime View/Primary Flow steps 7-11]`.
   2. Test (end-to-end):
