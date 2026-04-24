@@ -428,6 +428,77 @@ describe('PluginStore write serialization', () => {
     await expect(store.saveQueue(emptyEventQueue())).resolves.toBeUndefined();
     expect(adapter.files.has(QUEUE_PATH)).toBe(true);
   });
+
+  it('same-path concurrent saves are serialized and last-writer wins (ROB-003)', async () => {
+    // Target: 3 concurrent saveIndex calls on the SAME path. The writeQueue
+    // must (1) prevent overlapping adapter.write invocations and (2) preserve
+    // call order so the final on-disk blob matches the LAST submitted call.
+    // A broken implementation (e.g. no writeQueue) would allow overlapping
+    // writes and could land an arbitrary call's bytes as the final state.
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    const logger = makeTestLogger();
+    const store = new PluginStore(plugin as never, logger);
+
+    let activeWrites = 0;
+    let maxActive = 0;
+    const underlyingWrite = adapter.write;
+    adapter.write = async (path: string, data: string) => {
+      activeWrites += 1;
+      maxActive = Math.max(maxActive, activeWrites);
+      // Force a macrotask boundary so a broken impl would overlap here.
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      await underlyingWrite(path, data);
+      activeWrites -= 1;
+    };
+
+    const indexA: LocalIndex = { ...makeSampleIndex(), last_full_snapshot_id: 'A' };
+    const indexB: LocalIndex = { ...makeSampleIndex(), last_full_snapshot_id: 'B' };
+    const indexC: LocalIndex = { ...makeSampleIndex(), last_full_snapshot_id: 'C' };
+
+    await Promise.all([
+      store.saveIndex(indexA),
+      store.saveIndex(indexB),
+      store.saveIndex(indexC),
+    ]);
+
+    expect(maxActive).toBe(1); // no overlap ever
+    const saved = JSON.parse(adapter.files.get(INDEX_PATH)!);
+    expect(saved.last_full_snapshot_id).toBe('C'); // last call's payload wins
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: loadSettings corruption / partial-data fallback contract
+// ---------------------------------------------------------------------------
+
+describe('PluginStore.loadSettings partial/corrupt fallback contract', () => {
+  it('partially-populated data.json (missing sub-objects) is treated as corrupt — defaults returned, .bak preserved', async () => {
+    // Contract: loadSettings returns DEFAULT_SETTINGS + writes data.json.bak
+    // whenever the parser throws anything other than SCHEMA_INCOMPATIBLE. This
+    // covers partial data (e.g. only `retention` present), malformed JSON, and
+    // future subtly-broken shapes. Future schema additions must ship as
+    // SETTINGS_MIGRATIONS entries — absent a migration, partial data is
+    // corruption by definition.
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    const logger = makeTestLogger();
+    const store = new PluginStore(plugin as never, logger);
+
+    plugin._data = {
+      schema_version: '1.0',
+      settings: {
+        // Only retention is present — schedule / notifications / advanced
+        // missing. isPluginSettings rejects; PluginStore falls back.
+        retention: { ...DEFAULT_SETTINGS.retention, never_prune_window_days: 7 },
+      },
+    };
+
+    const loaded = await store.loadSettings();
+    expect(loaded).toEqual(DEFAULT_SETTINGS); // user's customization is NOT retained
+    expect(adapter.files.has(`${PLUGIN_DIR}/data.json.bak`)).toBe(true);
+    expect(logger.warnCalls.some((c) => c.message === 'settings_corrupt')).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -443,7 +514,7 @@ describe('DEFAULT_SETTINGS PRD compliance', () => {
   });
 
   it('has no hourly_days or weekly_months fields (3-tier MVP cut)', () => {
-    const r = DEFAULT_SETTINGS.retention as Record<string, unknown>;
+    const r = DEFAULT_SETTINGS.retention as unknown as Record<string, unknown>;
     expect(r['hourly_days']).toBeUndefined();
     expect(r['weekly_months']).toBeUndefined();
   });
