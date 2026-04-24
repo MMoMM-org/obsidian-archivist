@@ -223,6 +223,11 @@ export const S = {
   // ─── Dropbox desktop-client overlap notice ───────────────────────
   DROPBOX_DESKTOP_OVERLAP:
     'The Dropbox desktop app appears to sync the Apps/Archivist folder to disk. Consider excluding it from selective sync to avoid duplicate local storage.',
+
+  // ─── Preview pane plugin advisory (T9.4, SEC-H3, ADR-13) ────────────────
+  PREVIEW_PLUGIN_ADVISORY:
+    'Previewing historical content may execute plugin code (Dataview/Templater/…) the same way as in a live note. The preview runs in your current plugin environment.',
+  PREVIEW_PLUGIN_ADVISORY_DISMISS: 'Dismiss',
 } as const;
 
 export type StringsKey = keyof typeof S;

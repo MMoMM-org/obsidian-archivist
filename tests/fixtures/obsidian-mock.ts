@@ -566,3 +566,48 @@ export async function requestUrl(_arg: unknown): Promise<{
     text: '',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Component — Phase 9 addition (T9.4)
+// ---------------------------------------------------------------------------
+// Minimal lifecycle stub matching the Obsidian Component interface.
+// renderPreview registers child components against a Component for auto-disposal.
+
+export class Component {
+  private _children: Component[] = [];
+
+  addChild(c: Component): void {
+    this._children.push(c);
+  }
+
+  removeChild(c: Component): void {
+    this._children = this._children.filter((ch) => ch !== c);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MarkdownRenderer — Phase 9 addition (T9.4)
+// ---------------------------------------------------------------------------
+// Security-safe mock: walks content looking for <script>, javascript:, and
+// onerror= patterns and inserts them as TEXT nodes, never as HTML — simulating
+// Obsidian's DOMPurify-based rendering behaviour.
+// Tests can inspect el.textContent to verify malicious content was not executed.
+
+const DANGEROUS_PATTERNS = [/<script/gi, /javascript:/gi, /onerror=/gi];
+
+export class MarkdownRenderer {
+  static async render(
+    _app: unknown,
+    content: string,
+    el: MockEl,
+    _sourcePath: string,
+    _component: Component,
+  ): Promise<void> {
+    // Strip or neutralise dangerous patterns by inserting as plain text.
+    const sanitized = DANGEROUS_PATTERNS.reduce(
+      (s, re) => s.replace(re, (match) => `[blocked:${match}]`),
+      content,
+    );
+    el.createEl('div', { text: sanitized });
+  }
+}
