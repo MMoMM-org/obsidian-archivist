@@ -88,6 +88,28 @@ export const S = {
   RESTORE_CONFIRM_CANCEL: 'Cancel',
   RESTORE_IN_PROGRESS: 'A restore is already in progress for this file.',
 
+  // ─── ConfirmRestoreModal (T9.3) ──────────────────────────────────
+  // CONFIRM_RESTORE_IN_PLACE: standard overwrite confirmation.
+  //   path: vault-relative file path being restored.
+  //   timestamp: human-readable snapshot timestamp.
+  //   size: human-readable file size (e.g. "42 KB").
+  CONFIRM_RESTORE_IN_PLACE_TITLE: 'Replace file with this version?',
+  CONFIRM_RESTORE_IN_PLACE_BODY: (path: string, timestamp: string, size: string): string =>
+    `"${path}" will be replaced with the snapshot from ${timestamp} (${size}). This cannot be undone.`,
+  CONFIRM_RESTORE_IN_PLACE_OK: 'Replace',
+  CONFIRM_RESTORE_IN_PLACE_CANCEL: 'Cancel',
+
+  // CONFIRM_RESTORE_CREATES_DIR: used when target directory does not exist.
+  //   path: vault-relative file path being restored.
+  //   timestamp: human-readable snapshot timestamp.
+  //   size: human-readable file size.
+  //   dirs: comma-separated list of folders that will be created.
+  CONFIRM_RESTORE_CREATES_DIR_TITLE: 'Create folders and restore this version?',
+  CONFIRM_RESTORE_CREATES_DIR_BODY: (path: string, timestamp: string, size: string, dirs: string): string =>
+    `"${path}" will be restored from ${timestamp} (${size}). The following folders will be created: ${dirs}. This cannot be undone.`,
+  CONFIRM_RESTORE_CREATES_DIR_OK: 'Replace',
+  CONFIRM_RESTORE_CREATES_DIR_CANCEL: 'Cancel',
+
   // ─── File history modal (F3) ────────────────────────────────────
   FILE_HISTORY_TITLE: 'Version history',
   FILE_HISTORY_EMPTY: 'No backed-up versions found for this file yet.',

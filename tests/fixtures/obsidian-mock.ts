@@ -417,6 +417,134 @@ export function setIcon(_el: unknown, _iconName: string): void {}
 export function setTooltip(_el: unknown, _tooltip: string): void {}
 
 // ---------------------------------------------------------------------------
+// Modal — Phase 9 addition (T9.3)
+// ---------------------------------------------------------------------------
+// A minimal but structurally complete stub of the Obsidian Modal class.
+// Production subclasses call super(app), then manipulate this.contentEl.
+// Tests instantiate the subclass directly, drive keyboard events through
+// _fireKeydown(), and inspect calls via _opened / _closed.
+
+export interface MockEl {
+  tagName: string;
+  children: MockEl[];
+  textContent: string;
+  className: string;
+  attrs: Record<string, string>;
+  listeners: Map<string, Array<(e: { key: string; preventDefault: () => void }) => void>>;
+  createEl<T extends string>(
+    tag: T,
+    opts?: { text?: string; cls?: string; attr?: Record<string, string> },
+  ): MockEl;
+  createDiv(opts?: { cls?: string }): MockEl;
+  createSpan(opts?: { text?: string; cls?: string }): MockEl;
+  setText(text: string): void;
+  addClass(cls: string): void;
+  addEventListener(
+    event: string,
+    cb: (e: { key: string; preventDefault: () => void }) => void,
+  ): void;
+  dispatchEvent(e: { key: string; preventDefault: () => void; type: string }): void;
+  focus(): void;
+  _focusCalled: boolean;
+}
+
+function makeMockEl(tag: string): MockEl {
+  const el: MockEl = {
+    tagName: tag,
+    children: [],
+    textContent: '',
+    className: '',
+    attrs: {},
+    listeners: new Map(),
+    _focusCalled: false,
+    createEl(childTag, opts = {}) {
+      const child = makeMockEl(childTag);
+      if (opts.text !== undefined) child.textContent = opts.text;
+      if (opts.cls !== undefined) child.className = opts.cls;
+      if (opts.attr) child.attrs = { ...opts.attr };
+      el.children.push(child);
+      return child;
+    },
+    createDiv(opts = {}) {
+      return el.createEl('div', { cls: opts.cls });
+    },
+    createSpan(opts = {}) {
+      return el.createEl('span', opts);
+    },
+    setText(text) {
+      el.textContent = text;
+    },
+    addClass(cls) {
+      el.className = el.className ? `${el.className} ${cls}` : cls;
+    },
+    addEventListener(event, cb) {
+      if (!el.listeners.has(event)) el.listeners.set(event, []);
+      el.listeners.get(event)!.push(cb);
+    },
+    dispatchEvent(e) {
+      const cbs = el.listeners.get(e.type);
+      if (cbs) for (const cb of cbs) cb(e);
+    },
+    focus() {
+      el._focusCalled = true;
+    },
+  };
+  return el;
+}
+
+export class Modal {
+  app: App;
+  contentEl: MockEl;
+  modalEl: MockEl;
+
+  /** Test introspection: was open() called? */
+  _opened = false;
+  /** Test introspection: was close() called? */
+  _closed = false;
+  /** Element that had focus before modal opened (focus-return target). */
+  _triggerEl: MockEl | null = null;
+
+  constructor(app: App) {
+    this.app = app;
+    this.modalEl = makeMockEl('div');
+    this.contentEl = this.modalEl.createEl('div', { cls: 'modal-content' });
+  }
+
+  open(): void {
+    this._opened = true;
+    this.onOpen();
+    // Obsidian Modal wires keydown on the modal element for Escape handling.
+    // We don't replicate that here — subclasses that need it must call
+    // this.modalEl.addEventListener('keydown', ...) in onOpen().
+  }
+
+  close(): void {
+    this._closed = true;
+    this.onClose();
+    if (this._triggerEl) {
+      this._triggerEl.focus();
+    }
+  }
+
+  /** Override in subclass. */
+  onOpen(): void {}
+  /** Override in subclass. */
+  onClose(): void {}
+
+  /** Test helper: fire a keydown event on the modal element. */
+  _fireKeydown(key: string): void {
+    let defaultPrevented = false;
+    const e = {
+      key,
+      type: 'keydown',
+      preventDefault: () => { defaultPrevented = true; },
+      _defaultPrevented: () => defaultPrevented,
+    };
+    this.modalEl.dispatchEvent(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // requestUrl (Phase 3 addition)
 // ---------------------------------------------------------------------------
 // Default no-network stub. Tests that exercise OAuth / HTTP paths inject their
