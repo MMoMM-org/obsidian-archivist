@@ -36,6 +36,14 @@ export type SuccessEvent = { type: 'inc'; fileCount: number } | { type: 'full' }
 export interface PersistentBanner {
   code: string;
   message: string;
+  /** Optional user-dismiss hook — if present, the banner renders a Dismiss control. */
+  onDismiss?: () => void | Promise<void>;
+  dismissLabel?: string;
+}
+
+export interface ShowPersistentOptions {
+  onDismiss?: () => void | Promise<void>;
+  dismissLabel?: string;
 }
 
 export interface NoticeButton {
@@ -126,10 +134,22 @@ export class NoticeCenter implements PreflightHost {
   // Persistent banners (state — not Obsidian Notice)
   // ---------------------------------------------------------------------------
 
-  showPersistent(code: string, message: string): void {
+  showPersistent(code: string, message: string, opts?: ShowPersistentOptions): void {
     const existing = this.banners.get(code);
-    if (existing && existing.message === message) return; // idempotent
-    this.banners.set(code, { code, message });
+    if (
+      existing &&
+      existing.message === message &&
+      existing.onDismiss === opts?.onDismiss &&
+      existing.dismissLabel === opts?.dismissLabel
+    ) {
+      return; // idempotent
+    }
+    this.banners.set(code, {
+      code,
+      message,
+      onDismiss: opts?.onDismiss,
+      dismissLabel: opts?.dismissLabel,
+    });
     this.emitBanners();
   }
 

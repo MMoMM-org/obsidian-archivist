@@ -84,7 +84,14 @@ function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
   // Map known codes to severity. Default to 'warn' for anything else.
   const severity: BannerSpec['severity'] =
     b.code === 'AUTH_LOST' || b.code === 'DEVICE_CONFLICT' ? 'error' : 'warn';
-  return { kind: 'banner', code: b.code, message: b.message, severity };
+  return {
+    kind: 'banner',
+    code: b.code,
+    message: b.message,
+    severity,
+    dismissLabel: b.dismissLabel,
+    onDismiss: b.onDismiss,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -148,9 +155,17 @@ class ObsidianSectionHost implements SectionHost {
 
   private renderBanner(spec: BannerSpec): void {
     const cls = `archivist-banner archivist-banner-${spec.severity}`;
-    const el = this.container.createDiv({ cls });
+    const el = this.container.createDiv({ cls }) as unknown as HTMLElement;
     el.createEl('strong', { text: `[${spec.code}] ` });
     el.createSpan({ text: spec.message });
+    if (spec.onDismiss) {
+      const setting = new Setting(el);
+      setting.addButton((btn) => {
+        btn.setButtonText(spec.dismissLabel ?? 'Dismiss').onClick(() => {
+          void spec.onDismiss?.();
+        });
+      });
+    }
   }
 
   private renderButton(spec: { label: string; cta?: boolean; onClick: () => void }): void {

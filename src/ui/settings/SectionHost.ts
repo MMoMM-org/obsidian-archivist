@@ -100,6 +100,8 @@ export interface BannerSpec {
   code: string;
   message: string;
   severity: 'info' | 'warn' | 'error';
+  dismissLabel?: string;
+  onDismiss?: () => void | Promise<void>;
 }
 
 export type FieldSpec =

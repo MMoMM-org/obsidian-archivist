@@ -235,6 +235,12 @@ export class FileSystemAdapter {
 export class App {
   workspace: Workspace = new Workspace();
   vault: Vault = new Vault();
+  /**
+   * Phase 7 addition: plugin introspection surface. Not part of Obsidian's
+   * public typings (it's on the internal API), but Archivist's predecessor
+   * detection needs it — see src/services/PredecessorDetector.ts.
+   */
+  plugins: { enabledPlugins: Set<string> } = { enabledPlugins: new Set<string>() };
 }
 
 // ---------------------------------------------------------------------------
