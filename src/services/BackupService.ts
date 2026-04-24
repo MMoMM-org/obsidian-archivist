@@ -1,4 +1,4 @@
-// BackupService — crash-safe 7-step commit protocol for full snapshots.
+// BackupService — crash-safe 7-step commit protocol for full and incremental snapshots.
 //
 // Step order is non-negotiable (from SDD crash-recovery matrix):
 //   1. Upload new content blobs (CAS, idempotent overwrite)
@@ -16,14 +16,15 @@
 //   - Parallelism capped by settings.advanced.upload_parallelism (default 4).
 //   - Adaptive chunk size: 8 MB for files < 50 MB, 150 MB for files >= 50 MB (PERF-M2).
 
-import { buildFullManifest } from './ManifestBuilder';
+import { buildFullManifest, buildIncManifest } from './ManifestBuilder';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { DeviceCoordinator } from './DeviceCoordinator';
 import type { DropboxClient } from '../infra/DropboxClient';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { LocalIndex } from '../model/Index';
-import type { SnapshotManifest } from '../model/Manifest';
+import type { QueueEntry } from '../model/QueueEntry';
+import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
 import { contentPath, headPath, snapshotPath } from '../util/paths';
 
 // ---------------------------------------------------------------------------
@@ -99,10 +100,7 @@ export class BackupService {
 
     const deviceId = await this.coordinator.getOrCreateDeviceId();
     const settings = await this.pluginStore.loadSettings();
-    const rawParallelism = settings.advanced.upload_parallelism ?? DEFAULT_UPLOAD_PARALLELISM;
-    const parallelism = Number.isFinite(rawParallelism) && rawParallelism >= 1
-      ? Math.floor(rawParallelism)
-      : DEFAULT_UPLOAD_PARALLELISM;
+    const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
 
     // --- Read, hash, and collect all vault files in one batched pass (TOCTOU fix) ---
     const vaultFiles = this.vault.getFiles();
@@ -112,9 +110,6 @@ export class BackupService {
     // --- Step 1: Upload new content blobs (CAS, idempotent) ---
     const newBlobs = this.collectNewBlobs(fileData);
     await this.uploadBlobs(newBlobs, parallelism);
-
-    // --- Step 2: Second conflict check BEFORE manifest write (ROB-001) ---
-    await this.coordinator.verifyNoConflict();
 
     // --- Build manifest ---
     const manifest = buildFullManifest({
@@ -126,6 +121,136 @@ export class BackupService {
       createdAt,
       exclusionsApplied,
     });
+
+    // --- Steps 2-7: crash-safe commit protocol ---
+    await this.commitSnapshot({
+      manifest,
+      fileBytes: fileData,
+      parallelism,
+      queueCursorAdvanceTo: manifest.created_at,
+    });
+  }
+
+  /**
+   * Execute an incremental backup using queue entries since the last committed snapshot.
+   *
+   * Short-circuits (0 Dropbox calls) if the queue is empty.
+   * Throws ConflictError if another device committed during our window (queue intact on throw).
+   * Throws if LocalIndex is null — caller must ensure a Full has run first.
+   */
+  async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
+    const exclusionsApplied = opts?.exclusionsApplied ?? null;
+
+    const settings = await this.pluginStore.loadSettings();
+    const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
+
+    // Load index — throw if absent (T5.5 startup recovery handles bootstrap)
+    const index = await this.pluginStore.loadIndex();
+    if (index === null) {
+      throw new Error('BackupService.runIncremental: LocalIndex is null — run a Full backup first');
+    }
+
+    // Snapshot queue at call time; new events enqueued during the run stay untouched
+    const queue = await this.pluginStore.loadQueue();
+
+    // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
+    if (queue.entries.length === 0) return;
+
+    // --- Pre-upload conflict check (first of two — ROB-001) ---
+    await this.coordinator.verifyNoConflict();
+
+    const deviceId = await this.coordinator.getOrCreateDeviceId();
+    const createdAt = this.now();
+
+    // --- Bucket queue entries ---
+    const { changesPaths, deleted, renames } = bucketQueueEntries(queue.entries);
+
+    // --- Read + hash changed files (only those that still exist on disk) ---
+    const existingPaths = changesPaths.filter((p) =>
+      this.vault.getFiles().some((f) => f.path === p),
+    );
+    const fileData = await this.readAndHashFiles(existingPaths, parallelism);
+
+    // --- Filter: skip files whose hash is unchanged vs index (unless from a rename event) ---
+    const renameTargets = new Set(renames.map((r) => r.to));
+    const changes = buildChanges(fileData, index, renameTargets);
+
+    // --- Determine parent snapshot ---
+    const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
+    if (parentId === null) {
+      throw new Error('BackupService.runIncremental: no parent snapshot — run a Full backup first');
+    }
+
+    // --- Build Inc manifest ---
+    const vaultFiles = this.vault.getFiles();
+    const incChanges = changes.map((path) => {
+      const data = fileData.get(path)!;
+      const vf = vaultFiles.find((f) => f.path === path);
+      return { path, hash: data.hash, size: vf?.size ?? data.bytes.length, mtime: vf?.mtime ?? 0 };
+    });
+
+    const manifest = buildIncManifest({
+      parentId,
+      changes: incChanges,
+      deleted,
+      renames,
+      vaultName: this.vaultName,
+      vaultPrefix: this.vaultPrefix,
+      deviceId,
+      createdAt,
+      exclusionsApplied,
+    });
+
+    // Max observed_at across all consumed queue entries
+    const maxObservedAt = queue.entries.reduce(
+      (max, e) => (e.observed_at > max ? e.observed_at : max),
+      queue.entries[0].observed_at,
+    );
+
+    // --- Steps 2-7: crash-safe commit protocol ---
+    await this.commitSnapshot({
+      manifest,
+      fileBytes: fileData,
+      parallelism,
+      queueCursorAdvanceTo: maxObservedAt,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shared commit protocol (steps 2-7)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Shared 6-sub-step commit protocol used by both runFull and runIncremental.
+   *
+   * Caller is responsible for step 1 (blob upload) before calling this.
+   * This method handles:
+   *   2. Second verifyNoConflict (ROB-001 double-check)
+   *   3. Upload manifest JSON
+   *   4. Append to snapshot_index
+   *   5. Write HEAD
+   *   6. Update LocalIndex
+   *   7. Advance queue cursor to queueCursorAdvanceTo
+   */
+  private async commitSnapshot(args: {
+    manifest: SnapshotManifest;
+    fileBytes: Map<string, { hash: string; bytes: Uint8Array }>;
+    parallelism: number;
+    queueCursorAdvanceTo: string;
+  }): Promise<void> {
+    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo } = args;
+
+    // --- Step 1: Upload new content blobs ---
+    // runFull pre-uploads blobs before calling commitSnapshot (so a crash between blob upload
+    // and the 2nd verifyNoConflict leaves orphan blobs for GC, matching the crash-recovery matrix).
+    // runIncremental delegates blob upload here so the full protocol is centralized.
+    if (manifest.type === 'inc') {
+      const newBlobs = this.collectNewBlobs(fileBytes);
+      await this.uploadBlobs(newBlobs, parallelism);
+    }
+
+    // --- Step 2: Second conflict check BEFORE manifest write (ROB-001) ---
+    await this.coordinator.verifyNoConflict();
 
     // --- Step 3: Upload manifest ---
     await this.dropbox.uploadJson(snapshotPath(manifest), manifest);
@@ -141,8 +266,6 @@ export class BackupService {
     });
 
     // --- Step 5: Write HEAD ---
-    // Capture committedAt here so HEAD.committed_at and LocalIndex.last_full_commit_at
-    // are identical — both represent when the commit landed (not when authoring began).
     const committedAt = this.now();
     await this.dropbox.uploadJson(headPath(this.vaultPrefix), {
       schema_version: '1.0',
@@ -156,7 +279,7 @@ export class BackupService {
     await this.saveLocalIndex(manifest, committedAt);
 
     // --- Step 7: Advance queue cursor ---
-    await this.advanceQueueCursor(manifest.created_at);
+    await this.advanceQueueCursor(queueCursorAdvanceTo);
   }
 
   // ---------------------------------------------------------------------------
@@ -228,18 +351,61 @@ export class BackupService {
 
   private async saveLocalIndex(manifest: SnapshotManifest, committedAt: string): Promise<void> {
     const existing = await this.pluginStore.loadIndex();
-    const updated: LocalIndex = {
-      schema_version: '1.0',
-      last_full_snapshot_id: manifest.id,
-      // Use committedAt (same value as HEAD.committed_at) — not manifest.created_at.
-      // The field name reflects when the commit landed; for long backups these diverge
-      // by the upload duration. HEAD and LocalIndex must agree. (solution.md:881)
-      last_full_commit_at: committedAt,
-      last_inc_snapshot_id: existing?.last_inc_snapshot_id ?? null,
-      last_inc_commit_at: existing?.last_inc_commit_at ?? null,
-      last_retention_at: existing?.last_retention_at ?? null,
+
+    if (manifest.type === 'full') {
+      const updated: LocalIndex = {
+        schema_version: '1.0',
+        last_full_snapshot_id: manifest.id,
+        last_full_commit_at: committedAt,
+        last_inc_snapshot_id: existing?.last_inc_snapshot_id ?? null,
+        last_inc_commit_at: existing?.last_inc_commit_at ?? null,
+        last_retention_at: existing?.last_retention_at ?? null,
+        index_missing_recovery_required: false,
+        files: { ...manifest.files },
+      };
+      await this.pluginStore.saveIndex(updated);
+      return;
+    }
+
+    // Inc: apply renames, deletes, and file-content changes to the existing index.
+    const base = existing ?? {
+      schema_version: '1.0' as const,
+      last_full_snapshot_id: null,
+      last_full_commit_at: null,
+      last_inc_snapshot_id: null,
+      last_inc_commit_at: null,
+      last_retention_at: null,
       index_missing_recovery_required: false,
-      files: { ...manifest.files },
+      files: {},
+    };
+
+    const files = { ...base.files };
+
+    // Apply renames: remove old path, carry entry to new path (if not already in manifest.files)
+    for (const rename of manifest.renames) {
+      const oldEntry = files[rename.from];
+      delete files[rename.from];
+      if (oldEntry && !manifest.files[rename.to]) {
+        files[rename.to] = oldEntry;
+      }
+    }
+
+    // Apply deletes
+    for (const deletedPath of manifest.deleted) {
+      delete files[deletedPath];
+    }
+
+    // Overlay changed files from Inc manifest
+    for (const [path, entry] of Object.entries(manifest.files)) {
+      files[path] = entry;
+    }
+
+    const updated: LocalIndex = {
+      ...base,
+      last_inc_snapshot_id: manifest.id,
+      last_inc_commit_at: committedAt,
+      index_missing_recovery_required: false,
+      files,
     };
     await this.pluginStore.saveIndex(updated);
   }
@@ -258,8 +424,14 @@ export class BackupService {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Module-level helpers
 // ---------------------------------------------------------------------------
+
+function resolveParallelism(raw: number | undefined): number {
+  const DEFAULT = DEFAULT_UPLOAD_PARALLELISM;
+  if (raw === undefined || !Number.isFinite(raw) || raw < 1) return DEFAULT;
+  return Math.floor(raw);
+}
 
 function uniqueHashes(manifest: SnapshotManifest): string[] {
   const seen = new Set<string>();
@@ -267,4 +439,75 @@ function uniqueHashes(manifest: SnapshotManifest): string[] {
     seen.add(entry.hash);
   }
   return Array.from(seen);
+}
+
+/**
+ * Bucket queue entries into changesPaths, deleted, and renames.
+ *
+ * Rules:
+ * - create/modify → changesPaths (re-hash these paths)
+ * - rename → add the new path (to) to changesPaths; record rename entry
+ * - delete → deleted list; removes any prior create/modify for the same path in this run
+ * - delete overrides prior create/modify for the same path
+ */
+function bucketQueueEntries(entries: QueueEntry[]): {
+  changesPaths: string[];
+  deleted: string[];
+  renames: RenameEntry[];
+} {
+  const changesSet = new Set<string>();
+  const deletedSet = new Set<string>();
+  const renamesMap = new Map<string, string>(); // from → to
+
+  for (const entry of entries) {
+    if (entry.type === 'create' || entry.type === 'modify') {
+      if (!deletedSet.has(entry.path)) {
+        changesSet.add(entry.path);
+      }
+    } else if (entry.type === 'delete') {
+      changesSet.delete(entry.path);
+      deletedSet.add(entry.path);
+    } else if (entry.type === 'rename' && entry.prev_path !== null) {
+      renamesMap.set(entry.prev_path, entry.path);
+      // Add the rename target to changes (its content may have changed)
+      if (!deletedSet.has(entry.path)) {
+        changesSet.add(entry.path);
+      }
+    }
+  }
+
+  const renames: RenameEntry[] = Array.from(renamesMap.entries()).map(
+    ([from, to]) => ({ from, to }),
+  );
+
+  return {
+    changesPaths: Array.from(changesSet),
+    deleted: Array.from(deletedSet),
+    renames,
+  };
+}
+
+/**
+ * Filter hashed files to those whose content actually changed vs the local index.
+ * For rename targets: include only if hash changed (pure rename → renames[] only, not files[]).
+ */
+function buildChanges(
+  fileData: Map<string, { hash: string; bytes: Uint8Array }>,
+  index: LocalIndex,
+  renameTargets: Set<string>,
+): string[] {
+  const changed: string[] = [];
+  for (const [path, { hash }] of fileData.entries()) {
+    const indexHash = index.files[path]?.hash;
+    if (hash === indexHash && renameTargets.has(path)) {
+      // Pure rename (hash matches index entry at new path OR no prior index entry): skip files[]
+      continue;
+    }
+    if (hash === indexHash && !renameTargets.has(path)) {
+      // Spurious event — content unchanged
+      continue;
+    }
+    changed.push(path);
+  }
+  return changed;
 }
