@@ -10,9 +10,14 @@
 //     temp is left.  If rename throws, the original file is untouched and the
 //     error propagates to the caller (temp may exist — tolerable).
 //   - Folder-rename dedup (ROB-007 / SDD Implementation Gotchas): Obsidian fires
-//     one rename event for the folder AND one for every descendant.  We suppress
-//     descendant events that share a microtask with a folder rename.
+//     one rename event for the folder AND one for every descendant.  Each
+//     onVaultRename registration owns its OWN microtask-scoped folder Set — no
+//     cross-registration suppression is possible.  Relies on Obsidian firing
+//     the folder event before its descendants (observed behavior; any descendant
+//     arriving first falls through as a normal rename, which is the safe default
+//     — consumers may observe a duplicate but never a silent drop).
 
+import { TFolder } from 'obsidian';
 import type { Plugin, TAbstractFile } from 'obsidian';
 
 // ---------------------------------------------------------------------------
@@ -31,9 +36,6 @@ export interface FileEntry {
 
 export class VaultAdapter {
   private readonly plugin: Plugin;
-
-  /** Old folder paths whose descendants should be suppressed this microtask. */
-  private readonly _recentlyRenamedFolders: Set<string> = new Set();
 
   constructor(plugin: Plugin) {
     this.plugin = plugin;
@@ -105,43 +107,27 @@ export class VaultAdapter {
   }
 
   onVaultRename(handler: (file: TAbstractFile, oldPath: string) => void): void {
-    const ref = this.plugin.app.vault.on(
-      'rename',
-      (file: unknown, oldPath: unknown) => {
-        this._handleRename(file as TAbstractFile, oldPath as string, handler);
-      },
-    );
-    this.plugin.registerEvent(ref);
-  }
+    // Per-registration Set — isolates folder-rename dedup state so concurrent
+    // consumers (e.g. ChangeDetector and RestoreService) can't suppress each
+    // other's descendants through shared adapter instance state.
+    const recentlyRenamedFolders = new Set<string>();
+    const ref = this.plugin.app.vault.on('rename', (rawFile: unknown, rawOldPath: unknown) => {
+      const file = rawFile as TAbstractFile;
+      const oldPath = rawOldPath as string;
 
-  // ---- Folder-rename dedup -------------------------------------------------
-
-  private _handleRename(
-    file: TAbstractFile,
-    oldPath: string,
-    handler: (file: TAbstractFile, oldPath: string) => void,
-  ): void {
-    // If this oldPath is a descendant of a recently-renamed folder, suppress it.
-    for (const renamedFolder of this._recentlyRenamedFolders) {
-      if (oldPath.startsWith(`${renamedFolder}/`)) return;
-    }
-
-    // If this is a folder (no extension is a heuristic; real check uses TFolder
-    // instanceof, but we check duck-typed `children` property for mock compat).
-    const isFolder = this._isFolder(file);
-    if (isFolder) {
-      this._recentlyRenamedFolders.add(oldPath);
-      if (this._recentlyRenamedFolders.size === 1) {
-        // Schedule a single clear on the next microtask.
-        queueMicrotask(() => this._recentlyRenamedFolders.clear());
+      for (const folder of recentlyRenamedFolders) {
+        if (oldPath.startsWith(`${folder}/`)) return;
       }
-    }
 
-    handler(file, oldPath);
-  }
+      if (file instanceof TFolder) {
+        if (recentlyRenamedFolders.size === 0) {
+          queueMicrotask(() => recentlyRenamedFolders.clear());
+        }
+        recentlyRenamedFolders.add(oldPath);
+      }
 
-  private _isFolder(file: TAbstractFile): boolean {
-    // Duck-type: TFolder has a `children` array; TFile does not.
-    return Array.isArray((file as { children?: unknown }).children);
+      handler(file, oldPath);
+    });
+    this.plugin.registerEvent(ref);
   }
 }

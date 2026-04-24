@@ -9,9 +9,9 @@
 //   - onVaultCreate/Modify/Delete/Rename register via plugin.registerEvent
 //   - folder-rename dedup: folder rename + descendant renames → handler called once
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { App, Plugin, TFile, TFolder, Vault } from '../fixtures/obsidian-mock';
+import { App, Plugin, TFile, TFolder } from '../fixtures/obsidian-mock';
 import { VaultAdapter } from '../../src/infra/VaultAdapter';
 
 // ---------------------------------------------------------------------------
@@ -37,11 +37,7 @@ describe('VaultAdapter.getFiles()', () => {
   it('returns the mapped shape for each TFile in the vault', () => {
     const { app, adapter } = makeSetup();
 
-    const file = app.vault._addFile('notes/hello.md', {
-      mtime: 1000,
-      size: 42,
-    });
-    void file;
+    app.vault._addFile('notes/hello.md', { mtime: 1000, size: 42 });
 
     const files = adapter.getFiles();
 
@@ -380,6 +376,55 @@ describe('VaultAdapter folder-rename dedup', () => {
     // Second rename — unrelated, fires after the dedup window closes
     const file2 = new TFile('other/new.md');
     app.vault._fire('rename', file2, 'other/old.md');
+
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('per-registration isolation: handler A folder rename does NOT suppress handler B descendant', async () => {
+    // Two callers each register their own rename handler. Handler A sees a
+    // folder rename; handler B's unrelated descendant that shares the prefix
+    // must still fire. This would regress if folder dedup state were shared
+    // across registrations on the same adapter instance.
+    const { app, adapter } = makeSetup();
+    const handlerA = vi.fn();
+    const handlerB = vi.fn();
+    adapter.onVaultRename(handlerA);
+    adapter.onVaultRename(handlerB);
+
+    const folder = new TFolder('notes/new');
+    const descendant = new TFile('notes/new/child.md');
+
+    // Same synchronous tick — both handlers see both events.
+    app.vault._fire('rename', folder, 'notes/old');
+    app.vault._fire('rename', descendant, 'notes/old/child.md');
+
+    await Promise.resolve();
+
+    // Each handler sees the folder once (its own dedup suppresses its own
+    // descendant). B's dedup is independent of A's — neither handler saw the
+    // descendant fire twice, and neither was silently starved.
+    expect(handlerA).toHaveBeenCalledTimes(1);
+    expect(handlerA).toHaveBeenCalledWith(folder, 'notes/old');
+    expect(handlerB).toHaveBeenCalledTimes(1);
+    expect(handlerB).toHaveBeenCalledWith(folder, 'notes/old');
+  });
+
+  it('descendant event arriving BEFORE folder event falls through as a normal rename', async () => {
+    // Documents the ordering assumption: folder-first dedup only activates if
+    // Obsidian fires the folder rename before its descendants. If that
+    // ordering is ever violated, consumers see a duplicate rather than a
+    // silent drop — the safe failure mode.
+    const { app, adapter } = makeSetup();
+    const handler = vi.fn();
+    adapter.onVaultRename(handler);
+
+    const folder = new TFolder('notes/new');
+    const descendant = new TFile('notes/new/child.md');
+
+    app.vault._fire('rename', descendant, 'notes/old/child.md'); // out of order
+    app.vault._fire('rename', folder, 'notes/old');
 
     await Promise.resolve();
 
