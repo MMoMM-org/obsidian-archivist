@@ -67,7 +67,7 @@ Produces the UI surfaces for restore — the features that fulfill the PRD promi
   4. Validate: Component tests + keyboard-nav tests; assert the one-version edge case is handled.
   5. Success: Feature 3 acceptance criteria `[ref: PRD/F3]`; accessibility `[ref: SDD/Quality Requirements/Usability]`.
 
-- [ ] **T9.3 ConfirmRestoreModal** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T9.3 ConfirmRestoreModal** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: research UX copy-draft — Restore in place]`, `[ref: SDD/Cross-Cutting/Interaction Design]`.
   2. Test:
