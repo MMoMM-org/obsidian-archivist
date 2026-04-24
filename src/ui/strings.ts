@@ -11,10 +11,24 @@ export const S = {
 
   // ─── Ribbon tooltip states ───────────────────────────────────────
   RIBBON_TOOLTIP_IDLE: 'Archivist — idle',
+  RIBBON_TOOLTIP_GRACE: 'Archivist — idle · starting soon',
+  RIBBON_TOOLTIP_QUIET_WAIT: 'Archivist — idle · waiting for edit activity',
+  RIBBON_TOOLTIP_READY: (nextIncLabel: string, nextFullLabel: string): string =>
+    `Archivist — next inc ${nextIncLabel} · full ${nextFullLabel}`,
   RIBBON_TOOLTIP_RUNNING: 'Archivist — backup running',
-  RIBBON_TOOLTIP_PAUSED: 'Archivist — paused',
+  RIBBON_TOOLTIP_PAUSED: 'Archivist — paused (this device does not back up)',
   RIBBON_TOOLTIP_ERROR: 'Archivist — attention required',
-  RIBBON_TOOLTIP_DISCONNECTED: 'Archivist — Dropbox disconnected',
+  RIBBON_TOOLTIP_DISCONNECTED: 'Archivist — Dropbox disconnected (reconnect in settings)',
+
+  // ─── Ribbon aria-labels (short, static — color is never the sole signal) ──
+  RIBBON_ARIA_IDLE: 'Archivist, idle',
+  RIBBON_ARIA_STARTING: 'Archivist, starting soon',
+  RIBBON_ARIA_WAITING_QUIET: 'Archivist, waiting for edit activity to settle',
+  RIBBON_ARIA_READY: 'Archivist, idle, next backup scheduled',
+  RIBBON_ARIA_RUNNING: 'Archivist, backup running',
+  RIBBON_ARIA_PAUSED: 'Archivist, paused, this device does not back up',
+  RIBBON_ARIA_ERROR: 'Archivist, attention required',
+  RIBBON_ARIA_AUTH_LOST: 'Archivist, Dropbox disconnected, reconnect in settings',
 
   // ─── Commands ────────────────────────────────────────────────────
   CMD_BACKUP_NOW: 'Archivist: Back up now',
