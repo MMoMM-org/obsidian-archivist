@@ -155,7 +155,7 @@ describe('buildIncManifest', () => {
 
   it('modify-only: one change → files has entry, deleted=[], renames=[]', () => {
     const manifest = buildIncManifest(makeIncInput({
-      changes: [{ type: 'modify', path: 'notes/a.md', hash: 'newhash', size: 150, mtime: 9999 }],
+      changes: [{ path: 'notes/a.md', hash: 'newhash', size: 150, mtime: 9999 }],
     }));
     expect(manifest.files['notes/a.md']).toEqual({ hash: 'newhash', size: 150, mtime: 9999 });
     expect(manifest.deleted).toEqual([]);
@@ -180,7 +180,7 @@ describe('buildIncManifest', () => {
 
   it('rename + edit same file: change.path=b.md AND rename {from:a.md,to:b.md} → files has b.md only', () => {
     const manifest = buildIncManifest(makeIncInput({
-      changes: [{ type: 'modify', path: 'b.md', hash: 'eeeee', size: 50, mtime: 5000 }],
+      changes: [{ path: 'b.md', hash: 'eeeee', size: 50, mtime: 5000 }],
       renames: [{ from: 'a.md', to: 'b.md' }],
     }));
     expect(manifest.files['b.md']).toEqual({ hash: 'eeeee', size: 50, mtime: 5000 });
@@ -214,8 +214,8 @@ describe('buildIncManifest', () => {
   it('mixed: create + delete + rename in same inc', () => {
     const manifest = buildIncManifest(makeIncInput({
       changes: [
-        { type: 'create', path: 'new.md', hash: 'newfilehash', size: 10, mtime: 1 },
-        { type: 'modify', path: 'c.md', hash: 'chash', size: 20, mtime: 2 },
+        { path: 'new.md', hash: 'newfilehash', size: 10, mtime: 1 },
+        { path: 'c.md', hash: 'chash', size: 20, mtime: 2 },
       ],
       deleted: ['old.md'],
       renames: [{ from: 'x.md', to: 'y.md' }],
@@ -229,8 +229,39 @@ describe('buildIncManifest', () => {
 
   it('output passes isSnapshotManifest()', () => {
     const manifest = buildIncManifest(makeIncInput({
-      changes: [{ type: 'modify', path: 'z.md', hash: 'zhash', size: 5, mtime: 10 }],
+      changes: [{ path: 'z.md', hash: 'zhash', size: 5, mtime: 10 }],
     }));
     expect(isSnapshotManifest(manifest)).toBe(true);
+  });
+
+  it('is deterministic — same input twice produces deep-equal manifests', () => {
+    // Catches hidden cross-call state: files objects accidentally shared
+    // between invocations, or Map iteration order drift on repeat calls.
+    const input = makeIncInput({
+      changes: [{ path: 'a.md', hash: 'h1', size: 1, mtime: 1 }],
+      deleted: ['b.md'],
+      renames: [{ from: 'old.md', to: 'new.md' }],
+    });
+    expect(buildIncManifest(input)).toEqual(buildIncManifest(input));
+  });
+
+  it('renames are deep-copied — caller mutation cannot corrupt the returned manifest', () => {
+    // [...renames] would shallow-copy the array but keep inner object refs.
+    // A caller mutating renames[0].from afterward would silently change the
+    // manifest's renames too. Deep-copy prevents that.
+    const renames: Array<{ from: string; to: string }> = [{ from: 'a.md', to: 'b.md' }];
+    const manifest = buildIncManifest(makeIncInput({ renames }));
+
+    renames[0].from = 'HIJACKED';
+    renames[0].to = 'ALSO_HIJACKED';
+
+    expect(manifest.renames).toEqual([{ from: 'a.md', to: 'b.md' }]);
+  });
+});
+
+describe('buildFullManifest determinism', () => {
+  it('same input twice produces deep-equal manifests', () => {
+    const input = makeFullInput();
+    expect(buildFullManifest(input)).toEqual(buildFullManifest(input));
   });
 });

@@ -14,7 +14,7 @@ export interface BuildFullManifestInput {
 }
 
 export interface IncChange {
-  type: 'modify' | 'create';
+  /** CURRENT path (post-rename) where the content-state is recorded. */
   path: string;
   hash: string;
   size: number;
@@ -92,7 +92,9 @@ export function buildIncManifest(input: BuildIncManifestInput): SnapshotManifest
     vault_prefix: vaultPrefix,
     files,
     deleted: [...deleted],
-    renames: [...renames],
+    // Deep-copy renames so caller mutations after the call can't corrupt the
+    // returned manifest. [...renames] would only shallow-copy the array.
+    renames: renames.map((r) => ({ from: r.from, to: r.to })),
     exclusions_applied: exclusionsApplied,
   };
 }

@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Backup Pipeline & Device Coordination"
-status: pending
+status: in_progress
 version: "1.0"
 phase: 5
 ---
@@ -33,7 +33,7 @@ phase: 5
 
 Produces the core value of the plugin: a crash-safe backup writer. Every other feature (retention, restore, scheduler) depends on this working.
 
-- [ ] **T5.1 DeviceCoordinator (designated + conflict detection + HEAD validation)** `[activity: backend-api]`
+- [x] **T5.1 DeviceCoordinator (designated + conflict detection + HEAD validation)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 2]` (revised), `[ref: PRD/F5]`, `[ref: SDD/Error Handling — HEAD_INVALID]`.
   2. Test:
@@ -47,7 +47,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests cover all four branches of `verifyNoConflict`; fresh-folder case; takeover sequence.
   5. Success: Multi-device race rules out `[ref: PRD/F5 AC-4, SDD/Acceptance Criteria — DEVICE_CONFLICT]`.
 
-- [ ] **T5.2 Snapshot manifest builder** `[activity: domain-modeling]` `[parallel: true]`
+- [x] **T5.2 Snapshot manifest builder** `[activity: domain-modeling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Interface Specifications/Application Data Models — SnapshotManifest]`, `[ref: SDD/ADR-4]`.
   2. Test:
