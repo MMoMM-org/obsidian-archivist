@@ -1,6 +1,6 @@
 ---
 title: "Phase 6: Retention & Garbage Collection"
-status: pending
+status: in_progress
 version: "1.0"
 phase: 6
 ---
@@ -33,7 +33,7 @@ phase: 6
 
 Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: deciding what to keep (retention), and reclaiming space from orphan blobs (GC).
 
-- [ ] **T6.1 Retention tier evaluator (pure logic)** `[activity: domain-modeling]`
+- [x] **T6.1 Retention tier evaluator (pure logic)** `[activity: domain-modeling]`
 
   1. Prime: Read `[ref: SDD/Implementation Examples/Example: Retention Pass with Transitive Chain-Integrity]`, `[ref: PRD/F2 acceptance criteria]`.
   2. Test:
@@ -49,7 +49,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
   4. Validate: Fixture-driven unit tests; property-based tests asserting "never-prune-window subset ⊆ kept set."
   5. Success: Default-retention fixture matches PRD's 35-day target math within ±1 `[ref: PRD/F2 AC-1]`; never-prune override honored `[ref: PRD/F2 AC-2]`.
 
-- [ ] **T6.2 Transitive chain-integrity pass** `[activity: domain-modeling]` `[parallel: true]`
+- [x] **T6.2 Transitive chain-integrity pass** `[activity: domain-modeling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Implementation Examples/Example: Retention Pass with Transitive Chain-Integrity]` (second algorithm), `[ref: SDD/ADR-16]`.
   2. Test:
