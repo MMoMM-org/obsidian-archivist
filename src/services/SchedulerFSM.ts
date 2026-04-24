@@ -197,6 +197,24 @@ export class SchedulerFSM {
     if (this.state === 'READY' || this.state === 'ERROR') this.transition('BACKUP_RUNNING');
   }
 
+  /**
+   * Manual "Back up now" trigger (T7.5 / PRD S2). Bypasses GRACE / QUIET_WAIT
+   * because the user has explicitly asked — no need to wait for edit activity
+   * to settle. Never fires from BACKUP_RUNNING, PASSIVE, or AUTH_LOST; returns
+   * a result code so the caller (Command handler) can surface the appropriate
+   * Notice copy.
+   */
+  triggerBackupNow(): 'started' | 'already_running' | 'not_designated' | 'auth_lost' {
+    if (!this.deps.isDesignated()) return 'not_designated';
+    if (this.state === 'AUTH_LOST') return 'auth_lost';
+    if (this.state === 'BACKUP_RUNNING') return 'already_running';
+    // Clear any pending grace/quiet so the manual trigger takes effect cleanly.
+    this.clearTimers();
+    this.pendingBackup = { type: 'inc' };
+    this.transition('BACKUP_RUNNING');
+    return 'started';
+  }
+
   onBackupSuccess(): void {
     // Clear planner state tied to the completed full, if any.
     if (this.pendingBackup?.type === 'full') {

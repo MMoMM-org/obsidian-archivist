@@ -863,3 +863,57 @@ describe('SchedulerFSM — getPendingBackup', () => {
     expect(p.type).toBe('inc');
   });
 });
+
+// ---------------------------------------------------------------------------
+// T7.5 — triggerBackupNow (manual "Back up now")
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — triggerBackupNow', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('returns "started" and transitions to BACKUP_RUNNING with pending=inc from LOADING', () => {
+    const { fsm } = makeFSM();
+    const result = fsm.triggerBackupNow();
+    expect(result).toBe('started');
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(fsm.getPendingBackup()).toEqual({ type: 'inc' });
+  });
+
+  it('clears pending grace timer when bypassing GRACE', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    expect(fsm.getState()).toBe('GRACE');
+
+    fsm.triggerBackupNow();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    // Advance past original grace window — must not transition to QUIET_WAIT.
+    vi.advanceTimersByTime(60 * 60 * 1000);
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+  });
+
+  it('returns "already_running" without transitioning', () => {
+    const { fsm } = makeFSM();
+    fsm.triggerBackupNow();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+
+    const result = fsm.triggerBackupNow();
+    expect(result).toBe('already_running');
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+  });
+
+  it('returns "not_designated" without transitioning', () => {
+    const { fsm } = makeFSM({ designated: false });
+    const result = fsm.triggerBackupNow();
+    expect(result).toBe('not_designated');
+    expect(fsm.getState()).not.toBe('BACKUP_RUNNING');
+  });
+
+  it('returns "auth_lost" when FSM is in AUTH_LOST', () => {
+    const { fsm } = makeFSM();
+    fsm.setAuthLost();
+    const result = fsm.triggerBackupNow();
+    expect(result).toBe('auth_lost');
+    expect(fsm.getState()).toBe('AUTH_LOST');
+  });
+});
