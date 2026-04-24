@@ -53,6 +53,13 @@ export const S = {
     'Archivist lost access to your Dropbox account. Open settings to reconnect.',
   OAUTH_STATE_MISMATCH: 'Authorization failed — the state parameter did not match. Please try again.',
   OAUTH_TOO_MANY_PENDING_FLOWS: 'Too many pending authorization flows. Please finish or dismiss the current one.',
+  OAUTH_REAUTHENTICATE_BUTTON: 'Re-authenticate',
+  OAUTH_TRY_AGAIN_BUTTON: 'Try again',
+  OAUTH_TOKEN_DISCLOSURE:
+    'Tokens are stored in plaintext in tokens.json (outside data.json). See README for details.',
+  OAUTH_DATA_JSON_SYNC_WARNING:
+    'Archivist\'s plugin data appears to be inside an iCloud / Obsidian Sync / Dropbox-synced folder. ' +
+    'Consider excluding the plugin folder from that sync to avoid token round-trips between devices.',
 
   // ─── Pre-flight notice for full backups (F1 / S5) ────────────────
   PREFLIGHT_FULL_TITLE: 'A full backup will start in 5 minutes.',
