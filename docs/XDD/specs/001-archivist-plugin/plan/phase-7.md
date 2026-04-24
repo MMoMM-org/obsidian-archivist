@@ -7,11 +7,14 @@ phase: 7
 
 # Phase 7: Scheduler FSM, Ribbon Status & Settings UI
 
+> **UI Reference**: See [phase-7-mockups.md](phase-7-mockups.md) for ribbon state matrix, settings mockup, and locked design decisions (hybrid icon strategy, section order, storage-banner placement, manual-trigger surface).
+
 ## Phase Context
 
 **GATE**: Read all referenced files before starting this phase.
 
 **Specification References**:
+- `[ref: plan/phase-7-mockups.md]` — UI mockups + locked design decisions
 - `[ref: SDD/Cross-Cutting/UI Visualization Guide — Ribbon state machine]`
 - `[ref: SDD/Runtime View/Primary Flow steps 1-4]`
 - `[ref: SDD/Acceptance Criteria — Feature 1, Feature 7]`
