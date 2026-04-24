@@ -16,6 +16,7 @@ import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { EventQueue } from '../infra/EventQueue';
 import type { Logger } from '../infra/Logger';
 import type { LocalIndex } from '../model/Index';
+import type { ChangeType } from '../model/QueueEntry';
 import { sha256hex } from '../infra/Hasher';
 import { matchAny } from '../util/glob';
 
@@ -79,10 +80,10 @@ export class ChangeDetector {
       this.layoutReady = true;
     });
 
-    this.vault.onVaultCreate((file) => this.handleCreate(file));
-    this.vault.onVaultModify((file) => this.handleModify(file));
-    this.vault.onVaultDelete((file) => this.handleDelete(file));
-    this.vault.onVaultRename((file, oldPath) => this.handleRename(file, oldPath));
+    this.vault.onVaultCreate((file) => this.dispatch('create', file, null));
+    this.vault.onVaultModify((file) => this.dispatch('modify', file, null));
+    this.vault.onVaultDelete((file) => this.dispatch('delete', file, null));
+    this.vault.onVaultRename((file, oldPath) => this.dispatch('rename', file, oldPath));
   }
 
   /** Update the event-time exclusion list without re-registering vault handlers. */
@@ -103,20 +104,28 @@ export class ChangeDetector {
       if (matchAny(exclusions, f.path)) continue;
 
       const idxEntry = index.files[f.path];
+      let yieldedThisIter = false;
       if (!idxEntry) {
         changed.add(f.path);
       } else if (f.mtime !== idxEntry.mtime || f.size !== idxEntry.size) {
-        // Cheap dirty-bit miss — confirm via content hash (PERF-H2 large-file)
+        // Cheap dirty-bit miss — confirm via content hash (PERF-H2 large-file).
+        // Yield before processing a ≥ 10 MB file so the hash doesn't block
+        // animations or timers queued behind us. The byte accumulator is
+        // reset and the post-file yield is suppressed so we don't fire twice
+        // for the same file.
         if (f.size >= YIELD_BYTE_THRESHOLD) {
           await this.yieldFn();
+          bytesSinceYield = 0;
+          yieldedThisIter = true;
         }
         const bytes = await this.vault.readBytes(f.path);
         const h = await this.hash(bytes);
         if (h !== idxEntry.hash) changed.add(f.path);
-        bytesSinceYield += f.size;
+        if (!yieldedThisIter) bytesSinceYield += f.size;
       }
 
-      if ((i + 1) % YIELD_FILE_INTERVAL === 0 || bytesSinceYield >= YIELD_BYTE_THRESHOLD) {
+      if (!yieldedThisIter &&
+          ((i + 1) % YIELD_FILE_INTERVAL === 0 || bytesSinceYield >= YIELD_BYTE_THRESHOLD)) {
         await this.yieldFn();
         bytesSinceYield = 0;
       }
@@ -156,62 +165,25 @@ export class ChangeDetector {
     return changed;
   }
 
-  // ---- Private event handlers -----------------------------------------------
+  // ---- Private event dispatch ----------------------------------------------
 
-  private handleCreate(file: TAbstractFile): void {
+  /**
+   * Single choke-point for every vault event. Uses an async IIFE so that a
+   * synchronous throw from queue.enqueue (e.g. the init-guard) is routed
+   * through the same catch branch as an async rejection — the handler must
+   * never let an exception escape back into Obsidian's event dispatcher.
+   */
+  private dispatch(type: ChangeType, file: TAbstractFile, prevPath: string | null): void {
     if (!this.layoutReady) return;
     if (matchAny(this.exclusions, file.path)) return;
-    void this.queue.enqueue({
-      type: 'create',
-      path: file.path,
-      prev_path: null,
-      observed_at: new Date().toISOString(),
-    }).catch((err) => {
-      this.logger.error('change_detector_enqueue_failed', {
-        error: err instanceof Error ? err : new Error(String(err)),
+    void (async () => {
+      await this.queue.enqueue({
+        type,
+        path: file.path,
+        prev_path: prevPath,
+        observed_at: new Date().toISOString(),
       });
-    });
-  }
-
-  private handleModify(file: TAbstractFile): void {
-    if (!this.layoutReady) return;
-    if (matchAny(this.exclusions, file.path)) return;
-    void this.queue.enqueue({
-      type: 'modify',
-      path: file.path,
-      prev_path: null,
-      observed_at: new Date().toISOString(),
-    }).catch((err) => {
-      this.logger.error('change_detector_enqueue_failed', {
-        error: err instanceof Error ? err : new Error(String(err)),
-      });
-    });
-  }
-
-  private handleDelete(file: TAbstractFile): void {
-    if (!this.layoutReady) return;
-    if (matchAny(this.exclusions, file.path)) return;
-    void this.queue.enqueue({
-      type: 'delete',
-      path: file.path,
-      prev_path: null,
-      observed_at: new Date().toISOString(),
-    }).catch((err) => {
-      this.logger.error('change_detector_enqueue_failed', {
-        error: err instanceof Error ? err : new Error(String(err)),
-      });
-    });
-  }
-
-  private handleRename(file: TAbstractFile, oldPath: string): void {
-    if (!this.layoutReady) return;
-    if (matchAny(this.exclusions, file.path)) return;
-    void this.queue.enqueue({
-      type: 'rename',
-      path: file.path,
-      prev_path: oldPath,
-      observed_at: new Date().toISOString(),
-    }).catch((err) => {
+    })().catch((err) => {
       this.logger.error('change_detector_enqueue_failed', {
         error: err instanceof Error ? err : new Error(String(err)),
       });

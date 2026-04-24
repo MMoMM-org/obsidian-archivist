@@ -453,6 +453,56 @@ describe('reconcileScan — large-file yield rule (deferred streaming-chunk hash
     await detector.reconcileScan(index, []);
     expect(yieldState.count).toBeGreaterThanOrEqual(1);
   });
+
+  it('single large file yields exactly once — pre-hash yield resets byte accumulator', async () => {
+    // Regression guard: an earlier version incremented bytesSinceYield by
+    // f.size AFTER the pre-hash yield without resetting it. The loop-bottom
+    // check then fired a second (redundant) yield for the same file. Pin
+    // one-yield-per-large-file so the accumulator-reset stays.
+    const { app, detector, yieldState } = await makeSetup({
+      hashFn: async () => 'new-hash',
+    });
+
+    const TEN_MB = 10 * 1024 * 1024;
+    app.vault._addFile('solo-large.md', { mtime: 9999, size: TEN_MB + 1 });
+    const index = makeIndex({
+      'solo-large.md': { hash: 'old-hash', mtime: 1000, size: TEN_MB },
+    });
+
+    await detector.reconcileScan(index, []);
+    expect(yieldState.count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setExclusions — runtime exclusion updates
+// ---------------------------------------------------------------------------
+
+describe('setExclusions — runtime exclusion updates', () => {
+  it('a newly-excluded path is dropped by subsequent events without re-registering handlers', async () => {
+    // Phase 5 scheduler will call setExclusions when the user changes
+    // exclusion_globs in settings. Proving the hot-swap here prevents a
+    // future regression where setExclusions is added but never consulted.
+    const { app, plugin, queue, detector } = await makeSetup();
+    detector.registerEventHandlers([]);
+    (plugin.app.workspace as unknown as Workspace & { _fireLayoutReady(): void })._fireLayoutReady();
+
+    // Pre-swap: events land
+    const before = app.vault._addFile('ignored/before.md', { mtime: 100, size: 10 });
+    app.vault._fire('create', before);
+    await flushMicrotasks();
+    expect(queue.peekSince(null)).toHaveLength(1);
+
+    // Hot-swap — add a glob that covers the ignored/ prefix
+    detector.setExclusions(['ignored/**']);
+
+    const after = app.vault._addFile('ignored/after.md', { mtime: 200, size: 20 });
+    app.vault._fire('create', after);
+    await flushMicrotasks();
+
+    // The after-swap event must NOT have been enqueued
+    expect(queue.peekSince(null)).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
