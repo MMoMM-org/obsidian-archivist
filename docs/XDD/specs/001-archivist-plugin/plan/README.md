@@ -113,7 +113,7 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 - [x] [Phase 2: Domain Models & Infrastructure Primitives](phase-2.md)
 - [x] [Phase 3: Dropbox Client & OAuth](phase-3.md)
 - [x] [Phase 4: Change Detection & Event Queue](phase-4.md)
-- [ ] [Phase 5: Backup Pipeline & Device Coordination](phase-5.md)
+- [x] [Phase 5: Backup Pipeline & Device Coordination](phase-5.md)
 - [ ] [Phase 6: Retention & Garbage Collection](phase-6.md)
 - [ ] [Phase 7: Scheduler FSM, Ribbon Status & Settings UI](phase-7.md)
 - [ ] [Phase 8: Restore Engine & Rename-Aware History](phase-8.md)

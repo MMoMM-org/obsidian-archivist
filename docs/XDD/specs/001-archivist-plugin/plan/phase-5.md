@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Backup Pipeline & Device Coordination"
-status: in_progress
+status: completed
 version: "1.0"
 phase: 5
 ---
@@ -125,6 +125,6 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests — one per matrix row + one per StartupState variant.
   5. Success: Crash-recovery matrix fully implemented + testable `[ref: SDD/Implementation Examples/Crash-recovery matrix]`; unified startup state `[ref: ROB-008]`.
 
-- [ ] **T5.6 Phase Validation** `[activity: validate]`
+- [x] **T5.6 Phase Validation** `[activity: validate]`
 
   - Run all Phase 5 tests. Run a simulated multi-cycle flow: fresh Dropbox → full → 5 incs over simulated time → verify final state matches ground truth via `materializeVaultStateAt(HEAD)`. Confirm no SDK types leak. Lint and typecheck pass.
