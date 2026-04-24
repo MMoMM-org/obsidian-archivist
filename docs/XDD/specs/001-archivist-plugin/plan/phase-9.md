@@ -32,7 +32,7 @@ phase: 9
 
 Produces the UI surfaces for restore — the features that fulfill the PRD promise "recover the right version in ≤ 3 clicks."
 
-- [ ] **T9.1 BackupBrowserView (ItemView, 3-column layout)** `[activity: frontend-ui]`
+- [x] **T9.1 BackupBrowserView (ItemView, 3-column layout)** `[activity: frontend-ui]`
 
   1. Prime: Read `[ref: SDD/Cross-Cutting/UI Visualization Guide]`, `[ref: PRD/F4]`.
   2. Test:
