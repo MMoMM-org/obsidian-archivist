@@ -15,11 +15,12 @@
 //     tabindex="-1" with aria-selected so AT can track selection.
 
 import { ItemView, type WorkspaceLeaf, type App } from 'obsidian';
-import type { SnapshotIndexEntry } from '../model/SnapshotIndex';
+import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
 import { renderPreview, maybeShowPreviewAdvisory } from './PreviewPane';
 import type { PreviewAdvisoryNoticeCenter, AppWithPluginRegistry } from './PreviewPane';
+import type { PersistentBanner } from './NoticeCenter';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,8 @@ export interface RestoreOperationsSubset {
 
 export interface NoticeCenterSubset extends PreviewAdvisoryNoticeCenter {
   onBannersChange(cb: () => void): () => void;
+  /** Returns the current list of persistent banners (Fix 7 — storage-warning). */
+  getPersistentBanners?(): PersistentBanner[];
 }
 
 export interface BackupBrowserDeps {
@@ -76,12 +79,13 @@ export interface FileTreeNode {
 // groupSnapshotsByDate — pure, exported for tests
 // ---------------------------------------------------------------------------
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
  * Group a flat list of snapshots into date buckets.
  * Returns a Map keyed by group label (S.BROWSER_GROUP_*), in display order.
  * Snapshots within each group are in the order they appear in `snapshots`.
+ *
+ * Date arithmetic uses setDate() so DST transitions (23h / 25h days) are
+ * handled correctly (Fix 2 / ROB-001).
  */
 export function groupSnapshotsByDate(
   snapshots: SnapshotIndexEntry[],
@@ -92,9 +96,12 @@ export function groupSnapshotsByDate(
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
 
-  const yesterdayStart = new Date(todayStart.getTime() - ONE_DAY_MS);
-  const weekStart = new Date(todayStart.getTime() - 6 * ONE_DAY_MS);
-  const monthStart = new Date(todayStart.getTime() - 29 * ONE_DAY_MS);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(weekStart.getDate() - 6);
+  const monthStart = new Date(todayStart);
+  monthStart.setDate(monthStart.getDate() - 29);
 
   for (const snap of snapshots) {
     const snapDate = new Date(snap.created_at);
@@ -120,6 +127,14 @@ function classifySnapshotDate(
   return S.BROWSER_GROUP_OLDER;
 }
 
+/** Map a retention tier to its display label, or null when tier is unknown. */
+function snapTierLabel(tier: SnapshotTier | null | undefined): string | null {
+  if (tier === 'daily') return S.BROWSER_TIER_DAILY;
+  if (tier === 'monthly') return S.BROWSER_TIER_MONTHLY;
+  if (tier === 'never_prune') return S.BROWSER_TIER_NEVER_PRUNE;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // buildFileTree — pure, exported for tests
 // ---------------------------------------------------------------------------
@@ -133,7 +148,10 @@ export function buildFileTree(state: Record<string, FileEntry>): FileTreeNode {
   const root: FileTreeNode = { name: '', fullPath: '', isDir: true, children: [] };
 
   for (const path of Object.keys(state)) {
-    const parts = path.split('/');
+    // Normalize backslashes and collapse duplicate slashes before splitting
+    // so Windows-style paths and double-slash artifacts are handled correctly.
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts.length === 0) continue;
     insertIntoTree(root, parts, path);
   }
 
@@ -169,6 +187,9 @@ function sortTree(node: FileTreeNode): void {
 // renderSnapshotsColumn — pure render function
 // ---------------------------------------------------------------------------
 
+// Empty-state body placeholder — shown while scheduler is not yet wired.
+const EMPTY_STATE_WHEN_PLACEHOLDER = 'when backups are configured';
+
 function renderSnapshotsColumn(
   container: HTMLElement,
   snapshots: SnapshotIndexEntry[],
@@ -179,21 +200,34 @@ function renderSnapshotsColumn(
   container.empty();
 
   if (snapshots.length === 0) {
-    const emptyTitle = container.createEl('p', {
+    // Fix 6: render both empty-state title AND body (SPEC).
+    container.createEl('p', {
+      text: S.BROWSER_EMPTY_STATE_TITLE,
       cls: 'archivist-browser-empty-title',
     });
-    emptyTitle.textContent = S.BROWSER_EMPTY_STATE_TITLE;
+    container.createEl('p', {
+      text: S.BROWSER_EMPTY_STATE_BODY(EMPTY_STATE_WHEN_PLACEHOLDER),
+      cls: 'archivist-browser-empty-body',
+    });
     return;
   }
 
   const groups = groupSnapshotsByDate(snapshots, now);
+  const allRows: HTMLElement[] = [];
 
   for (const [groupLabel, groupSnaps] of groups.entries()) {
     container.createEl('h4', { text: groupLabel, cls: 'archivist-snapshot-group' });
     for (const snap of groupSnaps) {
-      renderSnapshotRow(container, snap, selectedId, onSelect);
+      const row = renderSnapshotRow(container, snap, selectedId, onSelect);
+      allRows.push(row);
     }
   }
+
+  // Fix 5: wire ArrowUp/ArrowDown navigation across all rows in the column.
+  wireArrowNav(allRows, (row, snap) => {
+    onSelect(snap);
+    row.focus();
+  }, snapshots);
 }
 
 function renderSnapshotRow(
@@ -201,7 +235,7 @@ function renderSnapshotRow(
   snap: SnapshotIndexEntry,
   selectedId: string | null,
   onSelect: (snap: SnapshotIndexEntry) => void,
-): void {
+): HTMLElement {
   const row = container.createEl('div', { cls: 'archivist-snapshot-row' });
   row.setAttribute('tabindex', '-1');
   row.setAttribute('role', 'option');
@@ -210,6 +244,10 @@ function renderSnapshotRow(
   const dateStr = new Date(snap.created_at).toLocaleString();
   row.createEl('span', { text: dateStr, cls: 'archivist-snapshot-date' });
   row.createEl('span', { text: snap.type, cls: 'archivist-snapshot-type' });
+  const tierLabel = snapTierLabel(snap.tier);
+  if (tierLabel) {
+    row.createEl('span', { text: tierLabel, cls: 'archivist-snapshot-tier' });
+  }
 
   row.addEventListener('click', () => onSelect(snap));
   row.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -217,6 +255,35 @@ function renderSnapshotRow(
       e.preventDefault();
       onSelect(snap);
     }
+  });
+  return row;
+}
+
+/**
+ * Wire ArrowUp/ArrowDown keydown handlers on a list of row elements.
+ * ArrowDown moves to the next row; ArrowUp moves to the previous row.
+ * The first/last row is a no-op in the respective direction (no wrap).
+ * Selection follows focus — onActivate is called for the target row.
+ */
+function wireArrowNav<T>(
+  rows: HTMLElement[],
+  onActivate: (row: HTMLElement, item: T) => void,
+  items: T[],
+): void {
+  rows.forEach((row, i) => {
+    row.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (i + 1 < rows.length) {
+          onActivate(rows[i + 1], items[i + 1]);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (i > 0) {
+          onActivate(rows[i - 1], items[i - 1]);
+        }
+      }
+    });
   });
 }
 
@@ -231,7 +298,15 @@ function renderFilesColumn(
   onSelect: (path: string) => void,
 ): void {
   container.empty();
-  renderFileTreeNode(container, tree, selectedPath, onSelect);
+  const allFileRows: HTMLElement[] = [];
+  const allFilePaths: string[] = [];
+  renderFileTreeNode(container, tree, selectedPath, onSelect, allFileRows, allFilePaths);
+
+  // Fix 5: wire ArrowUp/ArrowDown navigation across all file rows.
+  wireArrowNav(allFileRows, (row, path) => {
+    onSelect(path);
+    row.focus();
+  }, allFilePaths);
 }
 
 function renderFileTreeNode(
@@ -239,13 +314,15 @@ function renderFileTreeNode(
   node: FileTreeNode,
   selectedPath: string | null,
   onSelect: (path: string) => void,
+  allFileRows: HTMLElement[],
+  allFilePaths: string[],
 ): void {
   for (const child of node.children) {
     if (child.isDir) {
       const dirEl = container.createEl('div', { cls: 'archivist-file-dir' });
       dirEl.createEl('span', { text: child.name, cls: 'archivist-dir-name' });
       const childContainer = dirEl.createEl('div', { cls: 'archivist-dir-children' });
-      renderFileTreeNode(childContainer, child, selectedPath, onSelect);
+      renderFileTreeNode(childContainer, child, selectedPath, onSelect, allFileRows, allFilePaths);
     } else {
       const fileEl = container.createEl('div', { cls: 'archivist-file-row' });
       fileEl.setAttribute('tabindex', '-1');
@@ -260,6 +337,8 @@ function renderFileTreeNode(
           onSelect(child.fullPath);
         }
       });
+      allFileRows.push(fileEl);
+      allFilePaths.push(child.fullPath);
     }
   }
 }
@@ -274,12 +353,21 @@ async function renderPreviewColumn(
   component: BackupBrowserView,
   content: Uint8Array,
   path: string,
-  _isDeleted: boolean,
+  isDeleted: boolean,
   snapshotId: string,
   onRestoreInPlace: (path: string, snapshotId: string) => void,
   onRestoreAsCopy: (path: string, snapshotId: string) => void,
 ): Promise<void> {
   container.empty();
+
+  // Fix 8: show a "deleted" marker in the preview header when the file is
+  // absent from the live vault (SPEC minor). Restore actions remain enabled.
+  if (isDeleted) {
+    container.createEl('p', {
+      text: '[deleted in live vault]',
+      cls: 'archivist-preview-deleted-marker',
+    });
+  }
 
   const previewArea = container.createEl('div', { cls: 'archivist-preview-content' });
   await renderPreview(app, previewArea as unknown as Parameters<typeof renderPreview>[1], content, path, component);
@@ -312,11 +400,17 @@ export class BackupBrowserView extends ItemView {
   private filesListEl!: HTMLElement;
   private previewColEl!: HTMLElement;
 
+  // Banner region (Fix 7 — storage-warning banner rendering)
+  private bannerRegionEl!: HTMLElement;
+
   // State
   private snapshots: SnapshotIndexEntry[] = [];
   private selectedSnapshot: SnapshotIndexEntry | null = null;
   private selectedPath: string | null = null;
   private fileState: Record<string, FileEntry> = {};
+
+  // Fix 3: closed flag — continuations bail if view was closed during an await.
+  private _closed = false;
 
   // Cleanup hook for NoticeCenter subscription
   private unsubBanners: (() => void) | null = null;
@@ -341,13 +435,20 @@ export class BackupBrowserView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Fix 3: reset closed flag so continuations from a previous open() do not
+    // bleed into this fresh open cycle.
+    this._closed = false;
+
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('archivist-browser');
 
-    // Storage warning banner subscription (top slot)
+    // Fix 7: banner region at the top of the content area.
+    this.bannerRegionEl = contentEl.createEl('div', { cls: 'archivist-browser-banners' });
+
+    // Storage warning banner subscription — re-renders banner region on change.
     this.unsubBanners = this.deps.noticeCenter.onBannersChange(() => {
-      // Banner updates handled externally (T9.5 wires to settings banner region)
+      this._renderBanners();
     });
 
     // 3-column shell
@@ -401,9 +502,34 @@ export class BackupBrowserView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    // Fix 3: signal all in-flight continuations to bail out.
+    this._closed = true;
     this.unsubBanners?.();
     this.unsubBanners = null;
     this.contentEl.empty();
+  }
+
+  // Fix 7: re-render the banner region from the current persistent banners.
+  private _renderBanners(): void {
+    if (this._closed || !this.bannerRegionEl) return;
+    this.bannerRegionEl.empty();
+    const banners = this.deps.noticeCenter.getPersistentBanners?.() ?? [];
+    for (const banner of banners) {
+      const bannerEl = this.bannerRegionEl.createEl('div', {
+        cls: 'archivist-banner',
+      });
+      bannerEl.createEl('span', { text: banner.message, cls: 'archivist-banner-message' });
+      if (banner.onDismiss) {
+        const dismissBtn = bannerEl.createEl('button', {
+          text: banner.dismissLabel ?? '×',
+          cls: 'archivist-banner-dismiss',
+        });
+        dismissBtn.addEventListener('click', () => {
+          void banner.onDismiss?.();
+          this._renderBanners();
+        });
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -411,6 +537,10 @@ export class BackupBrowserView extends ItemView {
   // ---------------------------------------------------------------------------
 
   async _selectSnapshot(snap: SnapshotIndexEntry): Promise<void> {
+    // Fix 1: capture target snapshot BEFORE the first await.
+    // If the user clicks another snapshot before materializeVaultStateAt
+    // resolves, this.selectedSnapshot will have moved on — bail out.
+    const capturedSnap = snap;
     this.selectedSnapshot = snap;
     this.selectedPath = null;
 
@@ -422,6 +552,8 @@ export class BackupBrowserView extends ItemView {
     try {
       state = await this.deps.restoreService.materializeVaultStateAt(snap.id);
     } catch (err) {
+      // Fix 1: selection may have changed during the await — bail.
+      if (this._closed || this.selectedSnapshot !== capturedSnap) return;
       this.filesListEl.empty();
       if (err instanceof ChainError && err.code === 'CHAIN_BROKEN') {
         this.filesListEl.createEl('p', {
@@ -435,6 +567,9 @@ export class BackupBrowserView extends ItemView {
       return;
     }
 
+    // Fix 1 + Fix 3: bail if superseded or closed.
+    if (this._closed || this.selectedSnapshot !== capturedSnap) return;
+
     this.fileState = state;
     const tree = buildFileTree(state);
     renderFilesColumn(
@@ -447,14 +582,20 @@ export class BackupBrowserView extends ItemView {
 
   async _selectFile(path: string): Promise<void> {
     this.selectedPath = path;
-    if (!this.selectedSnapshot) return;
+    // Fix 1: capture snapshot BEFORE the first await.
+    const capturedSnap = this.selectedSnapshot;
+    if (!capturedSnap) return;
 
     // Show loading in preview
     this.previewColEl.empty();
     this.previewColEl.createEl('h3', { text: S.BROWSER_COL_PREVIEW });
     this.previewColEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
 
-    const content = await this.deps.restoreService.fetchContent(this.selectedSnapshot.id, path);
+    const content = await this.deps.restoreService.fetchContent(capturedSnap.id, path);
+
+    // Fix 1 + Fix 3: bail if snapshot changed or view was closed during await.
+    if (this._closed || this.selectedSnapshot !== capturedSnap) return;
+
     const isDeleted = !this.deps.vaultHasPath(path);
 
     this.previewColEl.empty();
@@ -467,22 +608,9 @@ export class BackupBrowserView extends ItemView {
       content,
       path,
       isDeleted,
-      this.selectedSnapshot.id,
-      (p, snapId) => { void this._triggerRestoreInPlaceFor(p, snapId); },
-      (p, snapId) => { void this._triggerRestoreAsCopyFor(p, snapId); },
+      capturedSnap.id,
+      (p, snapId) => { void this.deps.restoreOperations.restoreInPlace(p, snapId); },
+      (p, snapId) => { void this.deps.restoreOperations.restoreAsCopy(p, snapId); },
     );
-  }
-
-  async _triggerRestoreInPlace(): Promise<void> {
-    if (!this.selectedPath || !this.selectedSnapshot) return;
-    await this._triggerRestoreInPlaceFor(this.selectedPath, this.selectedSnapshot.id);
-  }
-
-  private async _triggerRestoreInPlaceFor(path: string, snapshotId: string): Promise<void> {
-    await this.deps.restoreOperations.restoreInPlace(path, snapshotId);
-  }
-
-  private async _triggerRestoreAsCopyFor(path: string, snapshotId: string): Promise<void> {
-    await this.deps.restoreOperations.restoreAsCopy(path, snapshotId);
   }
 }

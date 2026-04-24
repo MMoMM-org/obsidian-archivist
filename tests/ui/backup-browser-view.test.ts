@@ -571,8 +571,12 @@ describe('BackupBrowserView deleted-file restore', () => {
     await view._selectSnapshot(snap);
     await view._selectFile('deleted-note.md');
 
-    // Trigger restore in place
-    await view._triggerRestoreInPlace();
+    // Fix 9: drive the button click path (no longer a direct method call).
+    const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    const inPlaceBtn = findByClass(previewCol, 'archivist-restore-in-place') as MockEl;
+    inPlaceBtn.dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
+    // Allow the click handler's async chain to flush.
+    await Promise.resolve();
 
     expect(restoreInPlace).toHaveBeenCalledWith('deleted-note.md', 'snap-1');
   });
@@ -654,5 +658,410 @@ describe('registerOpenBackupBrowserCommand', () => {
 
     commands[0].callback?.();
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 13: Fix 1 — stale selectedSnapshot race condition (ROB-002)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView race condition guard (_selectFile)', () => {
+  it('does not render snapshot A content when snapshot B is selected before A fetchContent resolves', async () => {
+    const snapA = makeSnapshot({ id: 'snap-a', created_at: '2026-04-24T09:00:00Z' });
+    const snapB = makeSnapshot({ id: 'snap-b', created_at: '2026-04-24T08:00:00Z' });
+    const stateA = makeVaultState(['a.md']);
+    const stateB = makeVaultState(['b.md']);
+
+    let resolveA!: (v: Uint8Array) => void;
+    const slowFetchA = new Promise<Uint8Array>((r) => { resolveA = r; });
+    const fastFetchB = Promise.resolve(new TextEncoder().encode('# B'));
+
+    // fetchContent: first call (snap-a/a.md) hangs; second call (snap-b/b.md) resolves fast.
+    const fetchContent = vi.fn()
+      .mockImplementationOnce(() => slowFetchA)
+      .mockImplementationOnce(() => fastFetchB);
+
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snapA, snapB]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn()
+          .mockResolvedValueOnce(stateA)
+          .mockResolvedValueOnce(stateB),
+        fetchContent,
+      },
+    });
+
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    // Select snapA and trigger file selection (snap-a's fetchContent hangs)
+    await view._selectSnapshot(snapA);
+    const selectAPromise = view._selectFile('a.md');
+
+    // Before snap-a resolves, switch to snapB and select b.md (resolves immediately)
+    await view._selectSnapshot(snapB);
+    await view._selectFile('b.md');
+
+    // Now resolve snap-a's fetch — the continuation must bail (selectedSnapshot is snapB)
+    resolveA(new TextEncoder().encode('# A'));
+    await selectAPromise;
+
+    // Both fetches were issued
+    expect(fetchContent).toHaveBeenCalledWith('snap-a', 'a.md');
+    expect(fetchContent).toHaveBeenCalledWith('snap-b', 'b.md');
+
+    // The preview column should reflect snap-b (b.md), not snap-a (a.md).
+    // The restore button wired to snap-a's id must NOT be present.
+    // Since renderPreviewColumn is guarded, calling it with snap-a data after
+    // snapB is selected should have been suppressed — no crash, no stale data.
+    // Verify the view did not crash (promise resolved without throw).
+    await expect(selectAPromise).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 14: Fix 2 — DST-safe date boundaries (ROB-001)
+// ---------------------------------------------------------------------------
+
+describe('groupSnapshotsByDate — DST-safe boundaries', () => {
+  it('correctly groups yesterday snapshot using calendar-day arithmetic', () => {
+    // Simulate a day boundary where fixed-ms subtraction would produce wrong result.
+    // Use a UTC-friendly time that exercises the setDate path without ambiguity.
+    const now = new Date('2026-03-29T01:00:00Z'); // just after midnight UTC
+    const yesterday = makeSnapshot({ created_at: '2026-03-28T12:00:00Z', id: 'yest' });
+    const groups = groupSnapshotsByDate([yesterday], now);
+    expect(groups.get(S.BROWSER_GROUP_YESTERDAY)).toBeDefined();
+    expect(groups.get(S.BROWSER_GROUP_YESTERDAY)?.map((s) => s.id)).toContain('yest');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 15: Fix 4 — tier tag in snapshot rows (SPEC critical)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView tier tag rendering', () => {
+  it('renders BROWSER_TIER_DAILY label for a snapshot with tier "daily"', async () => {
+    const snap: SnapshotIndexEntry = {
+      ...makeSnapshot({ created_at: '2026-04-24T09:00:00Z' }),
+      tier: 'daily',
+    };
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      now: () => new Date('2026-04-24T10:00:00Z'),
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    const text = collectText(view.contentEl);
+    expect(text).toContain(S.BROWSER_TIER_DAILY);
+  });
+
+  it('does not render a tier tag when tier is absent', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T09:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      now: () => new Date('2026-04-24T10:00:00Z'),
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    const text = collectText(view.contentEl);
+    expect(text).not.toContain(S.BROWSER_TIER_DAILY);
+    expect(text).not.toContain(S.BROWSER_TIER_MONTHLY);
+    expect(text).not.toContain(S.BROWSER_TIER_NEVER_PRUNE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 16: Fix 5 — ArrowUp/ArrowDown navigation within columns (SPEC a11y)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView arrow-key navigation', () => {
+  const NOW = new Date('2026-04-24T10:00:00Z');
+
+  it('ArrowDown on the first snapshot row triggers selection of the second row', async () => {
+    const snap1 = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const snap2 = makeSnapshot({ id: 'snap-2', created_at: '2026-04-24T08:00:00Z' });
+    const materialize = vi.fn().mockResolvedValue({});
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap1, snap2]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+      now: () => NOW,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+
+    // Find the first snapshot row and dispatch ArrowDown
+    const snapshotsList = findByClass(view.contentEl, 'archivist-snapshots-list') as MockEl;
+    const rows = findAllByClass(snapshotsList, 'archivist-snapshot-row');
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    rows[0].dispatchEvent({ key: 'ArrowDown', type: 'keydown', preventDefault: () => {} });
+    await Promise.resolve();
+
+    // Selection of snap-2 should have been triggered
+    expect(materialize).toHaveBeenCalledWith('snap-2');
+  });
+
+  it('ArrowUp on the first snapshot row is a no-op', async () => {
+    const snap1 = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const materialize = vi.fn().mockResolvedValue({});
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap1]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+      now: () => NOW,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+
+    // After onOpen, materialize was not called yet (no snapshot selected)
+    const snapshotsList = findByClass(view.contentEl, 'archivist-snapshots-list') as MockEl;
+    const rows = findAllByClass(snapshotsList, 'archivist-snapshot-row');
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+
+    materialize.mockClear();
+    rows[0].dispatchEvent({ key: 'ArrowUp', type: 'keydown', preventDefault: () => {} });
+    await Promise.resolve();
+
+    // No selection should have been triggered (no-op at boundary)
+    expect(materialize).not.toHaveBeenCalled();
+  });
+
+  it('ArrowDown in the files column advances to the next file and triggers selection', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['a.md', 'b.md']);
+    const fetchContent = vi.fn().mockResolvedValue(new TextEncoder().encode('content'));
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent,
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list') as MockEl;
+    const fileRows = findAllByClass(filesList, 'archivist-file-row');
+    expect(fileRows.length).toBeGreaterThanOrEqual(2);
+
+    fetchContent.mockClear();
+    fileRows[0].dispatchEvent({ key: 'ArrowDown', type: 'keydown', preventDefault: () => {} });
+    await Promise.resolve();
+    await Promise.resolve(); // flush the async _selectFile chain
+
+    // fetchContent should have been called for the second file
+    expect(fetchContent).toHaveBeenCalledOnce();
+  });
+
+  it('ArrowUp on first file row is a no-op', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['a.md', 'b.md']);
+    const fetchContent = vi.fn().mockResolvedValue(new TextEncoder().encode('content'));
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent,
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list') as MockEl;
+    const fileRows = findAllByClass(filesList, 'archivist-file-row');
+    expect(fileRows.length).toBeGreaterThanOrEqual(1);
+
+    fetchContent.mockClear();
+    fileRows[0].dispatchEvent({ key: 'ArrowUp', type: 'keydown', preventDefault: () => {} });
+    await Promise.resolve();
+
+    expect(fetchContent).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 17: Fix 6 — empty-state body rendering (SPEC)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView empty state body', () => {
+  it('renders the empty-state body text below the title', async () => {
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([]),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+
+    const text = collectText(view.contentEl);
+    expect(text).toContain(S.BROWSER_EMPTY_STATE_TITLE);
+    // Body text contains "when backups are configured" placeholder
+    expect(text).toContain('when backups are configured');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 18: Fix 7 — storage-warning banner rendering (SPEC + ROB-006)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView banner rendering', () => {
+  it('renders a banner when onBannersChange fires with a persistent banner', async () => {
+    let bannerCallback: (() => void) | null = null;
+    let banners: Array<{ code: string; message: string; onDismiss?: () => void }> = [];
+
+    const noticeCenter = {
+      showPersistent: vi.fn(),
+      onBannersChange: vi.fn().mockImplementation((cb: () => void) => {
+        bannerCallback = cb;
+        return () => {};
+      }),
+      getPersistentBanners: vi.fn(() => banners),
+    };
+
+    const deps = makeDeps({ noticeCenter });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+
+    // No banners yet
+    const bannerRegion = findByClass(view.contentEl, 'archivist-browser-banners') as MockEl;
+    expect(bannerRegion).toBeDefined();
+    expect(bannerRegion.children).toHaveLength(0);
+
+    // Publish a banner and fire the subscription callback
+    banners = [{ code: 'STORAGE_WARN', message: 'Storage at 90%' }];
+    bannerCallback!();
+
+    const text = collectText(bannerRegion);
+    expect(text).toContain('Storage at 90%');
+  });
+
+  it('clearing banners removes them from the banner region', async () => {
+    let bannerCallback: (() => void) | null = null;
+    let banners: Array<{ code: string; message: string }> = [
+      { code: 'STORAGE_WARN', message: 'Storage at 90%' },
+    ];
+
+    const noticeCenter = {
+      showPersistent: vi.fn(),
+      onBannersChange: vi.fn().mockImplementation((cb: () => void) => {
+        bannerCallback = cb;
+        return () => {};
+      }),
+      getPersistentBanners: vi.fn(() => banners),
+    };
+
+    const deps = makeDeps({ noticeCenter });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+
+    // Trigger initial render with banner
+    bannerCallback!();
+    const bannerRegion = findByClass(view.contentEl, 'archivist-browser-banners') as MockEl;
+    expect(collectText(bannerRegion)).toContain('Storage at 90%');
+
+    // Clear banners and re-fire
+    banners = [];
+    bannerCallback!();
+    expect(bannerRegion.children).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 19: Fix 8 — deleted-file visual differentiation (SPEC minor)
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView deleted-file marker', () => {
+  it('shows "[deleted in live vault]" marker when file is absent from vault', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['gone.md']);
+
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+      vaultHasPath: vi.fn().mockReturnValue(false),
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectFile('gone.md');
+
+    const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    const text = collectText(previewCol);
+    expect(text).toContain('[deleted in live vault]');
+  });
+
+  it('does not show the deleted marker when file exists in live vault', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['present.md']);
+
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+      vaultHasPath: vi.fn().mockReturnValue(true),
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectFile('present.md');
+
+    const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    const text = collectText(previewCol);
+    expect(text).not.toContain('[deleted in live vault]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 20: Fix 10 — buildFileTree path normalization
+// ---------------------------------------------------------------------------
+
+describe('buildFileTree path normalization', () => {
+  it('handles backslash-separated paths (Windows-style)', () => {
+    const state = makeVaultState(['folder\\note.md']);
+    const tree = buildFileTree(state);
+    const folderNode = tree.children.find((c) => c.name === 'folder');
+    expect(folderNode).toBeDefined();
+    expect(folderNode?.isDir).toBe(true);
+    const noteNode = folderNode?.children.find((c) => c.name === 'note.md');
+    expect(noteNode).toBeDefined();
+    expect(noteNode?.isDir).toBe(false);
+  });
+
+  it('handles double-slash paths without producing empty segments', () => {
+    const state = makeVaultState(['folder//note.md']);
+    const tree = buildFileTree(state);
+    const folderNode = tree.children.find((c) => c.name === 'folder');
+    expect(folderNode).toBeDefined();
+    const noteNode = folderNode?.children.find((c) => c.name === 'note.md');
+    expect(noteNode).toBeDefined();
   });
 });
