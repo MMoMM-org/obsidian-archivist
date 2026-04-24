@@ -337,17 +337,41 @@ describe('GCService', () => {
 
   describe('5. ordering (ROB-012) — index read strictly before content listFolder', () => {
     it('reads snapshot_index BEFORE listing content/', async () => {
-      const { service, dropbox } = makeHarness({
-        snapshotIndex: makeSnapshotIndex([]),
+      const sharedCallOrder: string[] = [];
+
+      const nowDate = new Date('2026-04-24T12:00:00.000Z');
+      const dropbox = makeFakeDropbox({ contentEntries: [] });
+      // Wrap listFolder to record order in the shared log
+      const origListFolder = dropbox.listFolder;
+      dropbox.listFolder = vi.fn(async (path: string) => {
+        sharedCallOrder.push(`listFolder:${path}`);
+        return origListFolder(path);
       });
 
+      const snapshotIndex = makeSnapshotIndex([]);
+      const snapshotIndexStore = {
+        read: vi.fn(async () => {
+          sharedCallOrder.push('snapshotIndexStore.read');
+          return snapshotIndex;
+        }),
+      };
+      const logger = makeFakeLogger();
+
+      const deps: GCServiceDeps = {
+        dropbox: dropbox as never,
+        snapshotIndexStore: snapshotIndexStore as never,
+        logger,
+        vaultPrefix: VAULT_PREFIX,
+        deviceId: DEVICE_ID,
+        now: () => nowDate,
+        maxClockSkewMinutes: 5,
+      };
+
+      const service = new GCService(deps);
       await service.sweep();
 
-      const snapshotIndexDownload = `downloadJson:${SNAPSHOT_INDEX}`;
-      const contentList = `listFolder:${CONTENT_FOLDER}`;
-
-      const indexPos = dropbox.callOrder.indexOf(snapshotIndexDownload);
-      const listPos = dropbox.callOrder.indexOf(contentList);
+      const indexPos = sharedCallOrder.indexOf('snapshotIndexStore.read');
+      const listPos = sharedCallOrder.findIndex((e) => e.startsWith('listFolder:'));
 
       expect(indexPos).toBeGreaterThanOrEqual(0);
       expect(listPos).toBeGreaterThanOrEqual(0);
