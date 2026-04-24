@@ -1,9 +1,9 @@
-// Commands — Obsidian command-palette registrations (T7.5 / T9.1).
+// Commands — Obsidian command-palette registrations (T7.5 / T9.1 / T9.2).
 //
 // Registers:
 //   - "Back up now" (PRD S2) — T7.5
 //   - "Open Backup Browser" (PRD F4) — T9.1
-//   - "Show history of current file" (PRD F3) — T9.2 (future)
+//   - "Show history of current file" (PRD F3) — T9.2
 //
 // Design: thin adapters over service callbacks. No business logic beyond
 // routing command invocations to the correct handler.
@@ -63,5 +63,35 @@ export function registerOpenBackupBrowserCommand(deps: OpenBackupBrowserCommandD
     id: OPEN_BROWSER_COMMAND_ID,
     name: S.CMD_OPEN_BACKUP_BROWSER,
     callback: () => deps.onOpen(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Show history of current file command (T9.2 / PRD F3)
+// ---------------------------------------------------------------------------
+
+export interface ShowHistoryCommandDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  /**
+   * Returns the vault-relative path of the currently-active markdown file,
+   * or null when no markdown file is active.
+   */
+  currentFileProvider: () => string | null;
+  /** Called when the command fires; receives the current file's path. */
+  onOpen: (path: string) => void;
+}
+
+const SHOW_HISTORY_COMMAND_ID = 'archivist-show-file-history';
+
+export function registerShowHistoryCommand(deps: ShowHistoryCommandDeps): void {
+  deps.plugin.addCommand({
+    id: SHOW_HISTORY_COMMAND_ID,
+    name: S.CMD_SHOW_HISTORY_OF_CURRENT_FILE,
+    checkCallback: (checking: boolean): boolean | void => {
+      const path = deps.currentFileProvider();
+      if (!path) return false;
+      if (!checking) deps.onOpen(path);
+      return true;
+    },
   });
 }

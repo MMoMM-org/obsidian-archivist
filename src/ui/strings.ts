@@ -35,6 +35,7 @@ export const S = {
   CMD_RESTORE_FILE: 'Archivist: Restore a version of the current file…',
   CMD_OPEN_BACKUP_BROWSER: 'Archivist: Open Backup Browser',
   CMD_OPEN_SETTINGS: 'Archivist: Open settings',
+  CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
 
   // ─── OAuth ───────────────────────────────────────────────────────
   OAUTH_EMPTY_STATE_TITLE: 'Connect Dropbox to start backing up your vault.',
@@ -122,6 +123,10 @@ export const S = {
   FILE_HISTORY_TIER_INITIAL_TODAY: '[initial today]',
   FILE_HISTORY_BINARY_PLACEHOLDER:
     'Binary file — preview not available. Restore to inspect.',
+  FILE_HISTORY_NOW_MARKER: '[now]',
+  FILE_HISTORY_ONLY_ONE_VERSION: 'Only one version on record.',
+  FILE_HISTORY_RENAMED_FROM: (priorPath: string, isoDate: string): string =>
+    `Renamed from ${priorPath} on ${isoDate}`,
 
   // ─── Backup Browser view (F4) ────────────────────────────────────
   BROWSER_TAB_TITLE: 'Backup Browser',
