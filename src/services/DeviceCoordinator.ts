@@ -66,6 +66,9 @@ export class DeviceCoordinator {
   private readonly vaultPrefix: string;
   private readonly now: () => number;
 
+  /** In-flight latch — two concurrent first-time callers share the same UUID. */
+  private idPromise: Promise<string> | null = null;
+
   constructor(deps: DeviceCoordinatorDeps) {
     this.pluginStore = deps.pluginStore;
     this.dropbox = deps.dropbox;
@@ -75,13 +78,21 @@ export class DeviceCoordinator {
   }
 
   async getOrCreateDeviceId(): Promise<string> {
-    const device = await this.loadDevice();
-    if (device.device_id) return device.device_id;
-
-    const id = generateUuidV4();
-    this.logger.info('device_id_generated', { device_id: id });
-    await this.saveDevice({ ...device, device_id: id });
-    return id;
+    if (this.idPromise) return this.idPromise;
+    this.idPromise = (async () => {
+      const device = await this.loadDevice();
+      if (device.device_id) return device.device_id;
+      const id = generateUuidV4();
+      this.logger.info('device_id_generated', { device_id: id });
+      await this.saveDevice({ ...device, device_id: id });
+      return id;
+    })();
+    // On failure, clear the latch so a later caller can retry. Successful
+    // results stay cached for the lifetime of this instance.
+    this.idPromise.catch(() => {
+      this.idPromise = null;
+    });
+    return this.idPromise;
   }
 
   async isActiveOwner(): Promise<boolean> {
@@ -116,7 +127,10 @@ export class DeviceCoordinator {
     try {
       headRaw = await this.dropbox.downloadJson(path);
     } catch (err) {
-      if (err instanceof PathError) return; // fresh folder — no HEAD
+      // Only "path not found" means fresh folder. PATH_CONFLICT / BAD_REQUEST
+      // and any other PathError code is a genuine error that must propagate —
+      // swallowing them would mask permission problems as "no HEAD.json yet".
+      if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') return;
       throw err;
     }
 

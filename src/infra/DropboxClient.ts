@@ -178,6 +178,27 @@ function pickErrorTag(err: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Walks Dropbox's nested-tag structure to find a terminal `.tag` value.
+ * For a 409 with body `{error: {'.tag': 'path_lookup', path_lookup: {'.tag': 'not_found'}}}`
+ * returns `'not_found'`. Used to distinguish "path does not exist" (recoverable
+ * by callers like DeviceCoordinator.verifyNoConflict for fresh folders) from
+ * other path conflicts that MUST propagate.
+ */
+function is404PathNotFound(err: SdkErrorLike): boolean {
+  const visit = (node: unknown, depth: number): boolean => {
+    if (depth > 6 || !node || typeof node !== 'object') return false;
+    const o = node as Record<string, unknown>;
+    if (o['.tag'] === 'not_found') return true;
+    for (const [k, v] of Object.entries(o)) {
+      if (k === '.tag') continue;
+      if (v && typeof v === 'object' && visit(v, depth + 1)) return true;
+    }
+    return false;
+  };
+  return visit(err.error, 0);
+}
+
 function pickRetryAfter(err: SdkErrorLike): number {
   // Prefer the HTTP header; fall back to body.retry_after. Unparseable →
   // 0 (retry.ts falls back to its own backoff).
@@ -228,6 +249,9 @@ export function classifyError(err: unknown, context: ClassifyContext = {}): Arch
     if (status === 409) {
       if (tag === 'too_many_write_operations') {
         return new RateLimitError('RATE_LIMITED', 'Dropbox too_many_write_operations', pickRetryAfter(err), err);
+      }
+      if (is404PathNotFound(err)) {
+        return new PathError('PATH_NOT_FOUND', `Path not found${tag ? `: ${tag}` : ''}`, false, err);
       }
       return new PathError('PATH_CONFLICT', `Path conflict${tag ? `: ${tag}` : ''}`, false, err);
     }

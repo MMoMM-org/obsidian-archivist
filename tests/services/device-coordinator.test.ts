@@ -122,7 +122,7 @@ function makeFakeDropbox(
   return {
     downloadJson: vi.fn(async (_path: string) => {
       if (headPayload === 'not-found') {
-        throw new PathError('PATH_CONFLICT', 'path/not_found', false);
+        throw new PathError('PATH_NOT_FOUND', 'path/not_found', false);
       }
       if (headPayload instanceof Error) {
         throw headPayload;
@@ -625,5 +625,42 @@ describe('DeviceCoordinator.verifyNoConflict — error propagation', () => {
     const { coordinator } = makeCoordinator(dropbox, logger);
 
     await expect(coordinator.verifyNoConflict()).rejects.toThrow(NetworkError);
+  });
+
+  it('PathError with non-not-found code propagates — fresh-folder catch is narrow', async () => {
+    // Only PATH_NOT_FOUND means "HEAD.json absent". A PATH_CONFLICT, BAD_REQUEST,
+    // or any other PathError code is a genuine error (permission issue,
+    // malformed request) and must surface to the caller — swallowing it would
+    // mask real problems as "fresh folder".
+    const logger = makeLogger();
+    const dropbox = makeFakeDropbox(new PathError('PATH_CONFLICT', 'permission denied', false));
+    const { coordinator } = makeCoordinator(dropbox, logger);
+
+    await expect(coordinator.verifyNoConflict()).rejects.toThrow(PathError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: getOrCreateDeviceId — concurrency
+// ---------------------------------------------------------------------------
+
+describe('DeviceCoordinator.getOrCreateDeviceId — concurrent first-call latch', () => {
+  it('two concurrent first-time callers share the same UUID (in-flight latch)', async () => {
+    // Without a latch both callers read null, generate independent UUIDs,
+    // both call saveDevice — last write wins but the first caller returns
+    // a UUID that is now orphaned. A proper latch returns the same UUID
+    // to both callers AND issues a single saveDevice write.
+    const logger = makeLogger();
+    const dropbox = makeFakeDropbox('not-found');
+    const { coordinator, plugin } = makeCoordinator(dropbox, logger);
+
+    const [a, b] = await Promise.all([
+      coordinator.getOrCreateDeviceId(),
+      coordinator.getOrCreateDeviceId(),
+    ]);
+
+    expect(a).toBe(b);
+    const saved = ((plugin._data as Record<string, unknown>).device as Record<string, unknown>).device_id;
+    expect(saved).toBe(a);
   });
 });

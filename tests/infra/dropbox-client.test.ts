@@ -209,7 +209,13 @@ describe('DropboxClient', () => {
     });
 
     await expect(client.deleteV2('/missing')).rejects.toBeInstanceOf(PathError);
-    expect(calls).toBe(1);
+    await expect(client.deleteV2('/missing')).rejects.toMatchObject({
+      // nested `.tag: not_found` must classify as PATH_NOT_FOUND so callers
+      // like DeviceCoordinator.verifyNoConflict can distinguish "fresh folder"
+      // from other path conflicts that must propagate.
+      code: 'PATH_NOT_FOUND',
+    });
+    expect(calls).toBe(2);
   });
 
   it('400_malformed_request_throws_path_or_config_error', async () => {
