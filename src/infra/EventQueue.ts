@@ -28,10 +28,14 @@ export class EventQueue {
   }
 
   async enqueue(entry: Omit<QueueEntry, 'id'>): Promise<void> {
+    this.assertInitialized();
     const id = crypto.randomUUID();
     const full: QueueEntry = { id, ...entry };
-    this.opQueue = this.opQueue.then(() => this.applyEnqueue(full));
-    return this.opQueue;
+    const next = this.opQueue.then(() => this.applyEnqueue(full));
+    // Chain advances on `recovered` (rejection neutralized) so a failed save
+    // does not poison later ops. Caller still sees the raw rejection on `next`.
+    this.opQueue = next.catch(() => undefined);
+    return next;
   }
 
   peekSince(cursor: string | null): QueueEntry[] {
@@ -40,12 +44,22 @@ export class EventQueue {
   }
 
   async advanceCursor(ts: string): Promise<void> {
-    this.opQueue = this.opQueue.then(() => this.applyAdvanceCursor(ts));
-    return this.opQueue;
+    this.assertInitialized();
+    const next = this.opQueue.then(() => this.applyAdvanceCursor(ts));
+    this.opQueue = next.catch(() => undefined);
+    return next;
   }
 
   committedThrough(): string | null {
     return this.state.committed_through;
+  }
+
+  // ---- Guards --------------------------------------------------------------
+
+  private assertInitialized(): void {
+    if (!this.initialized) {
+      throw new Error('EventQueue.init() must be called before enqueue/advanceCursor');
+    }
   }
 
   // ---- Private mutators (run inside opQueue) --------------------------------

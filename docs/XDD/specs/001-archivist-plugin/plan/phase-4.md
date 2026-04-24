@@ -56,7 +56,7 @@ Produces the eyes-and-ears of the plugin — everything that turns vault edits i
   4. Validate: Unit tests with a fake adapter cover each load/save round-trip and corruption path.
   5. Success: Settings defaults match PRD `[ref: PRD/F2 default retention]`; `index.json` not synced by Obsidian Sync `[ref: SDD/ADR-11]`; `INDEX_MISSING` recovery handoff preserved `[ref: SDD/Acceptance Criteria — edge case]`.
 
-- [ ] **T4.3 EventQueue (append-only + committed_through cursor, promise-chained writes)** `[activity: backend-api]` `[parallel: true]`
+- [x] **T4.3 EventQueue (append-only + committed_through cursor, promise-chained writes)** `[activity: backend-api]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Building Block View/Data Storage — pending_changes.json]`, `[ref: SDD/Runtime View — commit protocol step 6]`.
   2. Test: `enqueue(entry)` appends and persists; `peekSince(cursor)` returns entries whose `observed_at > cursor`; `advanceCursor(ts)` sets `committed_through = ts` and persists; queue survives a simulated crash between enqueue and advance (reloaded queue still has unprocessed entries).

@@ -503,10 +503,73 @@ describe('EventQueue concurrency (ROB-003)', () => {
     const paths = new Set(persisted.entries.map((e: QueueEntry) => e.path));
     expect(paths.size).toBe(10);
 
-    // committedThrough must be one of the submitted cursor values
-    expect(cursors).toContain(queue.committedThrough());
+    // opQueue serializes mutations in call order. Promise.all submits all 10
+    // advanceCursor calls before the first chained tick fires, so the LAST
+    // submitted cursor value must be the on-disk state — not merely "some
+    // submitted value". This pins the serialization contract.
+    expect(queue.committedThrough()).toBe(cursors[cursors.length - 1]);
 
     // In-memory and on-disk cursor must agree
     expect(persisted.committed_through).toBe(queue.committedThrough());
+  });
+
+  it('saveQueue rejection does NOT poison the chain — subsequent enqueue still succeeds', async () => {
+    // Regression guard: the opQueue used to advance on the raw rejected
+    // promise, which meant a single failed save would turn every future
+    // enqueue / advanceCursor into a silent no-op (Promise.then on a rejected
+    // promise never fires the success handler). Fix is a `.catch(() => undefined)`
+    // after the mutation — the caller still sees the original rejection.
+    const adapter = makeFakeAdapter();
+    const store = makePluginStore(adapter);
+    const queue = new EventQueue(store);
+    await queue.init();
+
+    // First enqueue succeeds
+    await queue.enqueue(makeEntry({ type: 'create', path: 'a.md', observed_at: '2026-04-24T10:00:00.000Z' }));
+
+    // Second enqueue: saveQueue rejects once
+    const saveSpy = vi.spyOn(store, 'saveQueue').mockRejectedValueOnce(new Error('disk full'));
+    await expect(
+      queue.enqueue(makeEntry({ type: 'create', path: 'b.md', observed_at: '2026-04-24T10:00:01.000Z' })),
+    ).rejects.toThrow('disk full');
+    saveSpy.mockRestore();
+
+    // Third enqueue must still land — chain is not poisoned
+    await queue.enqueue(makeEntry({ type: 'create', path: 'c.md', observed_at: '2026-04-24T10:00:02.000Z' }));
+
+    // Verify on-disk state has a.md + c.md (b.md's save failed so the
+    // in-memory append was applied but the persist failed; because applyEnqueue
+    // persists AFTER mutating in-memory state, b.md IS in memory — but the
+    // physical disk state reflects only writes that actually completed).
+    const paths = queue.peekSince(null).map((e) => e.path);
+    expect(paths).toContain('a.md');
+    expect(paths).toContain('c.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: init guard
+// ---------------------------------------------------------------------------
+
+describe('EventQueue init guard', () => {
+  it('enqueue before init throws — prevents silent clobber of on-disk state', async () => {
+    const adapter = makeFakeAdapter();
+    const store = makePluginStore(adapter);
+    const queue = new EventQueue(store);
+
+    // Caller forgot await queue.init() — catch this as a hard error rather
+    // than silently persisting the empty default state, which would destroy
+    // any existing pending_changes.json on disk.
+    await expect(
+      queue.enqueue(makeEntry({ type: 'create', path: 'a.md', observed_at: '2026-04-24T10:00:00.000Z' })),
+    ).rejects.toThrow(/init/);
+  });
+
+  it('advanceCursor before init throws', async () => {
+    const adapter = makeFakeAdapter();
+    const store = makePluginStore(adapter);
+    const queue = new EventQueue(store);
+
+    await expect(queue.advanceCursor('2026-04-24T10:00:00.000Z')).rejects.toThrow(/init/);
   });
 });
