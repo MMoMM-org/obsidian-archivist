@@ -1,6 +1,6 @@
 ---
 title: "Phase 7: Scheduler FSM, Ribbon Status & Settings UI"
-status: pending
+status: complete
 version: "1.0"
 phase: 7
 ---
@@ -45,7 +45,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
 
 ### Scheduler + Ribbon + Notices (T7.1 – T7.5)
 
-- [ ] **T7.1 SchedulerFSM (state machine + transitions)** `[activity: backend-api]`
+- [x] **T7.1 SchedulerFSM (state machine + transitions)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Cross-Cutting/UI Visualization Guide]`, `[ref: SDD/Runtime View]`.
   2. Test:
@@ -65,7 +65,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Unit tests with fake timers exhaustively cover transitions + no-op tick.
   5. Success: Quiet-period contract `[ref: PRD/F1 AC-3, SDD/Acceptance Criteria — GRACE/QUIET]`; idle tick is zero-cost `[ref: PRD/F1 AC-2]`.
 
-- [ ] **T7.2 Scheduled full + catch-up + pre-flight notice** `[activity: backend-api]`
+- [x] **T7.2 Scheduled full + catch-up + pre-flight notice** `[activity: backend-api]`
 
   1. Prime: Read `[ref: PRD/F1 AC-4, AC-5]`, `[ref: SDD/Acceptance Criteria — pre-flight]`.
   2. Test:
@@ -80,7 +80,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Unit tests with fake timers + fixed wall-clock.
   5. Success: Pre-flight reliability `[ref: PRD/F1 AC-5]`; catch-up on restart `[ref: PRD/F1 AC-6]`.
 
-- [ ] **T7.3 RibbonIcon (status surface)** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.3 RibbonIcon (status surface)** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Cross-Cutting/User Interface & UX]`, `[ref: PRD/F3 user journey]`.
   2. Test:
@@ -93,7 +93,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Unit tests with a fake DOM; state-driven label matrix asserted.
   5. Success: Ribbon state matrix covers every FSM state `[ref: SDD/UI Visualization Guide]`; accessibility aria-label `[ref: SDD/Quality Requirements/Usability — aria-label reflects state]`.
 
-- [ ] **T7.4 NoticeCenter (toast dedup + routing)** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.4 NoticeCenter (toast dedup + routing)** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/F1, F7 notifications]`, `[ref: SDD/Error Handling]`.
   2. Test:
@@ -105,7 +105,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Unit tests with fake DOM + fake timers verify dedup window.
   5. Success: Toast-fatigue mitigation `[ref: research UX default-calibration]`; error-notice contract `[ref: SDD/Acceptance Criteria — error-suppression]`.
 
-- [ ] **T7.5 Manual "Back up now" command** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.5 Manual "Back up now" command** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/S2]`.
   2. Test: Command registered as `Archivist: Back up now`; on invocation, if designated + not already in `BACKUP_RUNNING`, triggers an immediate incremental.
@@ -115,7 +115,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
 
 ### Settings UI (T7.6 – T7.11)
 
-- [ ] **T7.6 SettingsTab scaffold + five sections** `[activity: frontend-ui]`
+- [x] **T7.6 SettingsTab scaffold + five sections** `[activity: frontend-ui]`
 
   1. Prime: Read `[ref: SDD/Cross-Cutting/UI Visualization Guide]`, `[ref: PRD/Feature Requirements]`.
   2. Test:
@@ -129,7 +129,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Component tests with a fake DOM assert every documented setting is present and wired.
   5. Success: Each PRD-surfaced setting is reachable `[ref: PRD/Feature Requirements]`.
 
-- [ ] **T7.7 Backup Schedule section** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.7 Backup Schedule section** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/F1]`, `[ref: SDD/Building Block View/Interface Specifications/Application Data Models — ScheduleSettings]`.
   2. Test:
@@ -143,7 +143,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Component tests mock settings.
   5. Success: PRD F1 + F5 configurable `[ref: PRD/F1, F5]`.
 
-- [ ] **T7.8 Retention section (3 tiers + live estimate)** `[activity: frontend-ui]`
+- [x] **T7.8 Retention section (3 tiers + live estimate)** `[activity: frontend-ui]`
 
   1. Prime: Read `[ref: PRD/F2, S3]`, `[ref: SDD/Acceptance Criteria — storage_warn]`.
   2. Test:
@@ -157,7 +157,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Fixture-driven tests for the estimator with the simplified 3-tier model; UI component test asserts the estimate row updates.
   5. Success: PRD F2 + S3 `[ref: PRD/F2, S3]`; storage warn `[ref: PRD/F2 AC-5]`.
 
-- [ ] **T7.9 Notifications + Advanced sections** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.9 Notifications + Advanced sections** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/Notifications defaults, S1 exclusions, Advanced settings]`.
   2. Test:
@@ -169,7 +169,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Component tests + glob-validation tests.
   5. Success: PRD S1 configurable; defaults match `[ref: PRD/Notifications defaults, S1]`.
 
-- [ ] **T7.10 Dropbox section (OAuth UI + Disconnect)** `[activity: frontend-ui]`
+- [x] **T7.10 Dropbox section (OAuth UI + Disconnect)** `[activity: frontend-ui]`
 
   1. Prime: Read `[ref: PRD/F7 acceptance criteria]`, `[ref: research UX — OAuth connect prompt]`, `[ref: SDD/ADR-7, ADR-9]`.
   2. Test:
@@ -184,7 +184,7 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Component tests exercise connect / cancel / disconnect with mocked flow.
   5. Success: F7 acceptance criteria `[ref: PRD/F7]`; disclosure present `[ref: SDD/ADR-7]`.
 
-- [ ] **T7.11 Predecessor plugin detection notice** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T7.11 Predecessor plugin detection notice** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/F8]`.
   2. Test:
@@ -196,6 +196,6 @@ This phase produces the user-facing config + status layer in its entirety: auton
   4. Validate: Unit tests with a fake `app.plugins` surface.
   5. Success: PRD F8 `[ref: PRD/F8]`.
 
-- [ ] **T7.12 Phase Validation** `[activity: validate]`
+- [x] **T7.12 Phase Validation** `[activity: validate]`
 
   - Run all Phase 7 tests. Integration: wire Scheduler + Ribbon + NoticeCenter + SettingsTab + a mocked BackupService; simulate 1 day of fake time; verify expected ribbon transitions, pre-flight notice, error dedup, manual trigger, settings round-trip, OAuth flow connect/cancel/disconnect, predecessor notice dismissal. Manual sanity-check in a real Obsidian test vault for all five settings sections. Lint and typecheck pass.
