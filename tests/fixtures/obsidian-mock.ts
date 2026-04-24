@@ -17,6 +17,9 @@ export class Workspace {
   /** Map<eventName, Set<EventRef>> — test introspection hook */
   _listeners: Map<string, Set<EventRef>> = new Map();
 
+  private _layoutReadyCallbacks: Array<() => void> = [];
+  private _layoutReady = false;
+
   on(event: string, _handler: (...args: unknown[]) => unknown): EventRef {
     const ref: EventRef = { _id: ++_nextId, _event: event };
     if (!this._listeners.has(event)) this._listeners.set(event, new Set());
@@ -28,6 +31,19 @@ export class Workspace {
   offref(ref: EventRef): void {
     const bucket = this._listeners.get(ref._event);
     if (bucket) bucket.delete(ref);
+  }
+
+  /** Phase 4 addition (T4.4): subscribe to layout-ready. */
+  onLayoutReady(cb: () => void): void {
+    if (this._layoutReady) cb();
+    else this._layoutReadyCallbacks.push(cb);
+  }
+
+  /** Test helper: fire layout-ready, delivering pending callbacks once. */
+  _fireLayoutReady(): void {
+    this._layoutReady = true;
+    for (const cb of this._layoutReadyCallbacks) cb();
+    this._layoutReadyCallbacks = [];
   }
 }
 
