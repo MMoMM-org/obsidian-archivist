@@ -109,7 +109,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: End-to-end tests with scenarios listed above.
   5. Success: Incremental cadence correctness `[ref: PRD/F1]`; rename history preserved `[ref: PRD/F3, SDD/ADR-4]`.
 
-- [ ] **T5.5 Startup recovery (unified StartupState)** `[activity: backend-api]` `[parallel: true]`
+- [x] **T5.5 Startup recovery (unified StartupState)** `[activity: backend-api]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Implementation Examples/Example: Commit Protocol for a New Snapshot § Crash-recovery matrix]`, `[ref: SDD/Acceptance Criteria — INDEX_MISSING]`, `[ref: SDD/ADR-20]`.
   2. Test (every row of the crash-recovery matrix gets an explicit test case — TEST-H2):
