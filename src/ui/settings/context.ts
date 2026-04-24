@@ -41,6 +41,17 @@ export interface RetentionEstimate {
 export interface SettingsContext {
   getSettings: () => PluginSettings;
   updateSettings: (patch: Partial<PluginSettings>) => Promise<void>;
+  /**
+   * Pre-fetched device identity, populated by SettingsTab.display() before
+   * rendering. Section renderers are sync; async device lookups would race
+   * with the render pass.
+   */
+  deviceId: string;
+  deviceDesignated: boolean;
+  /** Pre-fetched account email. Null when disconnected. */
+  dropboxAccountEmail: string | null;
+  /** Pre-fetched current Dropbox usage in bytes. */
+  dropboxUsedBytes: number;
   device: DeviceSurface;
   dropbox: DropboxSurface;
   oauth: OAuthSurface;

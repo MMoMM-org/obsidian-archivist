@@ -16,6 +16,10 @@ function stubContext(): SettingsContext {
   return {
     getSettings: () => settings,
     updateSettings: async () => {},
+    deviceId: '7f3a2c01-1111-4111-8111-111111111111',
+    deviceDesignated: true,
+    dropboxAccountEmail: null,
+    dropboxUsedBytes: 0,
     device: {
       getDeviceId: async () => 'test-device',
       isDesignated: async () => true,
