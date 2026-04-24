@@ -60,7 +60,7 @@ Produces the core value of the plugin: a crash-safe backup writer. Every other f
   4. Validate: Unit tests with fixtures covering rename+edit, pure rename, pure delete, new-file, and a mix.
   5. Success: Rename-aware manifest shape is correct `[ref: SDD/ADR-4]`; schema stable `[ref: SDD/Data Storage Changes]`.
 
-- [ ] **T5.2a SnapshotIndexStore + MaintenanceScheduler (ADR-20 infrastructure)** `[activity: backend-api]` `[parallel: true]`
+- [x] **T5.2a SnapshotIndexStore + MaintenanceScheduler (ADR-20 infrastructure)** `[activity: backend-api]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-20]`, `[ref: SDD/Building Block View/Data Storage Changes — snapshot_index.json]`, `[ref: SDD/ADR-17 + ROB-002]`.
   2. Test:
