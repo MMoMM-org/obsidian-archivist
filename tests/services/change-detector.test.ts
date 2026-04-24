@@ -202,6 +202,29 @@ describe('event handling — before/after onLayoutReady', () => {
 
     expect(queue.peekSince(null)).toHaveLength(0);
   });
+
+  it('layoutReady transition: events before are dropped, events after enqueue (same instance)', async () => {
+    // Proves the state-machine transition — a regression that returns false
+    // unconditionally would make BOTH the before AND after cases look correct
+    // only when tested in isolation. This single-instance test rules that out.
+    const { app, plugin, queue, detector } = await makeSetup();
+    detector.registerEventHandlers();
+
+    const before = app.vault._addFile('notes/before.md', { mtime: 100, size: 10 });
+    app.vault._fire('create', before); // should be dropped
+    await flushMicrotasks();
+    expect(queue.peekSince(null)).toHaveLength(0);
+
+    (plugin.app.workspace as unknown as Workspace & { _fireLayoutReady(): void })._fireLayoutReady();
+
+    const after = app.vault._addFile('notes/after.md', { mtime: 200, size: 20 });
+    app.vault._fire('create', after); // should enqueue
+    await flushMicrotasks();
+
+    const entries = queue.peekSince(null);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].path).toBe('notes/after.md');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -381,16 +404,18 @@ describe('reconcileScan — file with changed hash IS added', () => {
 // ---------------------------------------------------------------------------
 
 describe('reconcileScan — yields every 500 files (10k vault)', () => {
-  it('yields ≥ 20 times for a 10k-file vault where all files match index', async () => {
-    const { app, detector, yieldState } = await makeSetup({
-      hashFn: async () => 'consistent-hash',
-    });
+  it('yields ≥ 20 times for 10k matching files AND never calls hash (warm path)', async () => {
+    // Warm-path contract: when mtime+size match the index, the dirty-bit miss
+    // branch is never entered — so readBytes / hash must never be called.
+    // Using a vi.fn() spy is the only way to prove this; a plain async arrow
+    // would let the test pass even if the implementation regresses and hashes
+    // every file (because the returned value happens to match the index).
+    const hashSpy = vi.fn(async () => 'consistent-hash');
+    const { app, detector, yieldState } = await makeSetup({ hashFn: hashSpy });
 
-    // Build 10k files with matching index
     const indexFiles: Record<string, { hash: string; mtime: number; size: number }> = {};
     for (let i = 0; i < 10000; i++) {
       const path = `notes/file-${i}.md`;
-      // mtime + size match index exactly so no hash call is needed
       app.vault._addFile(path, { mtime: 1000, size: 100 });
       indexFiles[path] = { hash: 'consistent-hash', mtime: 1000, size: 100 };
     }
@@ -399,8 +424,8 @@ describe('reconcileScan — yields every 500 files (10k vault)', () => {
     const changed = await detector.reconcileScan(index, []);
 
     expect(changed.size).toBe(0);
-    // 10000 / 500 = 20 yield points
-    expect(yieldState.count).toBeGreaterThanOrEqual(20);
+    expect(yieldState.count).toBeGreaterThanOrEqual(20); // 10000 / 500
+    expect(hashSpy).not.toHaveBeenCalled(); // warm path — zero I/O
   });
 });
 

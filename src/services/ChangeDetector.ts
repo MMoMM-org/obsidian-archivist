@@ -69,7 +69,8 @@ export class ChangeDetector {
 
   /**
    * Subscribe to vault events. Events before onLayoutReady are dropped.
-   * Call once during plugin.onload().
+   * Call once during plugin.onload(). Use setExclusions() for runtime updates —
+   * calling registerEventHandlers a second time would duplicate vault listeners.
    */
   registerEventHandlers(exclusions: string[] = []): void {
     this.exclusions = exclusions;
@@ -82,6 +83,11 @@ export class ChangeDetector {
     this.vault.onVaultModify((file) => this.handleModify(file));
     this.vault.onVaultDelete((file) => this.handleDelete(file));
     this.vault.onVaultRename((file, oldPath) => this.handleRename(file, oldPath));
+  }
+
+  /** Update the event-time exclusion list without re-registering vault handlers. */
+  setExclusions(exclusions: string[]): void {
+    this.exclusions = exclusions;
   }
 
   /** Full-vault reconcile scan per Algorithm 1. Returns the set of changed paths. */
