@@ -571,8 +571,6 @@ describe('BackupService.runFull — TOCTOU single-read guarantee', () => {
     const firstBytes = new TextEncoder().encode('version-one');
     const secondBytes = new TextEncoder().encode('version-two-different');
 
-    const vaultFiles = new Map([['notes/a.md', firstBytes]]);
-
     // Build a custom vault that returns different bytes on the 2nd read of a.md
     const fakeVault = {
       getFiles: vi.fn(() => [{ path: 'notes/a.md', mtime: 1000, size: firstBytes.length }]),
@@ -681,7 +679,7 @@ describe('BackupService.runFull — crash at step 6 and 7', () => {
 
     // Make saveIndex throw after HEAD is written
     const origSaveIndex = pluginStore.saveIndex.getMockImplementation()!;
-    pluginStore.saveIndex = vi.fn(async (i: Parameters<typeof origSaveIndex>[0]) => {
+    pluginStore.saveIndex = vi.fn(async (_: Parameters<typeof origSaveIndex>[0]) => {
       throw new Error('simulated crash at saveIndex (step 6)');
     });
 
