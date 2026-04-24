@@ -1,12 +1,12 @@
-// Commands — Obsidian command-palette registrations (T7.5).
+// Commands — Obsidian command-palette registrations (T7.5 / T9.1).
 //
-// Currently registers the manual "Back up now" trigger (PRD S2). Future
-// phases add: "Open Backup Browser" (Phase 8) and "Show history of current
-// file" (Phase 8).
+// Registers:
+//   - "Back up now" (PRD S2) — T7.5
+//   - "Open Backup Browser" (PRD F4) — T9.1
+//   - "Show history of current file" (PRD F3) — T9.2 (future)
 //
-// Design: thin adapters over SchedulerFSM + NotifyFn. No business logic
-// beyond mapping a triggerBackupNow() result code to the right user-visible
-// Notice copy.
+// Design: thin adapters over service callbacks. No business logic beyond
+// routing command invocations to the correct handler.
 
 import type { Plugin } from 'obsidian';
 import type { SchedulerFSM } from '../services/SchedulerFSM';
@@ -44,4 +44,24 @@ function handleBackupNow(deps: BackupNowCommandDeps): void {
       deps.notify(S.OAUTH_REAUTH_REQUIRED, { timeout: 6_000 });
       return;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Open Backup Browser command (T9.1 / PRD F4)
+// ---------------------------------------------------------------------------
+
+export interface OpenBackupBrowserCommandDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  /** Called when the command is invoked; opens or activates the browser view. */
+  onOpen: () => void;
+}
+
+const OPEN_BROWSER_COMMAND_ID = 'archivist-open-backup-browser';
+
+export function registerOpenBackupBrowserCommand(deps: OpenBackupBrowserCommandDeps): void {
+  deps.plugin.addCommand({
+    id: OPEN_BROWSER_COMMAND_ID,
+    name: S.CMD_OPEN_BACKUP_BROWSER,
+    callback: () => deps.onOpen(),
+  });
 }

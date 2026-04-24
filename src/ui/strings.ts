@@ -136,6 +136,23 @@ export const S = {
   BROWSER_COINSTALLED_PLUGIN_WARNING:
     'Dataview, Templater, or Tasks are enabled. Previews render as plain text to prevent arbitrary code execution from untrusted snapshots.',
 
+  // ─── Backup Browser snapshot groups ─────────────────────────────────
+  BROWSER_GROUP_TODAY: 'Today',
+  BROWSER_GROUP_YESTERDAY: 'Yesterday',
+  BROWSER_GROUP_THIS_WEEK: 'This week',
+  BROWSER_GROUP_THIS_MONTH: 'This month',
+  BROWSER_GROUP_OLDER: 'Older',
+
+  // ─── Backup Browser loading + error states ───────────────────────────
+  BROWSER_LOADING: 'Loading…',
+  BROWSER_ERROR_CHAIN_BROKEN:
+    'A backup history chain has a missing ancestor. Some snapshots may not be restorable.',
+
+  // ─── Backup Browser tier labels (mirror FILE_HISTORY_TIER_* for use in browser) ─
+  BROWSER_TIER_DAILY: '[daily]',
+  BROWSER_TIER_MONTHLY: '[monthly]',
+  BROWSER_TIER_NEVER_PRUNE: '[14-day never-prune]',
+
   // ─── Multi-device coordination (F5) ──────────────────────────────
   DEVICE_NOT_DESIGNATED_TITLE: 'This device is not the designated backup device.',
   DEVICE_NOT_DESIGNATED_BODY:

@@ -439,6 +439,10 @@ export interface MockEl {
   createSpan(opts?: { text?: string; cls?: string }): MockEl;
   setText(text: string): void;
   addClass(cls: string): void;
+  /** Remove all child elements (mirrors Obsidian HTMLElement.empty()). */
+  empty(): void;
+  /** Set a DOM attribute (mirrors HTMLElement.setAttribute). */
+  setAttribute(name: string, value: string): void;
   addEventListener(
     event: string,
     cb: (e: { key: string; preventDefault: () => void }) => void,
@@ -476,6 +480,13 @@ function makeMockEl(tag: string): MockEl {
     },
     addClass(cls) {
       el.className = el.className ? `${el.className} ${cls}` : cls;
+    },
+    empty() {
+      el.children.length = 0;
+      el.textContent = '';
+    },
+    setAttribute(name, value) {
+      el.attrs[name] = value;
     },
     addEventListener(event, cb) {
       if (!el.listeners.has(event)) el.listeners.set(event, []);
@@ -541,6 +552,70 @@ export class Modal {
       _defaultPrevented: () => defaultPrevented,
     };
     this.modalEl.dispatchEvent(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WorkspaceLeaf + ItemView — Phase 9 addition (T9.1)
+// ---------------------------------------------------------------------------
+// Minimal stubs matching the Obsidian API surface used by BackupBrowserView.
+// WorkspaceLeaf is the container the view is mounted into. ItemView is the
+// base class for panel/tab views.
+
+export class WorkspaceLeaf {
+  /** The view currently occupying this leaf (set by ItemView). */
+  view: unknown = null;
+}
+
+export interface ViewStateResult {}
+
+export abstract class ItemView {
+  app: App;
+  leaf: WorkspaceLeaf;
+  /** The container element tests can inspect. */
+  containerEl: MockEl;
+  /** The content-area element (subset of containerEl). */
+  contentEl: MockEl;
+  /** Child components registered via addChild. */
+  protected _children: Component[] = [];
+
+  constructor(leaf: WorkspaceLeaf) {
+    this.leaf = leaf;
+    // ItemView needs an App — we create one here for tests.
+    // Production subclasses receive it via the leaf (leaf.view.app), but tests
+    // that want to control the App should pass it in via BackupBrowserDeps.
+    this.app = new App();
+    this.containerEl = makeMockEl('div');
+    this.contentEl = makeMockEl('div');
+    this.containerEl.children.push(this.contentEl);
+  }
+
+  addChild(c: Component): void {
+    this._children.push(c);
+  }
+
+  removeChild(c: Component): void {
+    this._children = this._children.filter((ch) => ch !== c);
+  }
+
+  abstract getViewType(): string;
+  abstract getDisplayText(): string;
+
+  getIcon(): string {
+    return 'archive-restore';
+  }
+
+  abstract onOpen(): Promise<void>;
+  abstract onClose(): Promise<void>;
+
+  /** Test helper: trigger open. */
+  async _open(): Promise<void> {
+    await this.onOpen();
+  }
+
+  /** Test helper: trigger close. */
+  async _close(): Promise<void> {
+    await this.onClose();
   }
 }
 
