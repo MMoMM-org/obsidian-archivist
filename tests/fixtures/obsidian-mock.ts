@@ -32,18 +32,149 @@ export class Workspace {
 }
 
 // ---------------------------------------------------------------------------
+// TAbstractFile / TFile / TFolder (Phase 4 addition)
+// ---------------------------------------------------------------------------
+// Minimal stubs matching the Obsidian API surface used by VaultAdapter.
+
+export class TAbstractFile {
+  path: string;
+  constructor(path: string) {
+    this.path = path;
+  }
+}
+
+export class TFile extends TAbstractFile {
+  stat: { mtime: number; size: number };
+  constructor(path: string, stat?: { mtime: number; size: number }) {
+    super(path);
+    this.stat = stat ?? { mtime: 0, size: 0 };
+  }
+}
+
+export class TFolder extends TAbstractFile {
+  children: TAbstractFile[] = [];
+  constructor(path: string) {
+    super(path);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Vault
 // ---------------------------------------------------------------------------
 
 export class Vault {
-  adapter = {
-    read: async (_path: string): Promise<string> => '',
-    write: async (_path: string, _data: string): Promise<void> => {},
-    exists: async (_path: string): Promise<boolean> => false,
-    // Phase 3 addition: TokenStore.clear() calls adapter.remove to delete
-    // tokens.json during OAuth disconnect.
-    remove: async (_path: string): Promise<void> => {},
+  /** Tracked TFile instances for getFiles(). */
+  private _files: TFile[] = [];
+
+  /** In-memory binary store for readBinary/writeBinary. */
+  private _binaryStore: Map<string, Uint8Array> = new Map();
+
+  adapter: {
+    read: (path: string) => Promise<string>;
+    write: (path: string, data: string) => Promise<void>;
+    exists: (path: string) => Promise<boolean>;
+    remove: (path: string) => Promise<void>;
+    // Phase 4 additions
+    readBinary: (path: string) => Promise<ArrayBuffer>;
+    writeBinary: (path: string, data: ArrayBuffer) => Promise<void>;
+    rename: (from: string, to: string) => Promise<void>;
+    stat: (path: string) => Promise<{ mtime: number; size: number; type: 'file' | 'folder' } | null>;
+    mkdir: (path: string) => Promise<void>;
+    _statStore: Map<string, { mtime: number; size: number; type: 'file' | 'folder' }>;
+    _setStat: (path: string, stat: { mtime: number; size: number; type: 'file' | 'folder' }) => void;
   };
+
+  /** Map<eventName, Set<handler>> for event fire/listen. */
+  private _eventHandlers: Map<string, Set<((...args: unknown[]) => void)>> = new Map();
+
+  constructor() {
+    const binaryStore = this._binaryStore;
+    const statStore = new Map<string, { mtime: number; size: number; type: 'file' | 'folder' }>();
+
+    this.adapter = {
+      read: async (_path: string): Promise<string> => '',
+      write: async (_path: string, _data: string): Promise<void> => {},
+      exists: async (path: string): Promise<boolean> => binaryStore.has(path),
+      // Phase 3 addition
+      remove: async (_path: string): Promise<void> => {},
+      // Phase 4 additions
+      readBinary: async (path: string): Promise<ArrayBuffer> => {
+        const bytes = binaryStore.get(path);
+        if (bytes === undefined) {
+          throw new Error(`ENOENT: no such file: ${path}`);
+        }
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+      writeBinary: async (path: string, data: ArrayBuffer): Promise<void> => {
+        binaryStore.set(path, new Uint8Array(data));
+      },
+      rename: async (from: string, to: string): Promise<void> => {
+        const bytes = binaryStore.get(from);
+        if (bytes !== undefined) {
+          binaryStore.set(to, bytes);
+          binaryStore.delete(from);
+        }
+      },
+      stat: async (path: string) => statStore.get(path) ?? null,
+      mkdir: async (_path: string): Promise<void> => {},
+      _statStore: statStore,
+      _setStat(path, stat) {
+        statStore.set(path, stat);
+      },
+    };
+  }
+
+  // ---- Test helpers --------------------------------------------------------
+
+  /** Register a TFile and seed its binary content. */
+  _addFile(path: string, stat: { mtime: number; size: number }): TFile {
+    const file = new TFile(path, stat);
+    this._files.push(file);
+    return file;
+  }
+
+  /** Seed raw bytes for readBinary. */
+  _setFileBytes(path: string, bytes: Uint8Array): void {
+    this._binaryStore.set(path, bytes);
+  }
+
+  /** Check if a path has bytes in the store. */
+  _hasFile(path: string): boolean {
+    return this._binaryStore.has(path);
+  }
+
+  /** Retrieve stored bytes (for assertions). */
+  _getFileBytes(path: string): Uint8Array | undefined {
+    return this._binaryStore.get(path);
+  }
+
+  // ---- Obsidian API surface ------------------------------------------------
+
+  getFiles(): TFile[] {
+    return [...this._files];
+  }
+
+  /** Mirror Workspace.on semantics — used by VaultAdapter.on*() methods. */
+  on(event: string, handler: (...args: unknown[]) => void): EventRef {
+    if (!this._eventHandlers.has(event)) this._eventHandlers.set(event, new Set());
+    this._eventHandlers.get(event)!.add(handler);
+    const ref: EventRef = { _id: ++_nextId, _event: event };
+    return ref;
+  }
+
+  /** offref — mirrors Workspace.offref; used during plugin teardown. */
+  offref(_ref: EventRef): void {
+    // In the mock we don't track ref→handler mapping; teardown is best-effort.
+  }
+
+  /** Test helper: fire a vault event, delivering args to registered handlers. */
+  _fire(event: string, ...args: unknown[]): void {
+    const handlers = this._eventHandlers.get(event);
+    if (!handlers) return;
+    for (const h of handlers) {
+      h(...args);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
