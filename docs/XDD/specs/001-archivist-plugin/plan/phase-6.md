@@ -1,6 +1,6 @@
 ---
 title: "Phase 6: Retention & Garbage Collection"
-status: in_progress
+status: completed
 version: "1.0"
 phase: 6
 ---
@@ -100,6 +100,6 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
   4. Validate: Unit tests with mocked listings; 80% / 100% of configured limit trigger the expected banner state.
   5. Success: Hard-limit warning `[ref: PRD/F2 AC-5, SDD/Acceptance Criteria — storage_warn]`.
 
-- [ ] **T6.6 Phase Validation** `[activity: validate]`
+- [x] **T6.6 Phase Validation** `[activity: validate]`
 
   - Run all Phase 6 tests. 35-day synthetic soak: generate 35 days of snapshots at realistic cadence, apply default retention, assert the kept count matches the PRD-derived expectation within ±1, assert no chain breaks, assert total referenced blobs ≤ vault_size × max_versions. Lint and typecheck pass.
