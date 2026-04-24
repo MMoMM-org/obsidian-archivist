@@ -61,7 +61,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
   4. Validate: Unit tests with fixture graphs (linear, forked, multi-hop, broken).
   5. Success: Transitive rule correctly protects ancestor Fulls `[ref: SDD/ADR-16]`; graceful degradation on broken chains `[ref: SDD/Acceptance Criteria — CHAIN_BROKEN]`.
 
-- [ ] **T6.3 RetentionService — metadata-only orchestrator** `[activity: backend-api]`
+- [x] **T6.3 RetentionService — metadata-only orchestrator** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/ADR-17]`, `[ref: SDD/ADR-20]`, `[ref: SDD/Runtime View step 13 — MaintenanceScheduler]`.
   2. Test:
@@ -92,7 +92,7 @@ Produces the guarantee that Dropbox does not fill up (PRD F2). Two pieces: decid
   4. Validate: Unit tests with a mocked DropboxClient; race-condition tests (new-blob-during-sweep must NOT be deleted).
   5. Success: GC concurrency safety `[ref: SDD/ADR-5]`; no false-orphan deletion `[ref: SDD/Risks/Implementation Gotchas]`.
 
-- [ ] **T6.5 Storage-usage probe (for hard-limit warning)** `[activity: backend-api]` `[parallel: true]`
+- [x] **T6.5 Storage-usage probe (for hard-limit warning)** `[activity: backend-api]` `[parallel: true]`
 
   1. Prime: Read `[ref: PRD/F2 AC-5]`, `[ref: SDD/Acceptance Criteria — storage_warn]`.
   2. Test: `estimateArchivistUsageBytes()` walks the App Folder (via `listFolder` recursive) summing `entries[].size`; caches the result for 15 minutes; returns a number; estimation completes within 5s for the 4-week soak fixture.
