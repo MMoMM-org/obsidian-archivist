@@ -33,7 +33,6 @@ interface RecordedContent {
 
 function makeRecordingHandle(): ModalHandle & {
   _closed: boolean;
-  _focusReturnCalled: boolean;
   _keydownHandlers: Array<(key: string) => void>;
   recorded: RecordedContent;
   fireKeydown(key: string): void;
@@ -47,15 +46,11 @@ function makeRecordingHandle(): ModalHandle & {
   };
 
   let closedCount = 0;
-  let focusReturnCalled = false;
   const keydownHandlers: Array<(key: string) => void> = [];
 
   return {
     get _closed() {
       return closedCount > 0;
-    },
-    get _focusReturnCalled() {
-      return focusReturnCalled;
     },
     get _keydownHandlers() {
       return keydownHandlers;
@@ -77,9 +72,6 @@ function makeRecordingHandle(): ModalHandle & {
     },
     close() {
       closedCount += 1;
-    },
-    returnFocusToTrigger() {
-      focusReturnCalled = true;
     },
     onKeydown(handler: (key: string) => void) {
       keydownHandlers.push(handler);
@@ -273,22 +265,22 @@ describe('ConfirmRestoreModal — confirm / cancel callbacks', () => {
     expect(handle._closed).toBe(true);
   });
 
-  it('clicking Replace returns focus to trigger', () => {
+  it('clicking Replace closes the modal', () => {
     const { handle } = openModal(makeInPlaceParams());
     handle.clickButton(S.CONFIRM_RESTORE_IN_PLACE_OK);
-    expect(handle._focusReturnCalled).toBe(true);
+    expect(handle._closed).toBe(true);
   });
 
-  it('clicking Cancel returns focus to trigger', () => {
+  it('clicking Cancel closes the modal', () => {
     const { handle } = openModal(makeInPlaceParams());
     handle.clickButton(S.CONFIRM_RESTORE_IN_PLACE_CANCEL);
-    expect(handle._focusReturnCalled).toBe(true);
+    expect(handle._closed).toBe(true);
   });
 
-  it('Escape returns focus to trigger', () => {
+  it('Escape closes the modal', () => {
     const { handle } = openModal(makeInPlaceParams());
     handle.fireKeydown('Escape');
-    expect(handle._focusReturnCalled).toBe(true);
+    expect(handle._closed).toBe(true);
   });
 });
 

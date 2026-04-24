@@ -37,9 +37,6 @@ export interface ConfirmRestoreOpts {
   onCancel: () => void;
 }
 
-/** Backward-compat alias — tests and call-sites may use either name. */
-export type ConfirmRestoreModalParams = ConfirmRestoreOpts;
-
 /**
  * ModalHandle — rendering contract used by renderConfirmRestoreContent().
  *
@@ -53,7 +50,6 @@ export interface ModalHandle {
   addLine(line: string): void;
   addButton(label: string, isDefault: boolean, onClick: () => void): void;
   close(): void;
-  returnFocusToTrigger(): void;
   /** Subscribe to raw keydown events on the modal element. */
   onKeydown(handler: (key: string) => void): void;
 }
@@ -99,7 +95,6 @@ export function renderConfirmRestoreContent(
 
   const dismiss = (action: () => void): void => {
     action();
-    handle.returnFocusToTrigger();
     handle.close();
   };
 
@@ -136,7 +131,8 @@ export class ConfirmRestoreModal extends Modal {
   }
 
   onOpen(): void {
-    this.triggerEl = activeDocument.activeElement as HTMLElement | null;
+    const el = activeDocument.activeElement;
+    this.triggerEl = el instanceof HTMLElement ? el : null;
     const handle = makeContentElHandle(this.contentEl, this.modalEl, () => {
       this.triggerEl?.focus();
       this.close();
@@ -160,6 +156,7 @@ function makeContentElHandle(
 ): ModalHandle {
   let titleEl: HTMLElement | null = null;
   let bodyEl: HTMLElement | null = null;
+  const controller = new AbortController();
 
   return {
     setTitle(title: string): void {
@@ -187,15 +184,16 @@ function makeContentElHandle(
     },
 
     close(): void {
+      controller.abort();
       dismiss();
     },
 
-    returnFocusToTrigger(): void {
-      // Focus return is handled by the dismiss callback in onOpen().
-    },
-
     onKeydown(handler: (key: string) => void): void {
-      modalEl.addEventListener('keydown', (e: KeyboardEvent) => handler(e.key));
+      modalEl.addEventListener(
+        'keydown',
+        (e: KeyboardEvent) => handler(e.key),
+        { signal: controller.signal },
+      );
     },
   };
 }
