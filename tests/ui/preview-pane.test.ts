@@ -139,11 +139,12 @@ describe('renderPreview — XSS payloads are neutralized', () => {
     await renderPreview(app, el, content, 'note.md', component);
     expect(spy).toHaveBeenCalledOnce();
     // args: app, string content, el, sourcePath, component
-    const [calledApp, calledContent, calledEl, calledPath] = spy.mock.calls[0];
+    const [calledApp, calledContent, calledEl, calledPath, calledComponent] = spy.mock.calls[0];
     expect(calledApp).toBe(app);
     expect(calledContent).toContain('Safe heading');
     expect(calledEl).toBe(el);
     expect(calledPath).toBe('note.md');
+    expect(calledComponent).toBe(component);
     spy.mockRestore();
   });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   isPluginSettings,
+  isUiSettings,
   parseSettings,
   type SettingsMigration,
 } from '../../src/model/Settings';
@@ -19,12 +20,25 @@ describe('Settings — guards', () => {
     expect(migrated).toBe(false);
   });
 
+  it('isUiSettings accepts valid ui block', () => {
+    expect(isUiSettings({ preview_plugin_advisory_dismissed: false })).toBe(true);
+    expect(isUiSettings({ preview_plugin_advisory_dismissed: true })).toBe(true);
+  });
+
+  it('isUiSettings rejects invalid ui block', () => {
+    expect(isUiSettings(null)).toBe(false);
+    expect(isUiSettings({})).toBe(false);
+    expect(isUiSettings({ preview_plugin_advisory_dismissed: 'yes' })).toBe(false);
+  });
+
   it.each([
     ['invalid full_cadence', (s: Record<string, unknown>) => ((s.schedule as Record<string, unknown>).full_cadence = 'hourly')],
     ['full_day_of_week out of range', (s: Record<string, unknown>) => ((s.schedule as Record<string, unknown>).full_day_of_week = 9)],
     ['non-HH:MM time', (s: Record<string, unknown>) => ((s.schedule as Record<string, unknown>).full_time_of_day = '25:99')],
     ['exclusion_globs not strings', (s: Record<string, unknown>) => ((s.advanced as Record<string, unknown>).exclusion_globs = [1, 2])],
     ['missing advanced block', (s: Record<string, unknown>) => delete s.advanced],
+    ['missing ui block', (s: Record<string, unknown>) => delete s.ui],
+    ['ui.preview_plugin_advisory_dismissed not boolean', (s: Record<string, unknown>) => ((s.ui as Record<string, unknown>).preview_plugin_advisory_dismissed = 1)],
   ])('isPluginSettings rejects: %s', (_l, mutate) => {
     const bad = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as Record<string, unknown>;
     mutate(bad);

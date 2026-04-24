@@ -2,8 +2,8 @@
 //
 // Security contract (ADR-13):
 //   - ALL text rendering goes through MarkdownRenderer.render — never innerHTML.
-//   - Binary files (by extension + byte heuristic) show a placeholder; they
-//     never reach MarkdownRenderer.
+//   - Binary files (by extension) show a placeholder; they never reach
+//     MarkdownRenderer.
 //   - Path text is inserted via createEl text nodes — never raw HTML.
 //   - detectCodeEvalPlugins + maybeShowPreviewAdvisory implement the SEC-H3
 //     threat-model boundary advisory for co-installed code-evaluating plugins.
@@ -17,6 +17,7 @@
 
 import { MarkdownRenderer, type App, type Component } from 'obsidian';
 import { S } from './strings';
+import type { AppWithPluginRegistry } from '../services/PredecessorDetector';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,9 +36,8 @@ export interface PreviewContainerEl {
   ): PreviewContainerEl;
 }
 
-export interface AppWithPluginRegistry {
-  plugins: { enabledPlugins: Set<string> };
-}
+// AppWithPluginRegistry is re-exported from PredecessorDetector — one definition.
+export type { AppWithPluginRegistry } from '../services/PredecessorDetector';
 
 export interface PreviewAdvisoryNoticeCenter {
   showPersistent(
@@ -55,39 +55,22 @@ export interface PreviewAdvisoryNoticeCenter {
 // ---------------------------------------------------------------------------
 
 // Extensions that are always treated as binary — never fed to MarkdownRenderer.
+// Unknown extensions fall through to TextDecoder (replacement chars for bad bytes).
 const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif',
-  '.svg', '.ico',
+  // Images
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico',
+  // Documents
   '.pdf',
-  '.zip', '.gz', '.tar', '.bz2', '.7z', '.rar', '.zst', '.xz',
-  '.mp3', '.mp4', '.wav', '.ogg', '.flac', '.m4a',
-  '.mov', '.avi', '.mkv', '.webm',
-  '.exe', '.dmg', '.pkg', '.deb', '.rpm',
-  '.ttf', '.otf', '.woff', '.woff2',
-  '.psd', '.ai', '.sketch',
-  '.docx', '.xlsx', '.pptx',
+  // Audio / Video
+  '.mp3', '.mp4', '.mov', '.wav',
+  // Archives
+  '.zip', '.tar', '.gz',
 ]);
 
-function isBinaryByExtension(path: string): boolean {
+function isBinary(path: string): boolean {
   const dot = path.lastIndexOf('.');
   if (dot === -1) return false;
   return BINARY_EXTENSIONS.has(path.slice(dot).toLowerCase());
-}
-
-// Heuristic: if more than 10% of the first 512 bytes are non-printable (outside
-// the 0x09–0x0d, 0x20–0x7e range), treat as binary.
-function isBinaryByContent(bytes: Uint8Array): boolean {
-  const sample = bytes.subarray(0, 512);
-  let nonPrintable = 0;
-  for (const b of sample) {
-    const isPrintable = (b >= 0x20 && b <= 0x7e) || (b >= 0x09 && b <= 0x0d);
-    if (!isPrintable) nonPrintable += 1;
-  }
-  return nonPrintable / sample.length > 0.1;
-}
-
-function isBinary(path: string, bytes: Uint8Array): boolean {
-  return isBinaryByExtension(path) || (bytes.length > 0 && isBinaryByContent(bytes));
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +95,7 @@ export async function renderPreview(
   path: string,
   component: Component,
 ): Promise<void> {
-  if (isBinary(path, content)) {
+  if (isBinary(path)) {
     containerEl.createEl('p', { text: S.FILE_HISTORY_BINARY_PLACEHOLDER });
     return;
   }

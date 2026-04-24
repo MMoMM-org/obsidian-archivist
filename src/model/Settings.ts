@@ -49,12 +49,17 @@ export interface AdvancedSettings {
   chunk_size_mb: number;
 }
 
+export interface UiSettings {
+  preview_plugin_advisory_dismissed: boolean;
+}
+
 export interface PluginSettings {
   schema_version: SettingsSchemaVersion;
   retention: RetentionSettings;
   schedule: ScheduleSettings;
   notifications: NotificationSettings;
   advanced: AdvancedSettings;
+  ui: UiSettings;
 }
 
 export interface SettingsMigration {
@@ -106,6 +111,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     diagnostic_logging: false,
     upload_parallelism: 4,
     chunk_size_mb: 8,
+  },
+  ui: {
+    preview_plugin_advisory_dismissed: false,
   },
 };
 
@@ -186,6 +194,11 @@ export function isAdvancedSettings(v: unknown): v is AdvancedSettings {
   );
 }
 
+export function isUiSettings(v: unknown): v is UiSettings {
+  if (!isObject(v)) return false;
+  return typeof v.preview_plugin_advisory_dismissed === 'boolean';
+}
+
 export function isPluginSettings(v: unknown): v is PluginSettings {
   if (!isObject(v)) return false;
   return (
@@ -193,7 +206,8 @@ export function isPluginSettings(v: unknown): v is PluginSettings {
     isRetentionSettings(v.retention) &&
     isScheduleSettings(v.schedule) &&
     isNotificationSettings(v.notifications) &&
-    isAdvancedSettings(v.advanced)
+    isAdvancedSettings(v.advanced) &&
+    isUiSettings(v.ui)
   );
 }
 
