@@ -1,6 +1,6 @@
 ---
 title: "Phase 8: Restore Engine & Rename-Aware History"
-status: pending
+status: complete
 version: "1.0"
 phase: 8
 ---
@@ -32,7 +32,7 @@ phase: 8
 
 Produces the feature users actually care about — getting an earlier version of a file back.
 
-- [ ] **T8.1 materializeVaultStateAt (manifest chain merge)** `[activity: domain-modeling]`
+- [x] **T8.1 materializeVaultStateAt (manifest chain merge)** `[activity: domain-modeling]`
 
   1. Prime: Read `[ref: SDD/Implementation Examples/Example: Manifest Merge for Restore-at-Time-T]`.
   2. Test:
@@ -45,7 +45,7 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit tests with fixture chains (the SDD walkthrough + 5 edge-case chains).
   5. Success: Restore correctness against SDD example `[ref: SDD/Implementation Examples]`; chain-break surfaced cleanly `[ref: SDD/Error Handling]`.
 
-- [ ] **T8.2 listVersionsForPath (rename-aware history, path-reuse safe)** `[activity: domain-modeling]` `[parallel: true]`
+- [x] **T8.2 listVersionsForPath (rename-aware history, path-reuse safe)** `[activity: domain-modeling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Complex Logic/Algorithm 3]` (revised for ROB-004).
   2. Test:
@@ -63,7 +63,7 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit tests with fixture manifests containing renames + edits; a perf smoke test for the 1000-manifest case.
   5. Success: Rename tracking `[ref: PRD/F3 AC-5]`.
 
-- [ ] **T8.3 Restore in place + Restore as copy (pre-write hash + per-path mutex)** `[activity: backend-api]`
+- [x] **T8.3 Restore in place + Restore as copy (pre-write hash + per-path mutex)** `[activity: backend-api]`
 
   1. Prime: Read `[ref: SDD/Runtime View/Primary Flow: File-Level Restore]`, `[ref: PRD/F3 AC-3, AC-4]`, `[ref: SDD/ADR-7 ADR-20]`.
   2. Test:
@@ -81,7 +81,7 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit + integration tests; inject write-fail mid-atomic to assert cleanup.
   5. Success: Restore fidelity `[ref: PRD/F3 AC-3]`; restore-to-recreated-dir `[ref: PRD/F4 AC-4]`; hash mismatch surfaces cleanly `[ref: SDD/Acceptance Criteria — RESTORE_HASH_MISMATCH]`.
 
-- [ ] **T8.4 Fetch-content-for-snapshot-path + manifest cache** `[activity: backend-api]` `[parallel: true]`
+- [x] **T8.4 Fetch-content-for-snapshot-path + manifest cache** `[activity: backend-api]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Interface Specifications/Data Storage — content/<hh>/<hash>]`, `[ref: SDD/ADR-20]`, `[ref: SDD/Runtime View/Primary Flow: File-Level Restore — step 3]`.
   2. Test:
@@ -92,7 +92,7 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Unit tests cover the three paths (happy, missing, mismatch) + cache hit/miss.
   5. Success: Integrity check on every download `[ref: SDD/Cross-Cutting/Pattern: CAS]`; Restore SLO achievable via cache `[ref: SDD/ADR-20]`.
 
-- [ ] **T8.5 Standalone Restore CLI (`scripts/restore.mjs`)** `[activity: tooling]` `[parallel: true]`
+- [x] **T8.5 Standalone Restore CLI (`scripts/restore.mjs`)** `[activity: tooling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-19]`, `[ref: SDD/Acceptance Criteria — Standalone Restore CLI]`, `[ref: PRD/S6]`, and the manifest-merge walkthrough `[ref: SDD/Implementation Examples/Example: Manifest Merge for Restore-at-Time-T]`.
   2. Test:
@@ -111,6 +111,6 @@ Produces the feature users actually care about — getting an earlier version of
   4. Validate: Run the new tests under `tests/cli/` — they spawn `node scripts/restore.mjs` as a subprocess against a fixture folder and assert on stdout + filesystem output. Keep the script under 500 lines.
   5. Success: Zero-dep contract holds `[ref: SDD/ADR-19]`; byte-identical to in-plugin restore (verified by Phase 10 T10.1 `cli-parity.test.ts`) `[ref: SDD/Acceptance Criteria — byte-identical]`; all PRD S6 invariants.
 
-- [ ] **T8.6 Phase Validation** `[activity: validate]`
+- [x] **T8.6 Phase Validation** `[activity: validate]`
 
   - Run all Phase 8 tests (in-plugin + CLI). Integration: generate a synthetic 4-week history (with renames + deletes), pick 5 paths, verify `listVersionsForPath` + `fetchContent` + `restoreInPlace` round-trip fidelity. Run the CLI on the same history and compare output to the plugin-produced state. Lint and typecheck pass.

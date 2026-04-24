@@ -116,7 +116,7 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 - [x] [Phase 5: Backup Pipeline & Device Coordination](phase-5.md)
 - [x] [Phase 6: Retention & Garbage Collection](phase-6.md)
 - [x] [Phase 7: Scheduler FSM, Ribbon Status & Settings UI](phase-7.md)
-- [ ] [Phase 8: Restore Engine & Rename-Aware History](phase-8.md)
+- [x] [Phase 8: Restore Engine & Rename-Aware History](phase-8.md)
 - [ ] [Phase 9: Backup Browser, File-History Modal & Restore UI (incl. accessibility)](phase-9.md)
 - [ ] [Phase 10: Integration, Soak Tests & Release Readiness](phase-10.md)
 

@@ -1,8 +1,11 @@
 # Context Memory
 
 <!-- 2026-04-24 -->
-- **Phase 7 complete** (2026-04-24). SchedulerFSM (8-state machine + scheduled-full planner with catch-up + pre-flight), NoticeCenter (dedup + resumed + banners), RibbonIcon (hybrid archive-restore/history+pulse, state-driven tooltip/aria), manual Back-up-now command, full 5-section SettingsTab (BackupSchedule / Retention / Notifications / Advanced / Dropbox) built on a SectionHost DOM-free abstraction, retention estimator (pure fn), and PredecessorDetector with dismissible banners. 757 tests passing; lint + typecheck + build all green. Next step: **Phase 8 (Restore Engine & Rename-Aware History)**.
-- Plugin wiring in `src/main.ts` still bootstrap-only — full integration of Scheduler + Ribbon + Commands + SettingsTab + PredecessorDetector happens as part of Phase 8's onload rewrite (or an early T8 wiring task).
+- **Phase 8 complete** (2026-04-24). RestoreService (materializeVaultStateAt — chain merge from the SDD walkthrough; listVersionsForPath — Algorithm 3 with ROB-004 path-reuse guard + mirror-case alias termination for the reverse lineage), ManifestCache (snapshot-index + per-id cache with concurrent-dedup latch), RestoreOperations (per-path mutex, pre-write hash verify, atomic write), fetchContent + CONTENT_HASH_MISMATCH guard, standalone Restore CLI (`scripts/restore.mjs`, zero npm deps, 14 functions exported, atomic-dir pattern). 842 tests passing; lint + typecheck + build all green. Next step: **Phase 9 (Backup Browser, File-History Modal & Restore UI)**.
+- Plugin wiring in `src/main.ts` still bootstrap-only — Phase 9 (or a pre-Phase-9 wiring task) integrates Scheduler + Ribbon + Commands + SettingsTab + PredecessorDetector + RestoreService + RestoreOperations in the onload rewrite.
+
+<!-- 2026-04-24 -->
+- **Phase 7 complete** (2026-04-24). SchedulerFSM (8-state machine + scheduled-full planner with catch-up + pre-flight), NoticeCenter (dedup + resumed + banners), RibbonIcon (hybrid archive-restore/history+pulse, state-driven tooltip/aria), manual Back-up-now command, full 5-section SettingsTab (BackupSchedule / Retention / Notifications / Advanced / Dropbox) built on a SectionHost DOM-free abstraction, retention estimator (pure fn), and PredecessorDetector with dismissible banners. 757 tests passing; lint + typecheck + build all green.
 
 <!-- 2026-04-23 -->
 - **Phase 2 complete** (2026-04-23). Domain models (`src/model/`), infrastructure primitives (`src/infra/Hasher`, `src/infra/Logger`), utility modules (`src/util/{paths,time,glob,retry}`), and the full UI strings module (`src/ui/strings.ts`) are landed with 168 tests passing, lint + typecheck + build green. Settings migration engine exercised via 3 synthetic-schema scenarios plus the 5 failure modes from phase-2 T2.1.
