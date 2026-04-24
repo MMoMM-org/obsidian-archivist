@@ -54,7 +54,7 @@ export class MaintenanceScheduler {
 
   /**
    * Posts a retention job if last_retention_at > 24h ago.
-   * Returns immediately — never blocks the caller (ROB-002).
+   * Returns as soon as the due-check completes — retention runs asynchronously in the background.
    */
   async scheduleRetentionIfDue(): Promise<void> {
     const index = await this.loadIndex();
@@ -80,6 +80,7 @@ export class MaintenanceScheduler {
   }
 
   private async runJob(index: LocalIndex): Promise<void> {
+    this.abortController = new AbortController();
     this.emit({ type: 'MAINTENANCE_STARTED' });
     const signal = this.abortController.signal;
 

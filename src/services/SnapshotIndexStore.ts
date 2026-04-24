@@ -38,11 +38,12 @@ export class SnapshotIndexStore {
       const raw = await this.dropbox.downloadJson<unknown>(this.path);
       try {
         return parseSnapshotIndex(raw);
-      } catch {
+      } catch (err) {
         throw new CorruptionError(
           'SNAPSHOT_INDEX_INVALID',
           'snapshot_index.json failed schema validation',
           false,
+          err,
         );
       }
     } catch (err) {
@@ -61,9 +62,10 @@ export class SnapshotIndexStore {
     });
   }
 
+  // NOT serialized via writeQueue — caller must ensure no concurrent append is in-flight.
   /** Removes the entry with the given id and persists. No-op if id not present. */
   async remove(id: string): Promise<void> {
-    const index = await this.readOrNull();
+    const index = await this.read();
     if (!index) return;
     const before = index.snapshots.length;
     index.snapshots = index.snapshots.filter((s) => s.id !== id);
@@ -73,21 +75,23 @@ export class SnapshotIndexStore {
   }
 
   /** Rebuilds the index from a list of manifests. Overwrites any existing index. */
-  async rebuild(manifests: SnapshotManifest[]): Promise<void> {
-    const snapshots: SnapshotIndexEntry[] = manifests.map((m) => ({
-      id: m.id,
-      type: m.type,
-      parent_id: m.parent_id,
-      created_at: m.created_at,
-      device_id: m.device_id,
-      blob_hashes: uniqueHashes(m),
-    }));
-    const index: SnapshotIndex = {
-      schema_version: '1.0',
-      last_updated_at: this.now(),
-      snapshots,
-    };
-    await this.dropbox.uploadJson(this.path, index);
+  rebuild(manifests: SnapshotManifest[]): Promise<void> {
+    return this.enqueue(async () => {
+      const snapshots: SnapshotIndexEntry[] = manifests.map((m) => ({
+        id: m.id,
+        type: m.type,
+        parent_id: m.parent_id,
+        created_at: m.created_at,
+        device_id: m.device_id,
+        blob_hashes: uniqueHashes(m),
+      }));
+      const index: SnapshotIndex = {
+        schema_version: '1.0',
+        last_updated_at: this.now(),
+        snapshots,
+      };
+      await this.dropbox.uploadJson(this.path, index);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -99,10 +103,6 @@ export class SnapshotIndexStore {
     const recovered = next.catch(() => undefined);
     this.writeQueue = recovered;
     return next;
-  }
-
-  private async readOrNull(): Promise<SnapshotIndex | null> {
-    return this.read();
   }
 
   private async readOrEmpty(): Promise<SnapshotIndex> {

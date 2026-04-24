@@ -380,4 +380,21 @@ describe('SnapshotIndexStore concurrent append serialization', () => {
 
     expect(dropbox.uploadJson).toHaveBeenCalledTimes(2);
   });
+
+  it('concurrent append + rebuild serializes correctly — rebuild wins as the last queued write (ROB-003)', async () => {
+    const dropbox = makeFakeDropbox();
+    const store = makeStore(dropbox);
+
+    const appendEntry = makeEntry({ id: '2026-04-24T10-00-full' });
+    const rebuildManifest = makeManifest({ id: '2026-04-24T11-00-inc', type: 'inc', parent_id: '2026-04-24T10-00-full' });
+
+    // Fire append first, then rebuild immediately — both enqueued concurrently.
+    // rebuild is queued second, so it must win and the final state reflects rebuild's intent.
+    await Promise.all([store.append(appendEntry), store.rebuild([rebuildManifest])]);
+
+    const written = dropbox.store.get(SNAPSHOT_INDEX_PATH) as { snapshots: SnapshotIndexEntry[] };
+    // rebuild overwrites completely — only the rebuild manifest entry should remain
+    expect(written.snapshots).toHaveLength(1);
+    expect(written.snapshots[0].id).toBe(rebuildManifest.id);
+  });
 });

@@ -334,6 +334,24 @@ describe('MaintenanceScheduler.onunload', () => {
     // Must not throw
     expect(() => scheduler.onunload()).not.toThrow();
   });
+
+  it('job posted after onunload receives a fresh non-aborted signal (ROB-005)', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const runRetention = vi.fn(async (signal: AbortSignal) => {
+      capturedSignal = signal;
+    });
+    const scheduler = makeScheduler({ runRetention });
+
+    // Abort the initial controller
+    scheduler.onunload();
+
+    // Post a new job — runJob must reset the AbortController before passing the signal
+    await scheduler.scheduleRetentionIfDue();
+    await new Promise((res) => setTimeout(res, 0));
+
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal!.aborted).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
