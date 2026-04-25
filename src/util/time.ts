@@ -2,6 +2,26 @@
 // rather than reading the clock inside the module, so tests can use fake
 // timers and the scheduler stays deterministic.
 
+/**
+ * Parse a snapshot id back to its UTC epoch-ms timestamp.
+ *
+ * Snapshot ids are produced by `ManifestBuilder.deriveId` from the UTC
+ * `createdAt` in the format `YYYY-MM-DDTHH-MM-{full|inc}` (minute resolution,
+ * UTC). Round-tripping is lossy below the minute boundary — that's by design,
+ * the id is a stable filesystem-safe identifier, not a high-precision clock
+ * stamp.
+ *
+ * Returns `null` when the input doesn't match the expected pattern, so the
+ * caller can fall back to "no prior backup known" rather than crash.
+ */
+export function epochMsFromSnapshotId(id: string | null | undefined): number | null {
+  if (typeof id !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(?:full|inc)$/.exec(id);
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m;
+  return Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi));
+}
+
 export function isoUtc(date: Date): string {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
     throw new TypeError('isoUtc: expected a valid Date');

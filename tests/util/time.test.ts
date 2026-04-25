@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   addMinutes,
+  epochMsFromSnapshotId,
   fromIsoUtc,
   isoUtc,
   minutesBetween,
@@ -169,5 +170,40 @@ describe('time — nextFullAt (unified)', () => {
     expect(nextFullAt(now, 'monthly', 0, '03:00', null).getTime()).toBe(
       nextMonthlyFullAt(now, 0, '03:00').getTime(),
     );
+  });
+});
+
+describe('time — epochMsFromSnapshotId', () => {
+  it('parses a full snapshot id back to its UTC epoch ms', () => {
+    expect(epochMsFromSnapshotId('2026-04-26T03-00-full')).toBe(
+      Date.UTC(2026, 3, 26, 3, 0),
+    );
+  });
+
+  it('parses an inc snapshot id back to its UTC epoch ms', () => {
+    expect(epochMsFromSnapshotId('2026-04-25T18-15-inc')).toBe(
+      Date.UTC(2026, 3, 25, 18, 15),
+    );
+  });
+
+  it('returns null for malformed ids', () => {
+    expect(epochMsFromSnapshotId('not-an-id')).toBeNull();
+    expect(epochMsFromSnapshotId('2026-04-26T03:00-full')).toBeNull(); // colon, not dash
+    expect(epochMsFromSnapshotId('2026-04-26T03-00-other')).toBeNull(); // wrong type tag
+    expect(epochMsFromSnapshotId('')).toBeNull();
+  });
+
+  it('returns null for non-string inputs (defensive)', () => {
+    expect(epochMsFromSnapshotId(null)).toBeNull();
+    expect(epochMsFromSnapshotId(undefined)).toBeNull();
+  });
+
+  it('round-trips with ManifestBuilder.deriveId at minute precision', () => {
+    // ManifestBuilder uses createdAt.toISOString() then strips seconds.
+    const original = new Date('2026-04-26T03:00:42.123Z');
+    const id = `${original.toISOString().slice(0, 16).replace(':', '-')}-full`;
+    const parsed = epochMsFromSnapshotId(id);
+    // Equal up to the minute; sub-minute precision is intentionally lost.
+    expect(parsed).toBe(Math.floor(original.getTime() / 60000) * 60000);
   });
 });

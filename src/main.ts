@@ -29,6 +29,7 @@ import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView } from './ui/BackupBrowserView';
 import { sha256hex } from './infra/Hasher';
 import { slugifyVaultName } from './util/paths';
+import { epochMsFromSnapshotId } from './util/time';
 import { S } from './ui/strings';
 import type { SettingsContext } from './ui/settings/context';
 import type { LocalIndex } from './model/Index';
@@ -300,9 +301,17 @@ export default class ArchivistPlugin extends Plugin {
     const freshSettings = await pluginStore.loadSettings();
     cachedRef.settings = freshSettings;
 
+    // Hydrate from the persisted local index so the FSM sees prior backups
+    // across plugin reloads. Without this every onload looks like a fresh
+    // install (lastFull = null), and recoverOnStartup can't tell whether a
+    // scheduled FULL was missed during the last shutdown window.
+    //
+    // Snapshot ids are minute-precision UTC timestamps (e.g.
+    // '2026-04-26T03-00-full'); epochMsFromSnapshotId parses them back.
+    const persistedIndex = await pluginStore.loadIndex();
     const lastCommitRef: { inc: number | null; full: number | null } = {
-      inc: null,
-      full: null,
+      inc: epochMsFromSnapshotId(persistedIndex?.last_inc_snapshot_id ?? null),
+      full: epochMsFromSnapshotId(persistedIndex?.last_full_snapshot_id ?? null),
     };
 
     const fsm = new SchedulerFSM({
