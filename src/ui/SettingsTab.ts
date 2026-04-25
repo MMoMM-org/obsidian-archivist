@@ -55,11 +55,6 @@ export class ArchivistSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    // ─── DIAG (temporary) ──────────────────────────────────────────────
-    console.warn('[archivist-diag] SettingsTab.display() called', {
-      vault_prefix_at_display: this.deps.context.getSettings().advanced.vault_prefix,
-      refreshing: this.refreshing,
-    });
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('archivist-settings');
@@ -119,12 +114,6 @@ export class ArchivistSettingTab extends PluginSettingTab {
     this.refreshing = true;
     try {
       const ctx = this.deps.context;
-      const before = {
-        deviceId: ctx.deviceId,
-        deviceDesignated: ctx.deviceDesignated,
-        dropboxAccountEmail: ctx.dropboxAccountEmail,
-        dropboxUsedBytes: ctx.dropboxUsedBytes,
-      };
       const [deviceId, designated, email, used] = await Promise.all([
         ctx.device.getDeviceId().catch(() => ctx.deviceId),
         ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
@@ -140,15 +129,6 @@ export class ArchivistSettingTab extends PluginSettingTab {
       ctx.deviceDesignated = designated;
       ctx.dropboxAccountEmail = email;
       ctx.dropboxUsedBytes = used;
-      // ─── DIAG (temporary) ──────────────────────────────────────────────
-      console.warn('[archivist-diag] refreshAsyncFields', {
-        forceRedisplay,
-        changed,
-        will_redisplay: changed || forceRedisplay,
-        before,
-        after: { deviceId, designated, email, used },
-        vault_prefix_in_cache: ctx.getSettings().advanced.vault_prefix,
-      });
       if (changed || forceRedisplay) {
         this.display();
       }
@@ -335,37 +315,37 @@ class ObsidianSectionHost implements SectionHost {
   }): void {
     const setting = new Setting(this.container).setName(spec.label);
     if (spec.description) setting.setDesc(spec.description);
+    // Validation-error element rendered below the input. Hidden via a CSS
+    // class when the current value validates. Without this, a regex-rejected
+    // input is silently swallowed — the user types something that fails
+    // (e.g. a capital letter in vault_prefix) and sees the field appear
+    // "empty" after a tab switch, with no clue why their save didn't take.
+    const errorEl = setting.settingEl.createDiv({
+      cls: 'archivist-validation-error is-hidden',
+    });
+
     setting.addText((text) => {
       text.setValue(spec.value);
       if (spec.placeholder) text.setPlaceholder(spec.placeholder);
-      const handler = (raw: string, source: string): void => {
-        // ─── DIAG (temporary) ──────────────────────────────────────────────
-        console.warn('[archivist-diag] renderText handler fired', {
-          label: spec.label,
-          raw,
-          source,
-        });
+      const handler = (raw: string): void => {
         const err = spec.validate?.(raw) ?? null;
         if (err) {
-          console.warn('[archivist-diag] renderText validate FAILED', {
-            label: spec.label,
-            raw,
-            err,
-          });
+          text.inputEl.addClass('mod-warning');
+          errorEl.textContent = err;
+          errorEl.removeClass('is-hidden');
           return;
         }
+        text.inputEl.removeClass('mod-warning');
+        errorEl.addClass('is-hidden');
         spec.onChange(raw);
       };
-      // Direct 'input' listener on the underlying input element. Belt-and-
-      // braces against Obsidian's TextComponent.onChange semantics — across
-      // versions that callback has occasionally fired only on blur, which
-      // means switching settings tabs (which removes the input from the DOM
-      // before blur can land) silently drops the user's value. Wiring our
-      // own 'input' listener guarantees per-keystroke firing. We also keep
-      // text.onChange so any save-on-blur path still works, but the 'input'
-      // listener is the authoritative trigger.
-      text.inputEl.addEventListener('input', () => handler(text.inputEl.value, 'input'));
-      text.onChange((v) => handler(v, 'onChange'));
+      // Direct 'input' listener on the underlying input element guarantees
+      // per-keystroke firing regardless of how Obsidian wires its own
+      // TextComponent.onChange across versions. text.onChange is kept so any
+      // blur-only save path still routes through the same handler — both are
+      // idempotent because spec.onChange itself short-circuits on no-op.
+      text.inputEl.addEventListener('input', () => handler(text.inputEl.value));
+      text.onChange(handler);
     });
   }
 

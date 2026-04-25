@@ -76,6 +76,19 @@
 	text-decoration: underline;
 }
 
+/* ─── Inline validation errors (renderText) ──────────────────────── */
+
+.archivist-settings .archivist-validation-error {
+	color: var(--text-error);
+	font-size: var(--font-smallest);
+	padding: 4px 0 6px 0;
+	margin-top: -4px;
+}
+
+.archivist-settings .archivist-validation-error.is-hidden {
+	display: none;
+}
+
 /* ─── Persistent banners (NoticeCenter) ──────────────────────────── */
 
 .archivist-banner {
