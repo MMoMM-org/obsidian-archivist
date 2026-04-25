@@ -103,12 +103,37 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     description: S.SETTINGS_VAULT_PREFIX_HELP,
     value: a.vault_prefix,
     onChange: (v) => {
+      // ─── DIAG (temporary) ──────────────────────────────────────────────
+      // Trace the save chain to nail down why typed values keep reverting
+      // to ''. Remove once the root cause is fixed and tests cover it.
+      console.warn('[archivist-diag] vault_prefix.onChange', {
+        v,
+        regex_pass: VAULT_PREFIX_REGEX.test(v),
+        current_in_cache: ctx.getSettings().advanced.vault_prefix,
+      });
       if (!VAULT_PREFIX_REGEX.test(v)) return;
       const currentAdvanced = ctx.getSettings().advanced;
-      if (v === currentAdvanced.vault_prefix) return;
-      void ctx.updateSettings({
-        advanced: merge(currentAdvanced, { vault_prefix: v }),
-      });
+      if (v === currentAdvanced.vault_prefix) {
+        console.warn('[archivist-diag] vault_prefix.onChange skip (same value)', { v });
+        return;
+      }
+      console.warn('[archivist-diag] vault_prefix.onChange → updateSettings', { v });
+      void ctx
+        .updateSettings({
+          advanced: merge(currentAdvanced, { vault_prefix: v }),
+        })
+        .then(() => {
+          console.warn('[archivist-diag] vault_prefix updateSettings RESOLVED', {
+            v,
+            now_in_cache: ctx.getSettings().advanced.vault_prefix,
+          });
+        })
+        .catch((err: unknown) => {
+          console.warn('[archivist-diag] vault_prefix updateSettings REJECTED', {
+            v,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
     },
     validate: (v) =>
       VAULT_PREFIX_REGEX.test(v)

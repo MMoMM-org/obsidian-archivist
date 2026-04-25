@@ -55,6 +55,11 @@ export class ArchivistSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    // ─── DIAG (temporary) ──────────────────────────────────────────────
+    console.warn('[archivist-diag] SettingsTab.display() called', {
+      vault_prefix_at_display: this.deps.context.getSettings().advanced.vault_prefix,
+      refreshing: this.refreshing,
+    });
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('archivist-settings');
@@ -114,6 +119,12 @@ export class ArchivistSettingTab extends PluginSettingTab {
     this.refreshing = true;
     try {
       const ctx = this.deps.context;
+      const before = {
+        deviceId: ctx.deviceId,
+        deviceDesignated: ctx.deviceDesignated,
+        dropboxAccountEmail: ctx.dropboxAccountEmail,
+        dropboxUsedBytes: ctx.dropboxUsedBytes,
+      };
       const [deviceId, designated, email, used] = await Promise.all([
         ctx.device.getDeviceId().catch(() => ctx.deviceId),
         ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
@@ -129,6 +140,15 @@ export class ArchivistSettingTab extends PluginSettingTab {
       ctx.deviceDesignated = designated;
       ctx.dropboxAccountEmail = email;
       ctx.dropboxUsedBytes = used;
+      // ─── DIAG (temporary) ──────────────────────────────────────────────
+      console.warn('[archivist-diag] refreshAsyncFields', {
+        forceRedisplay,
+        changed,
+        will_redisplay: changed || forceRedisplay,
+        before,
+        after: { deviceId, designated, email, used },
+        vault_prefix_in_cache: ctx.getSettings().advanced.vault_prefix,
+      });
       if (changed || forceRedisplay) {
         this.display();
       }
@@ -318,9 +338,22 @@ class ObsidianSectionHost implements SectionHost {
     setting.addText((text) => {
       text.setValue(spec.value);
       if (spec.placeholder) text.setPlaceholder(spec.placeholder);
-      const handler = (raw: string): void => {
+      const handler = (raw: string, source: string): void => {
+        // ─── DIAG (temporary) ──────────────────────────────────────────────
+        console.warn('[archivist-diag] renderText handler fired', {
+          label: spec.label,
+          raw,
+          source,
+        });
         const err = spec.validate?.(raw) ?? null;
-        if (err) return;
+        if (err) {
+          console.warn('[archivist-diag] renderText validate FAILED', {
+            label: spec.label,
+            raw,
+            err,
+          });
+          return;
+        }
         spec.onChange(raw);
       };
       // Direct 'input' listener on the underlying input element. Belt-and-
@@ -331,8 +364,8 @@ class ObsidianSectionHost implements SectionHost {
       // own 'input' listener guarantees per-keystroke firing. We also keep
       // text.onChange so any save-on-blur path still works, but the 'input'
       // listener is the authoritative trigger.
-      text.inputEl.addEventListener('input', () => handler(text.inputEl.value));
-      text.onChange(handler);
+      text.inputEl.addEventListener('input', () => handler(text.inputEl.value, 'input'));
+      text.onChange((v) => handler(v, 'onChange'));
     });
   }
 
