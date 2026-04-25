@@ -78,9 +78,10 @@ fi
 if grep -nE '\.innerHTML[[:space:]]*=' main.js; then
   fail "main.js contains innerHTML assignment — blocked" 1
 fi
-# Declared hosts only — anything else means a smuggled fetch.
+# Declared hosts only — match quoted URLs (`https://host/...`) to avoid
+# false positives from JS property access like `this.queue.com`.
 ALLOWED_HOSTS_RE='api\.dropboxapi\.com|content\.dropboxapi\.com|www\.dropbox\.com'
-SMUGGLED=$(grep -oE '[a-z0-9-]+\.[a-z]+\.(com|org|io|net|app|dev)' main.js | grep -vE "${ALLOWED_HOSTS_RE}" | sort -u || true)
+SMUGGLED=$(grep -oE 'https?://[a-z0-9.-]+' main.js | sed -E 's,^https?://,,' | grep -vE "^(${ALLOWED_HOSTS_RE})$" | sort -u || true)
 if [ -n "${SMUGGLED}" ]; then
   fail "main.js references undeclared hosts: ${SMUGGLED}" 1
 fi

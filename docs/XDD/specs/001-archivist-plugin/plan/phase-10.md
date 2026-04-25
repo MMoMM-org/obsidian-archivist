@@ -1,6 +1,6 @@
 ---
 title: "Phase 10: Integration, Soak Tests & Release Readiness"
-status: pending
+status: complete
 version: "1.0"
 phase: 10
 ---
@@ -161,6 +161,6 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Intentional regression (add a 500 ms sleep in reconcile) triggers build failure.
   5. Success: Three load-bearing SLOs now block regressions `[ref: TEST-M4, SDD/Quality Requirements]`.
 
-- [ ] **T10.8 Phase Validation & Release** `[activity: validate]`
+- [x] **T10.8 Phase Validation & Release** `[activity: validate]`
 
   - Run every integration test + the 4-week soak + the live smoke + the SLO CI gates. Verify every PRD acceptance criterion has a corresponding passing test. Verify README + submission-checklist. Cut `v0.1.0` tag. Publish GitHub Release. Open Community Plugin submission PR.
