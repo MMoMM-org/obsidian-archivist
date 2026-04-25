@@ -107,11 +107,16 @@ describe('renderDropbox — disconnected', () => {
     expect(harness.beginAuthCalls).toBe(1);
   });
 
-  it('Connect button is marked as CTA (primary)', () => {
+  it('Connect button is rendered as a regular button, not CTA', () => {
+    // Themes that override --interactive-accent or --text-on-accent can render
+    // mod-cta buttons unreadable (e.g. white text on a white button bg). The
+    // standard button uses --text-normal on --interactive-normal — a pair that
+    // themes preserve more reliably. Tradeoff: less visual prominence, but the
+    // label is always readable.
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: null }).ctx);
     const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_CONNECT_BUTTON);
-    expect((btn as { cta?: boolean }).cta).toBe(true);
+    expect((btn as { cta?: boolean }).cta).toBeFalsy();
   });
 
   it('renders plaintext-token disclosure in disconnected state', () => {

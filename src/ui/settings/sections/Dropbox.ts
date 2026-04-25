@@ -39,10 +39,13 @@ export function renderDropbox(host: SectionHost, ctx: SettingsContext): void {
 function renderDisconnected(host: SectionHost, ctx: SettingsContext): void {
   host.field({ kind: 'static', text: S.OAUTH_EMPTY_STATE_TITLE });
   host.field({ kind: 'static', text: S.OAUTH_EMPTY_STATE_BODY });
+  // No `cta: true` here: themes that override --interactive-accent or
+  // --text-on-accent (e.g. white-button themes) can render mod-cta buttons
+  // unreadable. The standard button uses --text-normal on --interactive-normal,
+  // a pair that themes preserve more reliably.
   host.field({
     kind: 'button',
     label: S.OAUTH_CONNECT_BUTTON,
-    cta: true,
     onClick: () => {
       void ctx.oauth.beginAuth();
     },

@@ -1,4 +1,99 @@
-/* Plugin styles — rename selectors to match your plugin ID */
+/* Archivist — settings UI styles. Structural classes only; all colours come
+   from Obsidian theme variables so themes can re-skin the plugin without
+   any hard-coded values here. */
+
+/* ─── Container ─────────────────────────────────────────────────── */
+
+.archivist-settings {
+	padding: 0 16px;
+}
+
+/* ─── Version header (mirrors miyo-kado pattern) ─────────────────── */
+
+.archivist-version-header {
+	padding: 12px 0 14px 0;
+	font-size: var(--font-small);
+	color: var(--text-muted);
+}
+
+.archivist-version-header a {
+	color: var(--text-accent);
+	text-decoration: none;
+}
+
+.archivist-version-header a:hover {
+	text-decoration: underline;
+}
+
+.archivist-plugin-name {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.archivist-header-sep {
+	color: var(--text-faint);
+}
+
+/* ─── Section headings: left-aligned + dividers between sections ─── */
+
+.archivist-settings h2 {
+	text-align: left;
+	margin-top: 28px;
+	padding-top: 18px;
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.archivist-settings h2:first-of-type {
+	margin-top: 8px;
+	padding-top: 0;
+	border-top: none;
+}
+
+/* ─── Static descriptive paragraphs ──────────────────────────────── */
+
+.archivist-settings p {
+	color: var(--text-muted);
+	font-size: var(--font-small);
+	margin: 6px 0;
+}
+
+/* ─── Persistent banners (NoticeCenter) ──────────────────────────── */
+
+.archivist-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 10px 12px;
+	margin: 10px 0;
+	border-radius: 6px;
+	background-color: var(--background-secondary);
+	color: var(--text-normal);
+	border-left: 3px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+}
+
+.archivist-banner strong {
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	font-size: var(--font-smaller);
+}
+
+.archivist-banner-info {
+	border-left-color: var(--text-accent);
+}
+
+.archivist-banner-warn {
+	border-left-color: var(--text-warning);
+}
+
+.archivist-banner-error {
+	border-left-color: var(--text-error);
+}
+
+/* ─── Setting-row description override (legacy class kept harmless) ─ */
 
 .my-plugin-settings .setting-item-description {
 	color: var(--text-muted);

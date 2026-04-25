@@ -28,6 +28,8 @@ import { renderNotifications } from './settings/sections/Notifications';
 import { renderAdvanced } from './settings/sections/Advanced';
 import { renderDropbox } from './settings/sections/Dropbox';
 
+const PLUGIN_README_URL = 'https://github.com/MMoMM-org/obsidian-archivist#readme';
+
 export interface ArchivistSettingTabDeps {
   plugin: Plugin;
   noticeCenter: NoticeCenter;
@@ -49,6 +51,9 @@ export class ArchivistSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    containerEl.addClass('archivist-settings');
+
+    this.renderHeader(containerEl);
 
     const host = new ObsidianSectionHost(containerEl, this.deps.context);
 
@@ -96,6 +101,29 @@ export class ArchivistSettingTab extends PluginSettingTab {
       // rare (quota, auth-lost, device-conflict) so cost is acceptable.
       this.display();
     });
+  }
+
+  private renderHeader(containerEl: HTMLElement): void {
+    const manifest = this.deps.plugin.manifest as typeof this.deps.plugin.manifest & {
+      author?: string;
+      authorUrl?: string;
+    };
+    const rawAuthor = manifest.author ?? '';
+    const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
+
+    const header = containerEl.createDiv({ cls: 'archivist-version-header' });
+    header.createSpan({ text: `${manifest.name} `, cls: 'archivist-plugin-name' });
+    header.createSpan({ text: `v${manifest.version}` });
+
+    if (authorName) {
+      header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
+      header.createEl('a', {
+        text: authorName,
+        href: manifest.authorUrl ?? PLUGIN_README_URL,
+      });
+    }
+    header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
+    header.createEl('a', { text: 'Documentation', href: PLUGIN_README_URL });
   }
 
   private async refreshAsyncFields(forceRedisplay: boolean): Promise<void> {
