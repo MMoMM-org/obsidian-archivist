@@ -525,9 +525,18 @@ export default class ArchivistPlugin extends Plugin {
       confirm: async () => true,
     };
 
-    // Pre-populate dropbox account email from any existing tokens so the
-    // settings tab opens in the connected state immediately on a reload (no
-    // wait for the async refresh tick to repaint).
+    // Pre-populate every async-sourced settingsContext field so the FIRST
+    // refreshAsyncFields tick after the tab opens sees no diff and doesn't
+    // rebuild the DOM. Skipping this caused a real-world bug: while the user
+    // typed into the Vault-prefix textbox, the async deviceId fetch resolved
+    // a few hundred ms later, refreshAsyncFields detected ctx.deviceId went
+    // from '' to a real UUID, called display(), and wiped the in-progress
+    // input — leaving data.json with vault_prefix: '' even after the user
+    // saved twice in a row.
+    settingsContext.deviceId = await deviceCoordinator
+      .getOrCreateDeviceId()
+      .catch(() => settingsContext.deviceId);
+
     const existingTokens = await tokenStore.load().catch(() => null);
     if (existingTokens?.dropbox_account_email) {
       settingsContext.dropboxAccountEmail = existingTokens.dropbox_account_email;
