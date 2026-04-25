@@ -318,11 +318,21 @@ class ObsidianSectionHost implements SectionHost {
     setting.addText((text) => {
       text.setValue(spec.value);
       if (spec.placeholder) text.setPlaceholder(spec.placeholder);
-      text.onChange((v) => {
-        const err = spec.validate?.(v) ?? null;
+      const handler = (raw: string): void => {
+        const err = spec.validate?.(raw) ?? null;
         if (err) return;
-        spec.onChange(v);
-      });
+        spec.onChange(raw);
+      };
+      // Direct 'input' listener on the underlying input element. Belt-and-
+      // braces against Obsidian's TextComponent.onChange semantics — across
+      // versions that callback has occasionally fired only on blur, which
+      // means switching settings tabs (which removes the input from the DOM
+      // before blur can land) silently drops the user's value. Wiring our
+      // own 'input' listener guarantees per-keystroke firing. We also keep
+      // text.onChange so any save-on-blur path still works, but the 'input'
+      // listener is the authoritative trigger.
+      text.inputEl.addEventListener('input', () => handler(text.inputEl.value));
+      text.onChange(handler);
     });
   }
 
