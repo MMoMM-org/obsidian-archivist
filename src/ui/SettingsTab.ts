@@ -20,7 +20,7 @@
 
 import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian';
 import type { NoticeCenter, PersistentBanner } from './NoticeCenter';
-import type { FieldSpec, SectionHost, BannerSpec } from './settings/SectionHost';
+import type { FieldSpec, SectionHost, BannerSpec, LinkFieldSpec } from './settings/SectionHost';
 import type { SettingsContext } from './settings/context';
 import { renderBackupSchedule } from './settings/sections/BackupSchedule';
 import { renderRetention } from './settings/sections/Retention';
@@ -103,29 +103,6 @@ export class ArchivistSettingTab extends PluginSettingTab {
     });
   }
 
-  private renderHeader(containerEl: HTMLElement): void {
-    const manifest = this.deps.plugin.manifest as typeof this.deps.plugin.manifest & {
-      author?: string;
-      authorUrl?: string;
-    };
-    const rawAuthor = manifest.author ?? '';
-    const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
-
-    const header = containerEl.createDiv({ cls: 'archivist-version-header' });
-    header.createSpan({ text: `${manifest.name} `, cls: 'archivist-plugin-name' });
-    header.createSpan({ text: `v${manifest.version}` });
-
-    if (authorName) {
-      header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-      header.createEl('a', {
-        text: authorName,
-        href: manifest.authorUrl ?? PLUGIN_README_URL,
-      });
-    }
-    header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-    header.createEl('a', { text: 'Documentation', href: PLUGIN_README_URL });
-  }
-
   private async refreshAsyncFields(forceRedisplay: boolean): Promise<void> {
     if (this.refreshing) return;
     this.refreshing = true;
@@ -152,6 +129,29 @@ export class ArchivistSettingTab extends PluginSettingTab {
     } finally {
       this.refreshing = false;
     }
+  }
+
+  private renderHeader(containerEl: HTMLElement): void {
+    const manifest = this.deps.plugin.manifest as typeof this.deps.plugin.manifest & {
+      author?: string;
+      authorUrl?: string;
+    };
+    const rawAuthor = manifest.author ?? '';
+    const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
+
+    const header = containerEl.createDiv({ cls: 'archivist-version-header' });
+    header.createSpan({ text: `${manifest.name} `, cls: 'archivist-plugin-name' });
+    header.createSpan({ text: `v${manifest.version}` });
+
+    if (authorName) {
+      header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
+      header.createEl('a', {
+        text: authorName,
+        href: manifest.authorUrl ?? PLUGIN_README_URL,
+      });
+    }
+    header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
+    header.createEl('a', { text: 'Documentation', href: PLUGIN_README_URL });
   }
 }
 
@@ -188,7 +188,10 @@ class ObsidianSectionHost implements SectionHost {
   field(spec: FieldSpec): void {
     switch (spec.kind) {
       case 'static':
-        this.container.createEl('p', { text: spec.text });
+        this.container.createEl('p', { text: spec.text, cls: 'archivist-static-text' });
+        return;
+      case 'link':
+        this.renderLink(spec);
         return;
       case 'banner':
         this.renderBanner(spec);
@@ -227,6 +230,15 @@ class ObsidianSectionHost implements SectionHost {
   // ---------------------------------------------------------------------------
   // Per-field renderers — thin wrappers over Obsidian Setting
   // ---------------------------------------------------------------------------
+
+  private renderLink(spec: LinkFieldSpec): void {
+    const wrapper = this.container.createDiv({ cls: 'archivist-link-row' });
+    wrapper.createEl('a', {
+      text: spec.label,
+      href: spec.href,
+      cls: 'archivist-doc-link',
+    });
+  }
 
   private renderBanner(spec: BannerSpec): void {
     const cls = `archivist-banner archivist-banner-${spec.severity}`;

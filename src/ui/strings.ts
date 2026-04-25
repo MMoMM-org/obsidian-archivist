@@ -44,7 +44,6 @@ export const S = {
   OAUTH_CONNECT_BUTTON: 'Connect Dropbox',
   OAUTH_CONNECTING: 'Waiting for Dropbox authorization…',
   OAUTH_CONNECTED_AS: (email: string): string => `Connected as ${email}`,
-  OAUTH_CONNECTED_FALLBACK: 'Dropbox connected.',
   OAUTH_DISCONNECT_BUTTON: 'Disconnect',
   OAUTH_DISCONNECT_CONFIRM_TITLE: 'Disconnect Dropbox?',
   OAUTH_DISCONNECT_CONFIRM_BODY:
@@ -58,7 +57,11 @@ export const S = {
   OAUTH_REAUTHENTICATE_BUTTON: 'Re-authenticate',
   OAUTH_TRY_AGAIN_BUTTON: 'Try again',
   OAUTH_TOKEN_DISCLOSURE:
-    'Tokens are stored in plaintext in tokens.json (outside data.json). See README for details.',
+    'Tokens are stored in plaintext in tokens.json — outside data.json so Obsidian Sync does not propagate them across devices.',
+  OAUTH_TOKEN_DISCLOSURE_LINK_LABEL: 'How tokens are stored →',
+  OAUTH_DOCS_URL:
+    'https://github.com/MMoMM-org/obsidian-archivist#how-tokens-are-stored-read-this',
+  OAUTH_CONNECTED_FALLBACK: 'Dropbox connected.',
   OAUTH_DATA_JSON_SYNC_WARNING:
     'Archivist\'s plugin data appears to be inside an iCloud / Obsidian Sync / Dropbox-synced folder. ' +
     'Consider excluding the plugin folder from that sync to avoid token round-trips between devices.',

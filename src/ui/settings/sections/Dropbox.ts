@@ -34,6 +34,11 @@ export function renderDropbox(host: SectionHost, ctx: SettingsContext): void {
   // Token-storage disclosure rendered in BOTH states (users need to see it
   // before connecting AND confirm it while connected).
   host.field({ kind: 'static', text: S.OAUTH_TOKEN_DISCLOSURE });
+  host.field({
+    kind: 'link',
+    label: S.OAUTH_TOKEN_DISCLOSURE_LINK_LABEL,
+    href: S.OAUTH_DOCS_URL,
+  });
 }
 
 function renderDisconnected(host: SectionHost, ctx: SettingsContext): void {

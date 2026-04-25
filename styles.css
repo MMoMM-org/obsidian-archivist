@@ -54,10 +54,26 @@
 
 /* ─── Static descriptive paragraphs ──────────────────────────────── */
 
-.archivist-settings p {
+.archivist-settings .archivist-static-text {
 	color: var(--text-muted);
 	font-size: var(--font-small);
 	margin: 6px 0;
+}
+
+/* ─── Inline doc links ───────────────────────────────────────────── */
+
+.archivist-settings .archivist-link-row {
+	margin: 4px 0 12px 0;
+}
+
+.archivist-settings .archivist-doc-link {
+	color: var(--text-accent);
+	font-size: var(--font-small);
+	text-decoration: none;
+}
+
+.archivist-settings .archivist-doc-link:hover {
+	text-decoration: underline;
 }
 
 /* ─── Persistent banners (NoticeCenter) ──────────────────────────── */
