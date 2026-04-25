@@ -1,4 +1,4 @@
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Plugin, setIcon } from 'obsidian';
 import { TokenStore } from './infra/TokenStore';
 import { createLogger, type Logger } from './infra/Logger';
 import { OAuthConnectFlow, type OAuthCallbackParams } from './ui/OAuthConnectFlow';
@@ -19,6 +19,7 @@ import { RestoreOperations } from './services/RestoreOperations';
 import { NoticeCenter } from './ui/NoticeCenter';
 import { SchedulerFSM } from './services/SchedulerFSM';
 import { RibbonIcon, type RibbonHost, type RibbonHandle } from './ui/RibbonIcon';
+import { StatusBar, type StatusBarHost, type StatusBarHandle } from './ui/StatusBar';
 import { PredecessorDetector } from './services/PredecessorDetector';
 import {
   registerBackupNowCommand,
@@ -413,6 +414,12 @@ export default class ArchivistPlugin extends Plugin {
     const ribbonHost: RibbonHost = {
       create: ({ icon, title, onClick }) => {
         const el = this.addRibbonIcon(icon, title, onClick as (evt: MouseEvent) => unknown);
+        // Track which archivist-* classes WE added so we can remove them on
+        // state change without clobbering Obsidian's own classes
+        // (`side-dock-ribbon-action`, etc.) that handle layout / centering.
+        // The earlier `el.className = cls` overwrite was wiping those, which
+        // visually displaced the icon inside its slot.
+        let appliedArchivistClasses: string[] = [];
         const handle: RibbonHandle = {
           setIcon: (_name) => {
             // setIcon is a no-op in the wiring layer; Obsidian's addRibbonIcon
@@ -431,7 +438,15 @@ export default class ArchivistPlugin extends Plugin {
               .setAttribute?.('aria-label', label);
           },
           setCssClass: (cls) => {
-            (el as unknown as { className?: string }).className = cls;
+            const next = cls.split(/\s+/).filter((c) => c.length > 0);
+            const elTyped = el as unknown as {
+              addClass: (c: string) => void;
+              removeClass: (c: string) => void;
+            };
+            // Remove only the archivist-* classes we added previously.
+            for (const old of appliedArchivistClasses) elTyped.removeClass(old);
+            for (const fresh of next) elTyped.addClass(fresh);
+            appliedArchivistClasses = next;
           },
           destroy: () => {
             (el as unknown as { remove?: () => void }).remove?.();
@@ -443,6 +458,51 @@ export default class ArchivistPlugin extends Plugin {
 
     this.ribbon = new RibbonIcon({ host: ribbonHost, fsm, onRibbonClick: openBrowser });
     this.ribbon.mount();
+
+    // Status-bar mirror — same FSM signal in the bottom status bar so users
+    // who collapse the ribbon column still see plugin state. Click opens
+    // the same Backup Browser as the ribbon icon.
+    const statusBarEl = this.addStatusBarItem();
+    statusBarEl.addClass('mod-clickable');
+    let statusIconEl: HTMLElement | null = null;
+    let statusLabelEl: HTMLElement | null = null;
+    let appliedStatusClasses: string[] = [];
+    const statusBarHost: StatusBarHost = {
+      create: ({ onClick }) => {
+        statusBarEl.empty();
+        statusIconEl = statusBarEl.createSpan({ cls: 'archivist-status-icon' });
+        statusLabelEl = statusBarEl.createSpan({ cls: 'archivist-status-label' });
+        statusBarEl.addEventListener('click', onClick);
+        const handle: StatusBarHandle = {
+          setIcon: (name) => {
+            if (statusIconEl) setIcon(statusIconEl, name);
+          },
+          setLabel: (text) => {
+            if (statusLabelEl) statusLabelEl.setText(text);
+          },
+          setAriaLabel: (label) => {
+            statusBarEl.setAttribute('aria-label', label);
+          },
+          setCssClass: (cls) => {
+            const next = cls.split(/\s+/).filter((c) => c.length > 0);
+            for (const old of appliedStatusClasses) statusBarEl.removeClass(old);
+            for (const fresh of next) statusBarEl.addClass(fresh);
+            appliedStatusClasses = next;
+          },
+          destroy: () => {
+            statusBarEl.remove();
+          },
+        };
+        return handle;
+      },
+    };
+    const statusBar = new StatusBar({
+      host: statusBarHost,
+      fsm,
+      onClick: openBrowser,
+    });
+    statusBar.mount();
+    void statusBar; // referenced via FSM subscription; lifetime tied to plugin onunload
 
     // ---------------------------------------------------------------------------
     // Step 13: ChangeDetector — register live vault-event handlers

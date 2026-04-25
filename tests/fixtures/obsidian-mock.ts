@@ -308,7 +308,16 @@ export class Plugin {
     _title: string,
     _cb: (evt: MouseEvent) => unknown,
   ): HTMLElement {
-    return {} as HTMLElement;
+    // Production code uses Obsidian's addClass / removeClass / setAttribute /
+    // addEventListener / setText / createSpan / empty / remove on the returned
+    // element. Vitest runs in a node environment with no DOM, so we hand back
+    // a MockEl that satisfies those surfaces; cast to HTMLElement for the
+    // typings that the production code reaches through.
+    return makeMockEl('div') as unknown as HTMLElement;
+  }
+
+  addStatusBarItem(): HTMLElement {
+    return makeMockEl('div') as unknown as HTMLElement;
   }
 
   addCommand(command: Command): Command {
@@ -442,6 +451,9 @@ export interface MockEl {
   createSpan(opts?: { text?: string; cls?: string }): MockEl;
   setText(text: string): void;
   addClass(cls: string): void;
+  removeClass(cls: string): void;
+  /** Detach the element from its parent (mirrors HTMLElement.remove()). */
+  remove(): void;
   /** Remove all child elements (mirrors Obsidian HTMLElement.empty()). */
   empty(): void;
   /** Set a DOM attribute (mirrors HTMLElement.setAttribute). */
@@ -482,7 +494,18 @@ function makeMockEl(tag: string): MockEl {
       el.textContent = text;
     },
     addClass(cls) {
-      el.className = el.className ? `${el.className} ${cls}` : cls;
+      const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
+      if (!tokens.includes(cls)) tokens.push(cls);
+      el.className = tokens.join(' ');
+    },
+    removeClass(cls) {
+      const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
+      el.className = tokens.filter((t) => t !== cls).join(' ');
+    },
+    remove() {
+      // Detach is a no-op in this stub; tests that need parent-child tracking
+      // would need a richer scaffold. Existing tests only assert teardown is
+      // called, not the parent-side state.
     },
     empty() {
       el.children.length = 0;

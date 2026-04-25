@@ -122,6 +122,71 @@
 	border-left-color: var(--text-error);
 }
 
+/* ─── Ribbon + status-bar state classes ─────────────────────────── */
+
+/* Ribbon: keep Obsidian's own positioning classes (side-dock-ribbon-action)
+   intact — main.ts only ADDS our archivist-* classes via classList instead
+   of overwriting el.className. Our classes only contribute the per-state
+   colour signal; layout stays default. */
+
+.archivist-muted {
+	color: var(--text-muted);
+}
+
+.archivist-ready {
+	color: var(--text-normal);
+}
+
+.archivist-running {
+	color: var(--text-accent);
+}
+
+.archivist-passive {
+	color: var(--text-faint);
+}
+
+.archivist-error {
+	color: var(--text-error);
+}
+
+@keyframes archivist-pulse {
+	0%, 100% { opacity: 1; }
+	50%      { opacity: 0.45; }
+}
+
+.archivist-pulse {
+	animation: archivist-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.archivist-pulse {
+		animation: none;
+	}
+}
+
+/* Status-bar item layout — icon + label side by side, clickable. */
+
+.archivist-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+}
+
+.archivist-status .archivist-status-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.archivist-status .archivist-status-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.archivist-status .archivist-status-label {
+	font-size: var(--font-ui-smaller);
+}
+
 /* ─── Setting-row description override (legacy class kept harmless) ─ */
 
 .my-plugin-settings .setting-item-description {
