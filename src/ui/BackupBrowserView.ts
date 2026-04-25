@@ -407,7 +407,11 @@ async function renderPreviewColumn(
   onRestoreInPlace: (path: string, snapshotId: string) => void,
   onRestoreAsCopy: (path: string, snapshotId: string) => void,
 ): Promise<void> {
-  container.empty();
+  // The caller (_selectFile) is responsible for clearing the column and
+  // rendering its filename / path header BEFORE invoking this function.
+  // We must NOT empty() here — that's what wiped the just-rendered header
+  // the moment the await fetch resolved (`d210195` symptom: filename
+  // briefly visible, gone once content loaded).
 
   // Fix 8: show a "deleted" marker in the preview header when the file is
   // absent from the live vault (SPEC minor). Restore actions remain enabled.
