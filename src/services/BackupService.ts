@@ -150,10 +150,14 @@ export class BackupService {
     const settings = await this.pluginStore.loadSettings();
     const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
 
-    // Load index — throw if absent (T5.5 startup recovery handles bootstrap)
+    // Load index. If absent the vault has never been backed up — promote to a
+    // FULL so the caller (FSM tick) doesn't have to special-case the bootstrap.
+    // The FULL writes the index as a side effect, so subsequent INCs find a
+    // valid one. Same fallback applies if the index exists but has no parent
+    // snapshot id yet (rare race: index written before any commit landed).
     const index = await this.pluginStore.loadIndex();
     if (index === null) {
-      throw new Error('BackupService.runIncremental: LocalIndex is null — run a Full backup first');
+      return this.runFull(opts);
     }
 
     // Snapshot queue at call time; new events enqueued during the run stay untouched
@@ -181,9 +185,12 @@ export class BackupService {
     const changes = buildChanges(fileData, changesPaths, index);
 
     // --- Determine parent snapshot ---
+    // Same bootstrap fallback as the index-null case above: if the index
+    // exists but never recorded a successful commit, the chain has no head to
+    // diff against — run a FULL instead.
     const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
     if (parentId === null) {
-      throw new Error('BackupService.runIncremental: no parent snapshot — run a Full backup first');
+      return this.runFull(opts);
     }
 
     // --- Build Inc manifest ---

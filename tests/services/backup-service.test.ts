@@ -1080,6 +1080,63 @@ describe('BackupService.runIncremental — scenario e: empty queue short-circuit
   });
 });
 
+describe('BackupService.runIncremental — bootstrap fallback: no parent → promotes to runFull', () => {
+  it('falls back to runFull when LocalIndex is null (vault has never been backed up)', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+      ['notes/b.md', new TextEncoder().encode('b')],
+    ]);
+
+    const { service, dropbox, pluginStore } = makeHarness(vaultFiles, {
+      now: () => '2026-04-25T11:00:00.000Z',
+    });
+
+    // Force loadIndex to return null — simulates fresh install where no FULL
+    // has ever committed. Without the fallback this used to throw
+    // "LocalIndex is null — run a Full backup first".
+    pluginStore.loadIndex.mockResolvedValue(null);
+
+    await expect(service.runIncremental()).resolves.toBeUndefined();
+
+    // A FULL manifest landed instead of an INC.
+    const manifestPaths = getManifestPaths(dropbox.store);
+    expect(manifestPaths).toHaveLength(1);
+    const manifest = dropbox.store.get(manifestPaths[0]) as Record<string, unknown>;
+    expect(manifest.type).toBe('full');
+  });
+
+  it('falls back to runFull when index exists but has no parent snapshot id', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+    ]);
+
+    // Index with both snapshot ids null — pathological but possible mid-bootstrap.
+    // Queue must be non-empty so runIncremental reaches the parent-id check
+    // (otherwise the empty-queue short-circuit returns before we get there).
+    const { service, dropbox } = makeHarness(vaultFiles, {
+      now: () => '2026-04-25T11:00:00.000Z',
+      initialIndex: { last_full_snapshot_id: null, last_inc_snapshot_id: null },
+      initialQueue: {
+        entries: [
+          makeEntry({
+            type: 'modify',
+            path: 'notes/a.md',
+            observed_at: '2026-04-25T10:59:00.000Z',
+          }),
+        ],
+        committed_through: '1970-01-01T00:00:00.000Z',
+      },
+    });
+
+    await expect(service.runIncremental()).resolves.toBeUndefined();
+
+    const manifestPaths = getManifestPaths(dropbox.store);
+    expect(manifestPaths).toHaveLength(1);
+    const manifest = dropbox.store.get(manifestPaths[0]) as Record<string, unknown>;
+    expect(manifest.type).toBe('full');
+  });
+});
+
 describe('BackupService.runIncremental — scenario f: verifyNoConflict failure', () => {
   it('aborts cleanly on conflict: no manifest uploaded, HEAD unchanged, queue intact', async () => {
     const vaultFiles = new Map([
