@@ -81,18 +81,28 @@ export class VaultAdapter {
 
   /**
    * Write `bytes` to `path` atomically: write to a temp file first, then
-   * rename.  On rename failure the original file (if any) is untouched.
-   * If any step throws, the tmp is best-effort cleaned up before the error
+   * rename onto `path`. If `path` already exists (e.g. restore-in-place
+   * over an active vault file), it is removed immediately before the rename
+   * — Obsidian's adapter.rename throws "Destination file already exists!"
+   * otherwise. The remove → rename window is short (milliseconds) and the
+   * tmp file survives a crash in that window so manual recovery is
+   * possible.
+   *
+   * On any failure, the tmp is best-effort cleaned up before the error
    * propagates (T8.3 TEST-C1: no `.archivist-tmp` lingers after a failure).
    */
   async writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
     const tmp = `${path}.archivist-tmp`;
+    const adapter = this.plugin.app.vault.adapter;
     try {
-      await this.plugin.app.vault.adapter.writeBinary(tmp, bytes.buffer as ArrayBuffer);
-      await this.plugin.app.vault.adapter.rename(tmp, path);
+      await adapter.writeBinary(tmp, bytes.buffer as ArrayBuffer);
+      if (await adapter.exists(path)) {
+        await adapter.remove(path);
+      }
+      await adapter.rename(tmp, path);
     } catch (err) {
       try {
-        await this.plugin.app.vault.adapter.remove(tmp);
+        await adapter.remove(tmp);
       } catch {
         // Tmp may never have been written, or remove may fail if the adapter
         // raced with a concurrent rename. Swallow — the outer throw carries
