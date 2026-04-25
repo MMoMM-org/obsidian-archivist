@@ -210,6 +210,18 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     // Step 7: BackupService
     // ---------------------------------------------------------------------------
+    // ChangeDetector is constructed early so BackupService can use it for the
+    // startup reconcile pass. Live event handlers are still registered later
+    // (Step 13) — that's a vault-event subscription side effect, separate
+    // from the reconcileScan + getChangedPaths surfaces this dependency
+    // exposes to BackupService.
+    const changeDetector = new ChangeDetector({
+      vault: vaultAdapter,
+      queue: eventQueue,
+      plugin: this,
+      logger: this.logger,
+    });
+
     const backupService = new BackupService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       vault: vaultAdapter,
@@ -217,6 +229,7 @@ export default class ArchivistPlugin extends Plugin {
       deviceCoordinator,
       pluginStore,
       snapshotIndexStore,
+      changeDetector,
       vaultPrefix,
       vaultName,
     });
@@ -432,14 +445,12 @@ export default class ArchivistPlugin extends Plugin {
     this.ribbon.mount();
 
     // ---------------------------------------------------------------------------
-    // Step 13: ChangeDetector
+    // Step 13: ChangeDetector — register live vault-event handlers
     // ---------------------------------------------------------------------------
-    const changeDetector = new ChangeDetector({
-      vault: vaultAdapter,
-      queue: eventQueue,
-      plugin: this,
-      logger: this.logger,
-    });
+    // The detector itself was constructed earlier (Step 7) so BackupService
+    // can use it for the startup reconcile pass. Here we wire it to the live
+    // vault events (modify / create / delete / rename) so the queue stays
+    // current while Obsidian runs.
     changeDetector.registerEventHandlers(freshSettings.advanced.exclusion_globs);
 
     // ---------------------------------------------------------------------------

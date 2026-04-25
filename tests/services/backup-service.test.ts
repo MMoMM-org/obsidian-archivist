@@ -205,6 +205,11 @@ function makeHarness(
     initialQueue?: Partial<EventQueue>;
     now?: () => string;
     snapshotIndexStore?: ReturnType<typeof makeFakeSnapshotIndexStore>;
+    /**
+     * Optional ChangeDetector double. The reconcile-on-first-inc tests inject a
+     * mock with `getChangedPaths` returning a controlled set of paths.
+     */
+    changeDetector?: { getChangedPaths: ReturnType<typeof vi.fn> };
   } = {},
 ) {
   const dropbox = opts.dropbox ?? makeFakeDropbox();
@@ -223,6 +228,7 @@ function makeHarness(
     vaultPrefix: VAULT_PREFIX,
     vaultName: VAULT_NAME,
     now: opts.now ?? (() => '2026-04-24T10:00:00.000Z'),
+    ...(opts.changeDetector ? { changeDetector: opts.changeDetector as never } : {}),
   };
 
   return {
@@ -232,6 +238,7 @@ function makeHarness(
     coordinator,
     pluginStore,
     snapshotIndexStore,
+    changeDetector: opts.changeDetector,
   };
 }
 
@@ -1134,6 +1141,250 @@ describe('BackupService.runIncremental — bootstrap fallback: no parent → pro
     expect(manifestPaths).toHaveLength(1);
     const manifest = dropbox.store.get(manifestPaths[0]) as Record<string, unknown>;
     expect(manifest.type).toBe('full');
+  });
+});
+
+describe('BackupService.runIncremental — reconcile-on-startup (offline change detection)', () => {
+  it('first INC after construction calls getChangedPaths with reconcile=true when setting is on', async () => {
+    const vaultFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+    ]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z', // Full: created_at
+      '2026-04-24T10:01:00.000Z', // Full: committed_at
+      '2026-04-24T11:00:00.000Z', // Inc: created_at
+      '2026-04-24T11:01:00.000Z', // Inc: committed_at
+    ];
+
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>()),
+    };
+
+    const { service, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+      changeDetector,
+    });
+
+    await runFullAndPrime(service, pluginStore);
+    await service.runIncremental();
+
+    expect(changeDetector.getChangedPaths).toHaveBeenCalledTimes(1);
+    expect(changeDetector.getChangedPaths).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Array),
+      { reconcile: true },
+    );
+  });
+
+  it('does NOT call reconcile when setting is disabled', async () => {
+    const vaultFiles = new Map([['notes/a.md', new TextEncoder().encode('a')]]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>()),
+    };
+
+    const { service, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+      changeDetector,
+      settingsOverrides: { reconcile_scan_enabled: false },
+    });
+
+    await runFullAndPrime(service, pluginStore);
+    // Need a non-empty queue so we don't short-circuit before reconcile would
+    // have triggered.
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        makeEntry({
+          type: 'modify',
+          path: 'notes/a.md',
+          observed_at: '2026-04-24T10:30:00.000Z',
+        }),
+      ],
+    });
+
+    await service.runIncremental();
+
+    expect(changeDetector.getChangedPaths).not.toHaveBeenCalled();
+  });
+
+  it('only the FIRST INC reconciles; subsequent INCs use the live queue', async () => {
+    const vaultFiles = new Map([['notes/a.md', new TextEncoder().encode('a')]]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+      '2026-04-24T12:00:00.000Z',
+      '2026-04-24T12:01:00.000Z',
+    ];
+
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>()),
+    };
+
+    const { service, pluginStore } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+      changeDetector,
+    });
+
+    await runFullAndPrime(service, pluginStore);
+
+    // First INC — should trigger reconcile.
+    await service.runIncremental();
+    expect(changeDetector.getChangedPaths).toHaveBeenCalledTimes(1);
+
+    // Second INC — should NOT trigger reconcile.
+    pluginStore.setQueue({
+      ...emptyEventQueue(),
+      entries: [
+        makeEntry({
+          type: 'modify',
+          path: 'notes/a.md',
+          observed_at: '2026-04-24T11:30:00.000Z',
+        }),
+      ],
+    });
+    await service.runIncremental();
+    expect(changeDetector.getChangedPaths).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconcile-discovered offline changes land in the manifest as modifications', async () => {
+    // Prime: Full with original content for both files.
+    const primingFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a-original')],
+      ['notes/b.md', new TextEncoder().encode('b')],
+    ]);
+    const { service: primingService, pluginStore: primingStore, dropbox: primingDb } = makeHarness(
+      primingFiles,
+      { now: () => '2026-04-24T10:00:00.000Z' },
+    );
+    await primingService.runFull();
+    const primedIndex = primingStore.getIndex();
+
+    // Real run: a.md edited externally to different content while plugin
+    // was off (different hash). Queue is empty. ChangeDetector reports a.md
+    // via reconcile.
+    const editedVault = new Map([
+      ['notes/a.md', new TextEncoder().encode('a-edited-offline')],
+      ['notes/b.md', new TextEncoder().encode('b')],
+    ]);
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>(['notes/a.md'])),
+    };
+    const { service, pluginStore, dropbox } = makeHarness(editedVault, {
+      now: () => '2026-04-24T11:00:00.000Z',
+      changeDetector,
+      initialIndex: primedIndex,
+      // Skip primingDb's manifests so getManifestPaths only sees the new INC.
+      dropbox: makeFakeDropbox(),
+    });
+    pluginStore.setQueue(emptyEventQueue());
+
+    await service.runIncremental();
+    void primingDb;
+
+    const incPath = getManifestPaths(dropbox.store).find((p) => p.includes('inc'));
+    expect(incPath).toBeDefined();
+    const inc = dropbox.store.get(incPath!) as Record<string, unknown>;
+    expect(inc.type).toBe('inc');
+    const files = inc.files as Record<string, unknown>;
+    expect(Object.keys(files)).toContain('notes/a.md');
+    expect(Object.keys(files)).not.toContain('notes/b.md');
+  });
+
+  it('reconcile finds a deleted file: queue empty, file gone from disk → manifest deletes it', async () => {
+    // Vault has only b.md after offline deletion of a.md. Index still
+    // contains a.md (it was there at last commit). reconcile reports a.md
+    // because it's in the index but not on disk.
+    const vaultFiles = new Map([['notes/b.md', new TextEncoder().encode('b')]]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+      '2026-04-24T11:01:00.000Z',
+    ];
+
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>(['notes/a.md'])),
+    };
+
+    // Prime by running a Full with BOTH files first — to populate the index.
+    const primingFiles = new Map([
+      ['notes/a.md', new TextEncoder().encode('a')],
+      ['notes/b.md', new TextEncoder().encode('b')],
+    ]);
+    const { service: primingService, pluginStore: primingStore } = makeHarness(
+      primingFiles,
+      { now: () => '2026-04-24T10:00:00.000Z' },
+    );
+    await primingService.runFull();
+    const primedIndex = primingStore.getIndex();
+
+    // Now build the actual harness with the post-deletion vault and the
+    // reconcile-aware ChangeDetector. Reuse the index from priming so a.md
+    // is "known".
+    const { service, pluginStore, dropbox } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+      changeDetector,
+      initialIndex: primedIndex,
+    });
+    pluginStore.setQueue(emptyEventQueue());
+
+    await service.runIncremental();
+
+    const incPath = getManifestPaths(dropbox.store).find((p) => p.includes('inc'));
+    expect(incPath).toBeDefined();
+    const inc = dropbox.store.get(incPath!) as Record<string, unknown>;
+    expect(inc.deleted).toEqual(['notes/a.md']);
+  });
+
+  it('reconcile + empty queue + no offline changes → short-circuits without writing a manifest', async () => {
+    const vaultFiles = new Map([['notes/a.md', new TextEncoder().encode('a')]]);
+
+    let nowTick = 0;
+    const timestamps = [
+      '2026-04-24T10:00:00.000Z',
+      '2026-04-24T10:01:00.000Z',
+      '2026-04-24T11:00:00.000Z',
+    ];
+
+    const changeDetector = {
+      getChangedPaths: vi.fn(async () => new Set<string>()),
+    };
+
+    const { service, pluginStore, dropbox, coordinator } = makeHarness(vaultFiles, {
+      now: () => timestamps[Math.min(nowTick++, timestamps.length - 1)],
+      changeDetector,
+    });
+
+    await runFullAndPrime(service, pluginStore);
+    dropbox.uploadJson.mockClear();
+    dropbox.uploadLarge.mockClear();
+    coordinator.verifyNoConflict.mockClear();
+    pluginStore.setQueue(emptyEventQueue());
+
+    await service.runIncremental();
+
+    // Reconcile ran, found nothing → short-circuit before verifyNoConflict.
+    expect(changeDetector.getChangedPaths).toHaveBeenCalledTimes(1);
+    expect(coordinator.verifyNoConflict).not.toHaveBeenCalled();
+    expect(dropbox.uploadJson).not.toHaveBeenCalled();
+    expect(dropbox.uploadLarge).not.toHaveBeenCalled();
   });
 });
 

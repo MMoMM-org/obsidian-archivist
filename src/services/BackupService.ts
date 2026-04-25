@@ -17,6 +17,7 @@
 //   - Adaptive chunk size: 8 MB for files < 50 MB, 150 MB for files >= 50 MB (PERF-M2).
 
 import { buildFullManifest, buildIncManifest } from './ManifestBuilder';
+import type { ChangeDetector } from './ChangeDetector';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { DeviceCoordinator } from './DeviceCoordinator';
 import type { DropboxClient } from '../infra/DropboxClient';
@@ -53,6 +54,15 @@ export interface BackupServiceDeps {
   snapshotIndexStore: SnapshotIndexStore;
   vaultPrefix: string;
   vaultName: string;
+  /**
+   * Optional ChangeDetector. When provided AND
+   * settings.advanced.reconcile_scan_enabled is true, the FIRST runIncremental
+   * after construction performs a full vault reconcile pass to surface offline
+   * changes (mutations that happened while Obsidian was closed). Subsequent
+   * runs use the live event queue only — the live queue is authoritative once
+   * Obsidian is running. Tests that only exercise the queue path may omit it.
+   */
+  changeDetector?: ChangeDetector;
   /** Injectable clock for deterministic tests. Defaults to new Date().toISOString(). */
   now?: () => string;
 }
@@ -70,7 +80,16 @@ export class BackupService {
   private readonly snapshotIndexStore: SnapshotIndexStore;
   private readonly vaultPrefix: string;
   private readonly vaultName: string;
+  private readonly changeDetector: ChangeDetector | null;
   private readonly now: () => string;
+
+  /**
+   * One-shot flag for the reconcile-on-startup pass. Flips to false after the
+   * first runIncremental call (regardless of outcome) so subsequent ticks
+   * never re-scan the entire vault — the live event queue is authoritative
+   * once Obsidian is running.
+   */
+  private firstIncSinceLoad = true;
 
   constructor(deps: BackupServiceDeps) {
     this.dropbox = deps.dropbox;
@@ -81,6 +100,7 @@ export class BackupService {
     this.snapshotIndexStore = deps.snapshotIndexStore;
     this.vaultPrefix = deps.vaultPrefix;
     this.vaultName = deps.vaultName;
+    this.changeDetector = deps.changeDetector ?? null;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -147,6 +167,12 @@ export class BackupService {
   async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
 
+    // One-shot reconcile decision: claim the flag synchronously so a second
+    // overlapping invocation can't double-scan, but only commit to the
+    // reconcile path once we've confirmed all the gating conditions below.
+    const wasFirstIncSinceLoad = this.firstIncSinceLoad;
+    this.firstIncSinceLoad = false;
+
     const settings = await this.pluginStore.loadSettings();
     const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
 
@@ -163,17 +189,62 @@ export class BackupService {
     // Snapshot queue at call time; new events enqueued during the run stay untouched
     const queue = await this.pluginStore.loadQueue();
 
-    // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
-    if (queue.entries.length === 0) return;
+    // Reconcile pass: bridges the offline window by scanning the entire vault
+    // against the persisted index for paths that changed/were deleted while
+    // Obsidian was closed. Live event queue is reliable WHILE Obsidian runs,
+    // so we only do this once per plugin load (firstIncSinceLoad), gated on
+    // the user setting (default true). Renames continue to come from the
+    // queue — the reconcile pass reports paths only.
+    const reconcileDetector =
+      wasFirstIncSinceLoad && settings.advanced.reconcile_scan_enabled
+        ? this.changeDetector
+        : null;
+
+    let changesPaths: string[];
+    let deleted: string[];
+    let renames: RenameEntry[];
+
+    if (reconcileDetector !== null) {
+      const buckets = bucketQueueEntries(queue.entries);
+      renames = buckets.renames;
+      const renameSourcePaths = new Set(renames.map((r) => r.from));
+      const renameTargetPaths = new Set(renames.map((r) => r.to));
+
+      const merged = await reconcileDetector.getChangedPaths(
+        index,
+        settings.advanced.exclusion_globs,
+        { reconcile: true },
+      );
+
+      const onDisk = new Set(this.vault.getFiles().map((f) => f.path));
+      const changeSet = new Set<string>();
+      const deleteSet = new Set<string>(buckets.deleted);
+      for (const p of merged) {
+        // Skip rename source/target paths — already represented by the renames
+        // bucket; counting them as create/delete would corrupt the manifest.
+        if (renameSourcePaths.has(p) || renameTargetPaths.has(p)) continue;
+        if (onDisk.has(p)) changeSet.add(p);
+        else deleteSet.add(p);
+      }
+      changesPaths = [...changeSet];
+      deleted = [...deleteSet];
+
+      // Empty-after-reconcile short-circuit: nothing changed on disk OR in queue.
+      if (changesPaths.length === 0 && deleted.length === 0 && renames.length === 0) return;
+    } else {
+      // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
+      if (queue.entries.length === 0) return;
+      const buckets = bucketQueueEntries(queue.entries);
+      changesPaths = buckets.changesPaths;
+      deleted = buckets.deleted;
+      renames = buckets.renames;
+    }
 
     // --- Pre-upload conflict check (first of two — ROB-001) ---
     await this.coordinator.verifyNoConflict();
 
     const deviceId = await this.coordinator.getOrCreateDeviceId();
     const createdAt = this.now();
-
-    // --- Bucket queue entries ---
-    const { changesPaths, deleted, renames } = bucketQueueEntries(queue.entries);
 
     // --- Read + hash changed files (only those that still exist on disk) ---
     const existingPaths = changesPaths.filter((p) =>
@@ -213,11 +284,18 @@ export class BackupService {
       exclusionsApplied,
     });
 
-    // Max observed_at across all consumed queue entries
-    const maxObservedAt = queue.entries.reduce(
-      (max, e) => (e.observed_at > max ? e.observed_at : max),
-      queue.entries[0].observed_at,
-    );
+    // Max observed_at across all consumed queue entries. Empty queue is only
+    // reachable via the reconcile path (offline changes only, no live events) —
+    // fall back to manifest.created_at so the cursor still advances past any
+    // events that arrive between the scan and the cursor write (those will
+    // have observed_at > createdAt and survive the filter).
+    const maxObservedAt =
+      queue.entries.length === 0
+        ? createdAt
+        : queue.entries.reduce(
+            (max, e) => (e.observed_at > max ? e.observed_at : max),
+            queue.entries[0].observed_at,
+          );
 
     // --- Steps 2-7: crash-safe commit protocol ---
     await this.commitSnapshot({
