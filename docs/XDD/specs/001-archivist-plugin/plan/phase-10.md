@@ -32,7 +32,7 @@ phase: 10
 
 Produces the evidence that the plugin is ready for public release: integration test coverage, soak-test validation, documentation, and a clean community-submission checklist.
 
-- [ ] **T10.1 End-to-end integration scenarios (mocked Dropbox)** `[activity: integration]`
+- [x] **T10.1 End-to-end integration scenarios (mocked Dropbox)** `[activity: integration]`
 
   1. Prime: Read `[ref: SDD/Acceptance Criteria]` and `[ref: PRD/Feature Requirements]` in full.
   2. Test — one integration test file per scenario under `tests/integration/`:

@@ -1,0 +1,50 @@
+# Dependabot config — weekly npm + GitHub Actions updates.
+# Patch-level updates can auto-merge after green CI; minor + major require review.
+# See SDD ADR-14 (supply chain).
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: chore(deps)
+      include: scope
+    # Group patch + dev-only minor updates; require review for security-sensitive runtime deps.
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types:
+          - patch
+          - minor
+      runtime-patches:
+        dependency-type: production
+        update-types:
+          - patch
+    # Pin strategy: keep exact pins for the runtime Dropbox SDK (ADR-14).
+    versioning-strategy: increase-if-necessary
+    ignore:
+      # Major bumps require manual review — the Dropbox SDK in particular
+      # has API surface changes between majors that need contract tests.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: chore(actions)
+      include: scope
