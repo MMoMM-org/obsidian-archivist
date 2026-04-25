@@ -146,6 +146,23 @@ function formatSnapshotDate(d: Date): string {
   }).format(d);
 }
 
+/**
+ * Render the preview-column header for a selected file.
+ *
+ * Replaces the generic "Preview" h3 with the file's basename so the user
+ * has a clear anchor for what they're looking at, plus the full
+ * vault-relative path as a muted subtitle (helps disambiguate when two
+ * files share a basename in different folders).
+ */
+function renderPreviewHeader(container: HTMLElement, path: string): void {
+  const slash = path.lastIndexOf('/');
+  const basename = slash >= 0 ? path.slice(slash + 1) : path;
+  container.createEl('h3', { text: basename, cls: 'archivist-preview-filename' });
+  if (slash >= 0) {
+    container.createEl('p', { text: path, cls: 'archivist-preview-path' });
+  }
+}
+
 /** Map a retention tier to its display label, or null when tier is unknown. */
 function snapTierLabel(tier: SnapshotTier | null | undefined): string | null {
   if (tier === 'daily') return S.BROWSER_TIER_DAILY;
@@ -576,6 +593,21 @@ export class BackupBrowserView extends ItemView {
     this.selectedSnapshot = snap;
     this.selectedPath = null;
 
+    // Re-render the snapshots column so aria-selected (and the highlighted
+    // row styling that hangs off it) reflects the new selection. Without
+    // this, the previously-rendered rows keep their stale aria-selected
+    // attribute and only an internal field on the view changed.
+    if (this.snapshots) {
+      const now = this.deps.now ? this.deps.now() : new Date();
+      renderSnapshotsColumn(
+        this.snapshotsListEl,
+        this.snapshots,
+        snap.id,
+        (s) => { void this._selectSnapshot(s); },
+        now,
+      );
+    }
+
     // Show loading in the files column while we materialize
     this.filesListEl.empty();
     this.filesListEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
@@ -618,9 +650,26 @@ export class BackupBrowserView extends ItemView {
     const capturedSnap = this.selectedSnapshot;
     if (!capturedSnap) return;
 
-    // Show loading in preview
+    // Re-render the files column so the clicked row picks up
+    // aria-selected / the active-hover background. Same reason as in
+    // _selectSnapshot: state lives on the view but the DOM only reflects
+    // it at render time, so a fresh render is needed to surface the
+    // selection visually.
+    if (this.fileState) {
+      const tree = buildFileTree(this.fileState);
+      renderFilesColumn(
+        this.filesListEl,
+        tree,
+        path,
+        (p) => { void this._selectFile(p); },
+      );
+    }
+
+    // Show loading in preview — header swaps from generic "Preview" to the
+    // file's basename so the user has a clear "this is what you're looking
+    // at" anchor; the full vault-relative path appears as a muted subtitle.
     this.previewColEl.empty();
-    this.previewColEl.createEl('h3', { text: S.BROWSER_COL_PREVIEW });
+    renderPreviewHeader(this.previewColEl, path);
     this.previewColEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
 
     const content = await this.deps.restoreService.fetchContent(capturedSnap.id, path);
@@ -631,7 +680,7 @@ export class BackupBrowserView extends ItemView {
     const isDeleted = !this.deps.vaultHasPath(path);
 
     this.previewColEl.empty();
-    this.previewColEl.createEl('h3', { text: S.BROWSER_COL_PREVIEW });
+    renderPreviewHeader(this.previewColEl, path);
 
     await renderPreviewColumn(
       this.previewColEl,
