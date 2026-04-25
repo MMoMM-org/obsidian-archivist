@@ -6,19 +6,27 @@ import esbuild from "esbuild";
 const banner = `/* Archivist — versioned Obsidian vault backups to Dropbox. MIT. */`;
 
 const isDev = process.argv.includes("--dev");
-const outdir = isDev ? "test/Archivist/.obsidian/plugins/obsidian-archivist" : ".";
+const TEST_VAULT_DIR = "test/Archivist/.obsidian/plugins/obsidian-archivist";
+const outdir = isDev ? TEST_VAULT_DIR : ".";
 
-// Copy plugin assets on each rebuild
+// Copy plugin assets on each rebuild. Production builds additionally mirror
+// the bundle into the local test vault when it exists — so manual UI/behaviour
+// verification always uses the latest build. The vault is git-ignored and
+// absent in CI/release contexts, so the mirror step is a safe no-op there.
 const copyAssets = {
 	name: "copy-assets",
 	setup(build) {
 		build.onEnd(() => {
 			mkdirSync(outdir, { recursive: true });
-			// Manifest and styles may not exist yet during early Phase 1 bootstrap —
-			// copy only when present. manifest.json is authored in T1.1; styles.css
-			// first appears in Phase 9 UI work.
 			if (existsSync("manifest.json")) copyFileSync("manifest.json", `${outdir}/manifest.json`);
 			if (existsSync("styles.css")) copyFileSync("styles.css", `${outdir}/styles.css`);
+
+			if (!isDev && existsSync("test/Archivist/.obsidian/plugins")) {
+				mkdirSync(TEST_VAULT_DIR, { recursive: true });
+				copyFileSync("main.js", `${TEST_VAULT_DIR}/main.js`);
+				if (existsSync("manifest.json")) copyFileSync("manifest.json", `${TEST_VAULT_DIR}/manifest.json`);
+				if (existsSync("styles.css")) copyFileSync("styles.css", `${TEST_VAULT_DIR}/styles.css`);
+			}
 		});
 	},
 };
