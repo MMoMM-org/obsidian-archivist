@@ -28,13 +28,12 @@ describe('ArchivistPlugin lifecycle', () => {
     expect(spy.mock.calls[0][1]).toMatch(/archivist/i);  // tooltip
   });
 
-  it("onload registers command 'archivist-hello'", async () => {
+  it('onload registers the backup-now command', async () => {
     const spy = vi.spyOn(plugin, 'addCommand');
     await plugin.onload();
     expect(spy).toHaveBeenCalled();
-    const cmd = spy.mock.calls[0][0];
-    expect(cmd.id).toBe('archivist-hello');
-    expect(cmd.name).toMatch(/hello/i);
+    const ids = spy.mock.calls.map((c) => c[0].id);
+    expect(ids).toContain('archivist-backup-now');
   });
 
   it('onload wires workspace event via registerEvent (not raw .on)', async () => {

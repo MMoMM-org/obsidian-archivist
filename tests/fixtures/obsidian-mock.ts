@@ -318,6 +318,9 @@ export class Plugin {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   addSettingTab(_tab: unknown): void {}
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  registerView(_viewType: string, _viewCreator: unknown): void {}
+
   registerObsidianProtocolHandler(action: string, handler: ObsidianProtocolHandler): void {
     this._protocolHandlers.set(action, handler);
   }
