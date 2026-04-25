@@ -288,14 +288,26 @@ export class SchedulerFSM {
   }
 
   /**
-   * Inspect lastFullCommitAt against the schedule. If at least one scheduled
-   * full has passed since the last commit, set a single catch-up flag. The
-   * actual transition to BACKUP_RUNNING happens when the FSM reaches READY
-   * and receives its first tick (plan §T7.2 — "run after QUIET_WAIT exits").
+   * Inspect lastFullCommitAt against the schedule. Set the catch-up flag in
+   * two cases:
+   *   1. lastFull === null — fresh install OR plugin lost the in-memory
+   *      reference. Per requirements.md User-Journey 5 ("First-Time Setup"),
+   *      the first FULL must run silently ~10 min after enable. Treat this as
+   *      "scheduled FULL is overdue from time-immemorial".
+   *   2. A scheduled FULL slot has passed since the last commit. Standard
+   *      offline-catch-up case (requirements.md F1 AC).
+   *
+   * The actual transition to BACKUP_RUNNING happens when the FSM reaches
+   * READY and receives its first tick (plan §T7.2 — "run after QUIET_WAIT
+   * exits").
    */
   recoverOnStartup(): void {
     const lastFull = this.deps.getLastFullCommitAt();
-    if (lastFull === null) return; // fresh install — no catch-up
+    if (lastFull === null) {
+      this.catchupPending = true;
+      this.deps.logger.info('catchup_flagged_fresh_install');
+      return;
+    }
 
     const nextFromLast = this.nextFullAfter(new Date(lastFull));
     if (nextFromLast.getTime() <= this.now()) {

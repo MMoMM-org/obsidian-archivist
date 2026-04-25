@@ -802,10 +802,23 @@ describe('SchedulerFSM — recoverOnStartup catch-up', () => {
     expect(h.fsm.hasPendingCatchup()).toBe(false);
   });
 
-  it('does NOT flag catch-up when no full has ever run (fresh install)', () => {
-    const h = makeFSM({ lastFullCommitAt: null });
+  it('flags catch-up on fresh install (lastFull === null) — first FULL runs after grace+quiet', () => {
+    // requirements.md User-Journey 5 — "10 minutes later, quiet-period
+    // expires; first full backup runs silently". Without this catch-up, the
+    // first FULL would wait until the next scheduled slot (up to a week),
+    // contradicting the spec scenario.
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      lastFullCommitAt: null,
+    });
     h.fsm.recoverOnStartup();
-    expect(h.fsm.hasPendingCatchup()).toBe(false);
+    expect(h.fsm.hasPendingCatchup()).toBe(true);
+
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000); // grace + quiet (1 + 1 min)
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'catchup' });
   });
 
   it('does NOT flag catch-up when lastFull < one cadence cycle ago', () => {
