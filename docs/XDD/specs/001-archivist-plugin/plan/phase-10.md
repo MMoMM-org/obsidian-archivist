@@ -55,7 +55,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: All scenarios pass in < 60 s total.
   5. Success: Every PRD acceptance criterion covered by at least one scenario `[ref: PRD/Feature Requirements]`.
 
-- [ ] **T10.2 4-week soak test (simulated time, extended assertions)** `[activity: testing]`
+- [x] **T10.2 4-week soak test (simulated time, extended assertions)** `[activity: testing]`
 
   1. Prime: Read `[ref: PRD/F2 AC-1]`, `[ref: SDD/Quality Requirements/Reliability]`.
   2. Test:
@@ -77,7 +77,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Test runs clean in < 5 minutes (fast-forward time multiplier).
   5. Success: Storage ceiling + chain-integrity demonstrated `[ref: PRD/F2 AC-1, Success Metrics]`.
 
-- [ ] **T10.3 Live-Dropbox smoke test (gated CI job)** `[activity: integration]` `[parallel: true]`
+- [x] **T10.3 Live-Dropbox smoke test (gated CI job)** `[activity: integration]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Deployment View]`.
   2. Test:
@@ -91,7 +91,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: A single successful run against the test account; pagination + contract tests pass on PR CI.
   5. Success: SDK contract holds against real Dropbox `[ref: SDD/Risks — Dropbox API changes]`; pagination bug cannot escape PR CI `[ref: TEST-H3]`; SDK-shape drift caught by contract test `[ref: TEST-M1]`.
 
-- [ ] **T10.4 README + documentation** `[activity: documentation]`
+- [x] **T10.4 README + documentation** `[activity: documentation]`
 
   1. Prime: Read `[ref: SDD/System-Wide Patterns/Security]`, `[ref: SDD/ADR-7, ADR-9, ADR-14]`, `[ref: research Security — README copy]`.
   2. Test: README covers every section in the community-plugin submission checklist:
@@ -111,7 +111,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Manual review against the community-plugin checklist; link-check script (if any docs).
   5. Success: Submission-ready documentation `[ref: SDD/Deployment View/Distribution]`.
 
-- [ ] **T10.5 Supply-chain & release gates** `[activity: tooling]` `[parallel: true]`
+- [x] **T10.5 Supply-chain & release gates** `[activity: tooling]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/ADR-14]`.
   2. Test:
@@ -125,7 +125,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Dry-run release produces artifacts; CI gates trigger on deliberate violations.
   5. Success: Supply-chain posture `[ref: SDD/ADR-14]`.
 
-- [ ] **T10.6a Brand assets — icons + logos** `[activity: frontend-ui]` `[parallel: true]`
+- [x] **T10.6a Brand assets — icons + logos** `[activity: frontend-ui]` `[parallel: true]`
 
   1. Prime: Read PRD V1 Prerequisites (app registration confirmed values) and Obsidian community-plugin branding guidance.
   2. Test:
@@ -137,7 +137,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Upload to the Dropbox app page and confirm it displays correctly on the OAuth consent screen (real test, not just local).
   5. Success: Branding ready for community submission `[ref: PRD/V1 Prerequisites]`.
 
-- [ ] **T10.6 Obsidian Community Plugin submission** `[activity: tooling]`
+- [x] **T10.6 Obsidian Community Plugin submission** `[activity: tooling]`
 
   1. Prime: Read the Obsidian plugin submission guidelines linked in the SDD.
   2. Test (manual checklist):
@@ -150,7 +150,7 @@ Produces the evidence that the plugin is ready for public release: integration t
   4. Validate: Submission PR accepted.
   5. Success: Plugin listed in Community Plugins `[ref: PRD/Success Metrics — adoption]`.
 
-- [ ] **T10.7 Performance SLO CI gates** `[activity: testing]` `[parallel: true]`
+- [x] **T10.7 Performance SLO CI gates** `[activity: testing]` `[parallel: true]`
 
   1. Prime: Read `[ref: SDD/Quality Requirements/Performance]`, `[ref: TEST-M4]`.
   2. Test (promote 3 SLOs from aspirational to CI-gated regression tests):
