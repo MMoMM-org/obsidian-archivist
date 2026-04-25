@@ -178,6 +178,26 @@ export class Vault {
     return [...this._files];
   }
 
+  /**
+   * Return the TFile registered for `path`, or null. Mirror of Obsidian's
+   * Vault.getAbstractFileByPath, narrowed to TFile (TFolder support is
+   * unused in tests so far). Tests that need a TFile-backed write code
+   * path must call `_addFile(path, ...)` to register the file.
+   */
+  getAbstractFileByPath(path: string): TFile | null {
+    return this._files.find((f) => f.path === path) ?? null;
+  }
+
+  /**
+   * High-level binary modify — equivalent to vault.adapter.writeBinary at
+   * the storage layer, but in production also refreshes the metadata cache
+   * + open editor views. Tests only care about the data, so we update the
+   * binary store directly.
+   */
+  async modifyBinary(file: TFile, data: ArrayBuffer): Promise<void> {
+    this._binaryStore.set(file.path, new Uint8Array(data));
+  }
+
   /** Mirror Workspace.on semantics — used by VaultAdapter.on*() methods. */
   on(event: string, handler: (...args: unknown[]) => void): EventRef {
     if (!this._eventHandlers.has(event)) this._eventHandlers.set(event, new Set());

@@ -17,7 +17,7 @@
 //     arriving first falls through as a normal rename, which is the safe default
 //     — consumers may observe a duplicate but never a silent drop).
 
-import { TFolder } from 'obsidian';
+import { TFile, TFolder } from 'obsidian';
 import type { Plugin, TAbstractFile } from 'obsidian';
 
 // ---------------------------------------------------------------------------
@@ -80,22 +80,46 @@ export class VaultAdapter {
   // ---- Atomic write --------------------------------------------------------
 
   /**
-   * Write `bytes` to `path` atomically: write to a temp file first, then
-   * rename onto `path`. If `path` already exists (e.g. restore-in-place
-   * over an active vault file), it is removed immediately before the rename
-   * — Obsidian's adapter.rename throws "Destination file already exists!"
-   * otherwise. The remove → rename window is short (milliseconds) and the
-   * tmp file survives a crash in that window so manual recovery is
-   * possible.
+   * Write `bytes` to `path`. Two code paths depending on whether the path
+   * is already a tracked vault file:
    *
-   * On any failure, the tmp is best-effort cleaned up before the error
-   * propagates (T8.3 TEST-C1: no `.archivist-tmp` lingers after a failure).
+   *   1. Existing TFile (typical restore-in-place case): use
+   *      `vault.modifyBinary(tfile, ab)`. This goes through Obsidian's
+   *      high-level Vault API, which (a) atomically rewrites the file
+   *      contents, (b) invalidates the metadata cache, and (c) refreshes
+   *      open editor views. Bypassing this in favour of low-level
+   *      adapter.write+rename is what made the previous restore-in-place
+   *      "succeed" without actually updating the file on disk — the rename
+   *      either no-op'd against Obsidian's vault tracker or the editor
+   *      simply kept showing cached content with no disk update visible.
+   *
+   *   2. Path not (yet) a TFile (first-time restore-as-copy to a fresh
+   *      target): tmp + rename for atomicity. We still pre-remove any
+   *      adapter-level file at the destination — copy paths are unique by
+   *      construction so this is defensive.
+   *
+   * `bytes.buffer` is sliced to the active byte range so callers passing a
+   * subarray view (e.g. a chunked download) don't accidentally write the
+   * whole backing ArrayBuffer.
    */
   async writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
+    // Slice into a fresh, plain ArrayBuffer. Two reasons:
+    //   1. bytes.buffer is `ArrayBuffer | SharedArrayBuffer`; the Obsidian
+    //      writeBinary / modifyBinary signatures want plain ArrayBuffer.
+    //   2. If `bytes` is a subarray view (offset > 0 OR length < buffer
+    //      length), passing bytes.buffer would write the WHOLE backing
+    //      buffer, not just the active range.
+    const ab = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(ab).set(bytes);
+    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) {
+      await this.plugin.app.vault.modifyBinary(file, ab);
+      return;
+    }
     const tmp = `${path}.archivist-tmp`;
     const adapter = this.plugin.app.vault.adapter;
     try {
-      await adapter.writeBinary(tmp, bytes.buffer as ArrayBuffer);
+      await adapter.writeBinary(tmp, ab);
       if (await adapter.exists(path)) {
         await adapter.remove(path);
       }
