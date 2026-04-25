@@ -375,21 +375,28 @@
 }
 
 /* Preview-column header replaces the generic "Preview" h3 with the file's
-   basename + a muted path subtitle when a file is selected. The h3 styling
-   inherits from the column-header rule above (border-bottom + padding) so
-   the visual chrome is consistent with the snapshots/files column heads. */
+   basename + a muted path subtitle when a file is selected. The filename row
+   carries the bottom-border by default; if a path subtitle follows it the
+   subtitle takes the border instead so we don't get a double rule. */
 .archivist-browser .archivist-preview > .archivist-preview-filename {
 	margin: 0;
-	padding: 10px 12px 2px 12px;
+	padding: 10px 12px;
 	font-size: var(--font-ui-medium);
 	font-weight: var(--font-semibold);
 	color: var(--text-normal);
 	background-color: var(--background-primary);
-	border-bottom: none;
+	border-bottom: 1px solid var(--background-modifier-border);
 	text-align: left;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* When a path subtitle is rendered, drop the border off the filename — the
+   subtitle below carries it so the two rows read as one header block. */
+.archivist-browser .archivist-preview > .archivist-preview-filename:has(+ .archivist-preview-path) {
+	padding-bottom: 2px;
+	border-bottom: none;
 }
 
 .archivist-browser .archivist-preview > .archivist-preview-path {

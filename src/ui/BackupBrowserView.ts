@@ -447,6 +447,7 @@ export class BackupBrowserView extends ItemView {
   // Columns
   private snapshotsListEl!: HTMLElement;
   private filesListEl!: HTMLElement;
+  private filesColHeaderEl!: HTMLElement;
   private previewColEl!: HTMLElement;
 
   // Banner region (Fix 7 — storage-warning banner rendering)
@@ -513,7 +514,7 @@ export class BackupBrowserView extends ItemView {
 
     // -- Files column --
     const filesColEl = columnsEl.createEl('div', { cls: 'archivist-files' });
-    filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
+    this.filesColHeaderEl = filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
     this.filesListEl = filesColEl.createEl('div', {
       cls: 'archivist-files-list',
       attr: { tabindex: '0', role: 'listbox' },
@@ -605,6 +606,15 @@ export class BackupBrowserView extends ItemView {
         snap.id,
         (s) => { void this._selectSnapshot(s); },
         now,
+      );
+    }
+
+    // Files column header reflects which snapshot's vault state we're
+    // showing. "Files at snapshot" was generic; "Files at YYYY-MM-DD HH:MM"
+    // ties the user's mental model to the snapshot they just clicked.
+    if (this.filesColHeaderEl) {
+      this.filesColHeaderEl.setText(
+        `Files at ${formatSnapshotDate(new Date(snap.created_at))}`,
       );
     }
 
