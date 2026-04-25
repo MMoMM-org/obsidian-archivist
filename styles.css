@@ -187,6 +187,239 @@
 	font-size: var(--font-ui-smaller);
 }
 
+/* ─── Backup Browser view ───────────────────────────────────────── */
+
+.archivist-browser {
+	padding: 0 12px 12px 12px;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.archivist-browser-banners {
+	flex: 0 0 auto;
+}
+
+.archivist-browser-columns {
+	flex: 1 1 auto;
+	display: grid;
+	grid-template-columns: minmax(220px, 280px) minmax(200px, 1fr) minmax(280px, 1.4fr);
+	gap: 12px;
+	min-height: 0;
+}
+
+.archivist-snapshots,
+.archivist-files,
+.archivist-preview {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background-color: var(--background-secondary);
+}
+
+/* Column headers are scoped via descendant selector so their styling does
+   NOT bleed into the preview note's own headings (Obsidian renders preview
+   markdown including h1/h2/h3 — the column h3 used to inherit those
+   weights/sizes too). */
+.archivist-browser .archivist-snapshots > h3,
+.archivist-browser .archivist-files > h3,
+.archivist-browser .archivist-preview > h3 {
+	margin: 0;
+	padding: 10px 12px;
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	border-bottom: 1px solid var(--background-modifier-border);
+	background-color: var(--background-primary);
+	text-align: left;
+}
+
+.archivist-snapshots-list,
+.archivist-files-list {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 6px;
+}
+
+/* Date-grouping h4 in the snapshots column ("Today", "Yesterday", …) */
+.archivist-snapshot-group {
+	margin: 8px 6px 4px 6px;
+	padding: 0;
+	font-size: var(--font-smallest);
+	font-weight: var(--font-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--text-faint);
+}
+
+.archivist-snapshot-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+}
+
+.archivist-snapshot-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.archivist-snapshot-row[aria-selected="true"] {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.archivist-snapshot-date {
+	flex: 1 1 auto;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.archivist-snapshot-type,
+.archivist-snapshot-tier {
+	flex: 0 0 auto;
+	color: var(--text-muted);
+	font-size: var(--font-smallest);
+	font-family: var(--font-monospace);
+}
+
+.archivist-snapshot-tier {
+	color: var(--text-faint);
+}
+
+/* File tree (Files-at-snapshot column) */
+.archivist-file-dir {
+	display: flex;
+	flex-direction: column;
+}
+
+.archivist-dir-header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.archivist-dir-icon,
+.archivist-file-icon {
+	display: inline-flex;
+	align-items: center;
+	color: var(--text-faint);
+}
+
+.archivist-dir-icon svg,
+.archivist-file-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.archivist-dir-name {
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+}
+
+.archivist-dir-children {
+	margin-left: 16px;
+	border-left: 1px dotted var(--background-modifier-border);
+	padding-left: 4px;
+}
+
+.archivist-file-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}
+
+.archivist-file-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.archivist-file-row:hover .archivist-file-icon {
+	color: var(--text-accent);
+}
+
+.archivist-file-row[aria-selected="true"] {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.archivist-file-row[aria-selected="true"] .archivist-file-icon {
+	color: var(--text-accent);
+}
+
+.archivist-file-name {
+	flex: 1 1 auto;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Preview column */
+
+.archivist-preview-content {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	padding: 12px 16px;
+}
+
+/* Scope preview-rendered markdown headings so they look readable inside the
+   column without inheriting the column-header chrome (border-bottom,
+   background) above. */
+.archivist-preview .archivist-preview-content h1,
+.archivist-preview .archivist-preview-content h2,
+.archivist-preview .archivist-preview-content h3,
+.archivist-preview .archivist-preview-content h4 {
+	border-bottom: none;
+	background-color: transparent;
+	padding: 0;
+	margin: 0.5em 0 0.25em 0;
+}
+
+.archivist-preview-deleted-marker {
+	margin: 0;
+	padding: 6px 16px;
+	font-size: var(--font-ui-small);
+	color: var(--text-warning);
+	background-color: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Loading + empty states */
+
+.archivist-loading {
+	color: var(--text-muted);
+	font-style: italic;
+	padding: 8px 12px;
+	font-size: var(--font-ui-small);
+	animation: archivist-pulse 1.6s ease-in-out infinite;
+}
+
+.archivist-browser-empty-title {
+	padding: 12px 16px 4px 16px;
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	margin: 0;
+}
+
+.archivist-browser-empty-body {
+	padding: 0 16px 12px 16px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	margin: 0;
+}
+
 /* ─── Setting-row description override (legacy class kept harmless) ─ */
 
 .my-plugin-settings .setting-item-description {

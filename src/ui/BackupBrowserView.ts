@@ -14,7 +14,7 @@
 //   - Keyboard nav: column wrappers have tabindex="0"; row items use
 //     tabindex="-1" with aria-selected so AT can track selection.
 
-import { ItemView, type WorkspaceLeaf, type App } from 'obsidian';
+import { ItemView, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
@@ -125,6 +125,25 @@ function classifySnapshotDate(
   if (snapDate >= weekStart) return S.BROWSER_GROUP_THIS_WEEK;
   if (snapDate >= monthStart) return S.BROWSER_GROUP_THIS_MONTH;
   return S.BROWSER_GROUP_OLDER;
+}
+
+/**
+ * Format a snapshot's created_at for the Snapshots column row.
+ *
+ * Locale-aware date + 24-hour time, no AM/PM, second-precision dropped —
+ * `Apr 25, 2026 14:34` (en-US) / `25. Apr. 2026, 14:34` (de-DE). The default
+ * `Date.toLocaleString()` was producing the long en-US form with seconds and
+ * AM/PM, which felt out of place next to the compact `[full]` / `[daily]` tags.
+ */
+function formatSnapshotDate(d: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(d);
 }
 
 /** Map a retention tier to its display label, or null when tier is unknown. */
@@ -241,9 +260,12 @@ function renderSnapshotRow(
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', snap.id === selectedId ? 'true' : 'false');
 
-  const dateStr = new Date(snap.created_at).toLocaleString();
+  const dateStr = formatSnapshotDate(new Date(snap.created_at));
   row.createEl('span', { text: dateStr, cls: 'archivist-snapshot-date' });
-  row.createEl('span', { text: snap.type, cls: 'archivist-snapshot-type' });
+  // Type tag wraps in brackets for visual symmetry with the tier tag and to
+  // keep a clean separation from the date — `[full]` / `[inc]` instead of a
+  // bare `full` running into the date with no whitespace between spans.
+  row.createEl('span', { text: `[${snap.type}]`, cls: 'archivist-snapshot-type' });
   const tierLabel = snapTierLabel(snap.tier);
   if (tierLabel) {
     row.createEl('span', { text: tierLabel, cls: 'archivist-snapshot-tier' });
@@ -320,7 +342,12 @@ function renderFileTreeNode(
   for (const child of node.children) {
     if (child.isDir) {
       const dirEl = container.createEl('div', { cls: 'archivist-file-dir' });
-      dirEl.createEl('span', { text: child.name, cls: 'archivist-dir-name' });
+      const dirHeader = dirEl.createEl('div', { cls: 'archivist-dir-header' });
+      // Lucide folder icon — visual cue separating directories from files
+      // without relying on extension-text-only inspection.
+      const dirIconEl = dirHeader.createEl('span', { cls: 'archivist-dir-icon' });
+      setIcon(dirIconEl, 'folder');
+      dirHeader.createEl('span', { text: child.name, cls: 'archivist-dir-name' });
       const childContainer = dirEl.createEl('div', { cls: 'archivist-dir-children' });
       renderFileTreeNode(childContainer, child, selectedPath, onSelect, allFileRows, allFilePaths);
     } else {
@@ -329,6 +356,11 @@ function renderFileTreeNode(
       fileEl.setAttribute('role', 'option');
       fileEl.setAttribute('aria-selected', child.fullPath === selectedPath ? 'true' : 'false');
 
+      // Lucide file icon — same intent as the folder icon: signal to the
+      // user that THIS row represents a file (clickable for preview), not
+      // a directory header.
+      const fileIconEl = fileEl.createEl('span', { cls: 'archivist-file-icon' });
+      setIcon(fileIconEl, 'file-text');
       fileEl.createEl('span', { text: child.name, cls: 'archivist-file-name' });
       fileEl.addEventListener('click', () => onSelect(child.fullPath));
       fileEl.addEventListener('keydown', (e: KeyboardEvent) => {
