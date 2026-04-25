@@ -315,7 +315,7 @@ export class DropboxClient {
     await this.runOp(
       () =>
         this.sdk.filesUpload({
-          path,
+          path: normalizeApiPath(path),
           contents: bytes,
           mode: { '.tag': mode },
         }),
@@ -331,7 +331,7 @@ export class DropboxClient {
   async downloadBytes(path: string): Promise<Uint8Array> {
     return await this.runOp(
       async () => {
-        const resp = await this.sdk.filesDownload({ path });
+        const resp = await this.sdk.filesDownload({ path: normalizeApiPath(path) });
         return await extractBytes(resp.result as FileDownloadResult);
       },
       { endpoint: 'files_download' },
@@ -342,7 +342,7 @@ export class DropboxClient {
     const isManifestEndpoint = opts?.isManifestEndpoint ?? false;
     return await this.runOp(
       async () => {
-        const resp = await this.sdk.filesDownload({ path });
+        const resp = await this.sdk.filesDownload({ path: normalizeApiPath(path) });
         const bytes = await extractBytes(resp.result as FileDownloadResult);
         // Guarded JSON.parse — the wrapper throws SyntaxError which the outer
         // classifyError converts to CorruptionError | NetworkError based on
@@ -358,7 +358,7 @@ export class DropboxClient {
   async listFolder(path: string, opts?: { recursive?: boolean }): Promise<ListFolderEntry[]> {
     return await this.runOp(
       async () => {
-        const first = await this.sdk.filesListFolder({ path, recursive: opts?.recursive ?? false });
+        const first = await this.sdk.filesListFolder({ path: normalizeApiPath(path), recursive: opts?.recursive ?? false });
 
         const out: ListFolderEntry[] = first.result.entries.map(normalizeEntry);
         let cursor = first.result.cursor;
@@ -378,7 +378,10 @@ export class DropboxClient {
   }
 
   async deleteV2(path: string): Promise<void> {
-    await this.runOp(() => this.sdk.filesDeleteV2({ path }), { endpoint: 'files_delete_v2' });
+    await this.runOp(
+      () => this.sdk.filesDeleteV2({ path: normalizeApiPath(path) }),
+      { endpoint: 'files_delete_v2' },
+    );
   }
 
   /**
@@ -427,7 +430,7 @@ export class DropboxClient {
         const tail = bytes.subarray(offset);
         await this.sdk.filesUploadSessionFinish({
           cursor: { session_id: sessionId, offset },
-          commit: { path, mode: { '.tag': mode } },
+          commit: { path: normalizeApiPath(path), mode: { '.tag': mode } },
           contents: tail,
         });
       },
@@ -559,6 +562,35 @@ export class DropboxClient {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Prepend a leading slash to a Dropbox `files/*` path argument when missing.
+ *
+ * Dropbox API rejects paths that don't match
+ *   `(/...)|(id:...)|(rev:[0-9a-f]{9,})|(ns:[0-9]+/...)`
+ * with `HTTP 400 "Malformed request"`. All path-builders in
+ * `src/util/paths.ts` produce `Apps/Archivist/<prefix>/...` (NO leading
+ * slash) because that's the natural form for log lines and assertions.
+ * The SDK forwards whatever it gets, so the normalisation has to live at
+ * the SDK boundary — here. id:/rev:/ns: forms are passed through unchanged
+ * for callers that pre-resolve a Dropbox file reference.
+ *
+ * Empty string is preserved as-is. Some Dropbox endpoints accept it for
+ * "root of the app folder"; we don't currently rely on that, but the
+ * normaliser shouldn't change semantics for callers who do.
+ */
+function normalizeApiPath(path: string): string {
+  if (
+    path === '' ||
+    path.startsWith('/') ||
+    path.startsWith('id:') ||
+    path.startsWith('rev:') ||
+    path.startsWith('ns:')
+  ) {
+    return path;
+  }
+  return `/${path}`;
+}
 
 function normalizeEntry(raw: ListFolderEntryRaw): ListFolderEntry {
   const tag = raw['.tag'];

@@ -708,4 +708,73 @@ describe('DropboxClient', () => {
     expect(typeof (caught as NetworkError).code).toBe('string');
     expect(typeof (caught as NetworkError).message).toBe('string');
   });
+
+  // -------------------------------------------------------------------------
+  // Path normalisation — every files/* SDK call must receive a leading slash.
+  //
+  // Regression for the live-Dropbox 400 we hit on 2026-04-25: src/util/paths
+  // produces `Apps/Archivist/<prefix>/...` (no leading slash); Dropbox API
+  // rejects that with HTTP 400 "Malformed request". Our prior tests did not
+  // catch it because the SDK mocks never validated the path argument.
+  // -------------------------------------------------------------------------
+
+  it('files_download_call_receives_path_with_leading_slash', async () => {
+    let observed = '';
+    const { client } = buildClient({
+      filesDownload: (arg: unknown) => {
+        observed = (arg as { path: string }).path;
+        return sdkResponse({ fileBinary: new TextEncoder().encode('{"x":1}') });
+      },
+    });
+    await client.downloadJson('Apps/Archivist/test-vault/HEAD.json');
+    expect(observed).toBe('/Apps/Archivist/test-vault/HEAD.json');
+  });
+
+  it('files_upload_call_receives_path_with_leading_slash', async () => {
+    let observed = '';
+    const { client } = buildClient({
+      filesUpload: (arg: unknown) => {
+        observed = (arg as { path: string }).path;
+        return sdkResponse({});
+      },
+    });
+    await client.uploadBlob('Apps/Archivist/test-vault/HEAD.json', new Uint8Array([1, 2, 3]));
+    expect(observed).toBe('/Apps/Archivist/test-vault/HEAD.json');
+  });
+
+  it('files_delete_v2_call_receives_path_with_leading_slash', async () => {
+    let observed = '';
+    const { client } = buildClient({
+      filesDeleteV2: (arg: unknown) => {
+        observed = (arg as { path: string }).path;
+        return sdkResponse({ metadata: {} });
+      },
+    });
+    await client.deleteV2('Apps/Archivist/test-vault/old.bin');
+    expect(observed).toBe('/Apps/Archivist/test-vault/old.bin');
+  });
+
+  it('files_list_folder_call_receives_path_with_leading_slash', async () => {
+    let observed = '';
+    const { client } = buildClient({
+      filesListFolder: (arg: unknown) => {
+        observed = (arg as { path: string }).path;
+        return sdkResponse({ entries: [], cursor: '', has_more: false });
+      },
+    });
+    await client.listFolder('Apps/Archivist/test-vault/content/00');
+    expect(observed).toBe('/Apps/Archivist/test-vault/content/00');
+  });
+
+  it('paths_already_starting_with_slash_pass_through_unchanged', async () => {
+    let observed = '';
+    const { client } = buildClient({
+      filesDownload: (arg: unknown) => {
+        observed = (arg as { path: string }).path;
+        return sdkResponse({ fileBinary: new TextEncoder().encode('{}') });
+      },
+    });
+    await client.downloadJson('/Apps/Archivist/test-vault/HEAD.json');
+    expect(observed).toBe('/Apps/Archivist/test-vault/HEAD.json');
+  });
 });
