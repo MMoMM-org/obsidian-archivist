@@ -76,7 +76,7 @@ describe('Integration — retention-35d soak', () => {
 
     // Seed the snapshot_index
     const vaultPrefix = 'test-vault';
-    const indexPath = `Apps/Archivist/${vaultPrefix}/snapshot_index.json`;
+    const indexPath = `${vaultPrefix}/snapshot_index.json`;
     const snapshotIndex: SnapshotIndex = {
       schema_version: '1.0',
       last_updated_at: new Date(base + 34 * DAY_MS).toISOString(),

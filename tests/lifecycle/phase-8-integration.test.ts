@@ -204,7 +204,7 @@ function fixtureLoader(fx: HistoryFixture): ManifestLoader {
 function fixtureDropbox(fx: HistoryFixture): { downloadBytes: (p: string) => Promise<Uint8Array> } {
   return {
     downloadBytes: async (path: string): Promise<Uint8Array> => {
-      // path layout: Apps/Archivist/test-vault/content/<bucket>/<hash>
+      // path layout: test-vault/content/<bucket>/<hash>
       const match = /content\/[0-9a-f]{2}\/([0-9a-f]{64})$/.exec(path);
       if (!match) throw new Error(`fixture: bad content path ${path}`);
       const hash = match[1];
@@ -404,7 +404,7 @@ describe('Phase 8 integration — CLI parity', () => {
 
   it('ManifestCache wired to the on-disk fixture fetches + caches correctly', async () => {
     const downloadJson = vi.fn(async (path: string): Promise<unknown> => {
-      const rel = path.replace(/^Apps\/Archivist\/test-vault\//, '');
+      const rel = path.replace(/^test-vault\//, '');
       return JSON.parse(await readFile(join(root, rel), 'utf8'));
     });
     const cache = new ManifestCache({

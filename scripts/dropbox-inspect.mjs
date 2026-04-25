@@ -48,7 +48,11 @@ const DEFAULT_CLIENT_ID = 'aanoqah5sn73rjb';
 const TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';
 const API = 'https://api.dropboxapi.com/2';
 const CONTENT = 'https://content.dropboxapi.com/2';
-const APP_FOLDER_ROOT = 'Apps/Archivist';
+
+// Plugin paths are app-folder-relative — Dropbox auto-prepends /Apps/Archivist/
+// server-side because the OAuth app is App-Folder scoped. The script accesses
+// the same scope via the user's tokens, so it must use the same form.
+const APP_FOLDER_ROOT = '';
 
 // Local test-vault paths — the script lives in scripts/, so resolve relative
 // to the repo root (one level up) and let env vars override.

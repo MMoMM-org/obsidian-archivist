@@ -32,7 +32,7 @@ function makeEntries(sizes: Array<number | undefined>): ListFolderEntry[] {
   return sizes.map((size, i) => {
     const entry: ListFolderEntry = {
       tag: 'file',
-      path: `Apps/Archivist/my-vault/file${i}.md`,
+      path: `my-vault/file${i}.md`,
     };
     if (size !== undefined) entry.size = size;
     return entry;
@@ -131,7 +131,7 @@ describe('StorageProbe.estimateUsage', () => {
     const { probe, dropbox } = makeProbe({ entries: [] });
     await probe.estimateUsage();
     expect(dropbox.listFolder).toHaveBeenCalledWith(
-      'Apps/Archivist/my-vault',
+      'my-vault',
       { recursive: true },
     );
   });
@@ -249,9 +249,9 @@ describe('StorageProbe.estimateUsage', () => {
 
   it('skips folder and deleted entries (only sums file entries)', async () => {
     const entries: ListFolderEntry[] = [
-      { tag: 'file', path: 'Apps/Archivist/my-vault/file.md', size: 500 },
-      { tag: 'folder', path: 'Apps/Archivist/my-vault/subdir' },
-      { tag: 'deleted', path: 'Apps/Archivist/my-vault/old.md' },
+      { tag: 'file', path: 'my-vault/file.md', size: 500 },
+      { tag: 'folder', path: 'my-vault/subdir' },
+      { tag: 'deleted', path: 'my-vault/old.md' },
     ];
     const { probe } = makeProbe({ entries });
     const report = await probe.estimateUsage();

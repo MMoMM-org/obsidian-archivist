@@ -141,10 +141,10 @@ function makeRttDropbox(chain: Chain) {
 
   const manifestsByPath = new Map<string, unknown>();
   for (const snap of chain.snapshots) {
-    const path = `Apps/Archivist/${VAULT_PREFIX}/snapshots/${snap.id}.json`;
+    const path = `${VAULT_PREFIX}/snapshots/${snap.id}.json`;
     manifestsByPath.set(path, snap);
   }
-  const indexPath = `Apps/Archivist/${VAULT_PREFIX}/snapshot_index.json`;
+  const indexPath = `${VAULT_PREFIX}/snapshot_index.json`;
 
   return {
     downloadJson: async (path: string): Promise<unknown> => {
@@ -156,7 +156,7 @@ function makeRttDropbox(chain: Chain) {
     },
     downloadBytes: async (path: string): Promise<Uint8Array> => {
       await delay();
-      // Content path format: Apps/Archivist/<prefix>/content/<hex2>/<hash>
+      // Content path format: <prefix>/content/<hex2>/<hash>
       const hash = path.split('/').pop() ?? '';
       const bytes = chain.fileContentsByHash.get(hash);
       if (!bytes) throw new Error(`Content not found: ${path}`);

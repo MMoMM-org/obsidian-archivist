@@ -1,26 +1,35 @@
 import { PathError } from '../model/Errors';
 import type { SnapshotManifest } from '../model/Manifest';
 
-// All Dropbox paths live under `Apps/Archivist/` — enforced by the App-Folder
-// permission in the OAuth app itself. `assertInAppFolder` is a belt-and-braces
-// client-side guard so programmer mistakes can't send a request for a path
-// outside that scope.
+// Dropbox paths produced by the builders below are RELATIVE to the OAuth
+// app folder. Dropbox auto-prepends `/Apps/<AppName>/` server-side because
+// the app is registered with App-Folder permission scope (NOT Full Dropbox).
+// We must NOT include `Apps/Archivist/` in the paths we send — earlier
+// versions did, which produced data stored at
+// `/Apps/Archivist/Apps/Archivist/<vault_prefix>/...` (visible double prefix
+// in the Dropbox web UI). Fixed: paths are now `/<vault_prefix>/...` only.
 
-export const APP_FOLDER_ROOT = 'Apps/Archivist';
+// Kept as an exported empty string so external callers that want to refer
+// to "the app folder root" semantically still have a name; concatenation
+// with a prefix produces the leading-slash form Dropbox expects.
+export const APP_FOLDER_ROOT = '';
 
 // SEC-M7 — vault prefix format. Lowercase, alnum + dash/underscore, 2–64 chars,
 // must start with alnum. Rejects anything that could escape the App Folder or
 // be case-normalized by Dropbox in surprising ways (ADR-18).
 export const VAULT_PREFIX_REGEX = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 
+/**
+ * Path-traversal guard. With App-Folder scope, Dropbox itself enforces that
+ * paths cannot escape the app folder, so the historic `Apps/Archivist/`
+ * prefix-check is gone — but `..` segments would still be a programmer
+ * mistake worth catching client-side.
+ */
 export function assertInAppFolder(path: string): void {
   if (typeof path !== 'string' || path.length === 0) {
     throw new PathError('INVALID_PATH', 'path must be a non-empty string', false);
   }
   const normalized = path.replace(/^\/+/, '');
-  if (!normalized.startsWith(APP_FOLDER_ROOT + '/') && normalized !== APP_FOLDER_ROOT) {
-    throw new PathError('PATH_OUTSIDE_APP_FOLDER', `path is not under ${APP_FOLDER_ROOT}/: ${path}`, false);
-  }
   if (normalized.includes('..')) {
     throw new PathError('PATH_TRAVERSAL', `path contains '..': ${path}`, false);
   }
@@ -54,9 +63,11 @@ export function slugifyVaultName(name: string): string {
 
 // Remote-path builders. Callers pass the already-validated vault prefix; these
 // functions never attempt to re-slugify, to avoid double-normalization bugs.
+// Returned paths are app-folder-relative (Dropbox prepends `/Apps/Archivist/`
+// on the server because the OAuth app is App-Folder scoped).
 export function vaultRoot(prefix: string): string {
   validateVaultPrefix(prefix);
-  return `${APP_FOLDER_ROOT}/${prefix}`;
+  return prefix;
 }
 
 export function headPath(prefix: string): string {

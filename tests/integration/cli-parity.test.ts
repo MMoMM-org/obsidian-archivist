@@ -63,17 +63,17 @@ describe('Integration — CLI parity (import-based)', () => {
 
     // Seed snapshots into mock Dropbox
     const allSnapshots = mergeSpec.snapshots;
-    const snapshotIndexPath = `Apps/Archivist/${vaultPrefix}/snapshot_index.json`;
+    const snapshotIndexPath = `${vaultPrefix}/snapshot_index.json`;
 
     for (const snap of allSnapshots) {
       const manifest = buildManifest(snap, vaultPrefix);
-      const snapPath = `Apps/Archivist/${vaultPrefix}/snapshots/${snap.id}.json`;
+      const snapPath = `${vaultPrefix}/snapshots/${snap.id}.json`;
       fix.mockDropbox.seedJson(snapPath, manifest);
 
       // Seed content blobs
       for (const f of snap.files ?? []) {
         const hash = sha256HexSync(f.content);
-        const blobPath = `Apps/Archivist/${vaultPrefix}/content/${hash.slice(0, 2)}/${hash}`;
+        const blobPath = `${vaultPrefix}/content/${hash.slice(0, 2)}/${hash}`;
         if (!fix.mockDropbox.store.has(blobPath)) {
           fix.mockDropbox.store.set(blobPath, new TextEncoder().encode(f.content));
         }
@@ -139,16 +139,16 @@ describe('Integration — CLI parity (import-based)', () => {
     for (const snap of allSnapshots) {
       const manifest = buildManifest(snap, vaultPrefix);
       fix.mockDropbox.seedJson(
-        `Apps/Archivist/${vaultPrefix}/snapshots/${snap.id}.json`,
+        `${vaultPrefix}/snapshots/${snap.id}.json`,
         manifest,
       );
       for (const f of snap.files ?? []) {
         const hash = sha256HexSync(f.content);
-        const blobPath = `Apps/Archivist/${vaultPrefix}/content/${hash.slice(0, 2)}/${hash}`;
+        const blobPath = `${vaultPrefix}/content/${hash.slice(0, 2)}/${hash}`;
         fix.mockDropbox.store.set(blobPath, new TextEncoder().encode(f.content));
       }
     }
-    fix.mockDropbox.seedJson(`Apps/Archivist/${vaultPrefix}/snapshot_index.json`, {
+    fix.mockDropbox.seedJson(`${vaultPrefix}/snapshot_index.json`, {
       schema_version: '1.0',
       last_updated_at: allSnapshots[allSnapshots.length - 1].created_at,
       snapshots: allSnapshots.map((s) => ({
@@ -164,7 +164,7 @@ describe('Integration — CLI parity (import-based)', () => {
     // Corrupt one blob: overwrite content for 'notes/original.md' with garbage
     const originalContent = '# Original v1';
     const originalHash = sha256HexSync(originalContent);
-    const corruptBlobPath = `Apps/Archivist/${vaultPrefix}/content/${originalHash.slice(0, 2)}/${originalHash}`;
+    const corruptBlobPath = `${vaultPrefix}/content/${originalHash.slice(0, 2)}/${originalHash}`;
     fix.mockDropbox.store.set(corruptBlobPath, new TextEncoder().encode('CORRUPTED_DATA'));
 
     // fetchContent performs hash verification — should throw CorruptionError

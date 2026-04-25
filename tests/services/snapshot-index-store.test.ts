@@ -48,7 +48,7 @@ function makeFakeDropbox(initialContent?: { path: string; value: unknown }): Fak
 // ---------------------------------------------------------------------------
 
 const VAULT_PREFIX = 'test-vault';
-const SNAPSHOT_INDEX_PATH = `Apps/Archivist/${VAULT_PREFIX}/snapshot_index.json`;
+const SNAPSHOT_INDEX_PATH = `${VAULT_PREFIX}/snapshot_index.json`;
 
 function makeEntry(overrides?: Partial<SnapshotIndexEntry>): SnapshotIndexEntry {
   return {

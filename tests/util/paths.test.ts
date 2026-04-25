@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  APP_FOLDER_ROOT,
   VAULT_PREFIX_REGEX,
   assertInAppFolder,
   contentPath,
@@ -16,20 +15,22 @@ import {
 import { PathError } from '../../src/model/Errors';
 
 describe('paths — assertInAppFolder', () => {
+  // App-Folder OAuth scope means Dropbox enforces the folder boundary
+  // server-side. The client-side assertion is now only a `..` traversal
+  // guard plus a non-empty check.
   it.each([
-    `${APP_FOLDER_ROOT}/my-vault/HEAD.json`,
-    `${APP_FOLDER_ROOT}/my-vault/snapshots/2026-04-23T03-00-full.json`,
-    APP_FOLDER_ROOT,
+    'my-vault/HEAD.json',
+    'my-vault/snapshots/2026-04-23T03-00-full.json',
+    '/my-vault/HEAD.json',
+    'just-a-prefix',
   ])('accepts: %s', (p) => {
     expect(() => assertInAppFolder(p)).not.toThrow();
   });
 
   it.each([
     '',
-    '/etc/passwd',
-    'Apps/Evil/foo',
-    `${APP_FOLDER_ROOT}/../escape`,
-    'not-apps/Archivist/foo',
+    'my-vault/../escape',
+    'foo/../../etc/passwd',
   ])('rejects: %s', (p) => {
     expect(() => assertInAppFolder(p)).toThrow(PathError);
   });
@@ -79,17 +80,20 @@ describe('paths — slugifyVaultName', () => {
 describe('paths — remote-path builders', () => {
   const prefix = 'my-vault';
 
-  it('builds the canonical paths', () => {
-    expect(vaultRoot(prefix)).toBe('Apps/Archivist/my-vault');
-    expect(headPath(prefix)).toBe('Apps/Archivist/my-vault/HEAD.json');
-    expect(snapshotIndexPath(prefix)).toBe('Apps/Archivist/my-vault/snapshot_index.json');
-    expect(gcLockPath(prefix)).toBe('Apps/Archivist/my-vault/gc_lock');
-    expect(snapshotsDir(prefix)).toBe('Apps/Archivist/my-vault/snapshots');
+  it('builds the canonical paths (app-folder-relative)', () => {
+    // Dropbox prepends `/Apps/Archivist/` server-side because the OAuth app
+    // is App-Folder scoped. The builders MUST NOT include that prefix —
+    // they did until the path-double-prefix bug was fixed.
+    expect(vaultRoot(prefix)).toBe('my-vault');
+    expect(headPath(prefix)).toBe('my-vault/HEAD.json');
+    expect(snapshotIndexPath(prefix)).toBe('my-vault/snapshot_index.json');
+    expect(gcLockPath(prefix)).toBe('my-vault/gc_lock');
+    expect(snapshotsDir(prefix)).toBe('my-vault/snapshots');
   });
 
   it('snapshotPath uses ISO-with-dashes', () => {
     const p = snapshotPath({ vault_prefix: prefix, id: '2026-04-23T03-15-inc' });
-    expect(p).toBe('Apps/Archivist/my-vault/snapshots/2026-04-23T03-15-inc.json');
+    expect(p).toBe('my-vault/snapshots/2026-04-23T03-15-inc.json');
   });
 
   it('snapshotPath rejects bad ids', () => {
@@ -99,7 +103,7 @@ describe('paths — remote-path builders', () => {
 
   it('contentPath buckets by first 2 hex chars', () => {
     const hash = 'abcdef' + '0'.repeat(58);
-    expect(contentPath(prefix, hash)).toBe(`Apps/Archivist/my-vault/content/ab/${hash}`);
+    expect(contentPath(prefix, hash)).toBe(`my-vault/content/ab/${hash}`);
   });
 
   it('contentPath rejects non-hex or wrong-length hash', () => {

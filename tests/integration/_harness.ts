@@ -397,7 +397,7 @@ export function createArchivistFixture(config: FixtureConfig = {}): Fixture {
     logger,
   });
 
-  const root = `Apps/Archivist/${vaultPrefix}`;
+  const root = `${vaultPrefix}`;
   const paths: Fixture['paths'] = {
     head: () => `${root}/HEAD.json`,
     snapshotIndex: () => `${root}/snapshot_index.json`,
