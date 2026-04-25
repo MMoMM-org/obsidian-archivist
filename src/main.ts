@@ -465,20 +465,23 @@ export default class ArchivistPlugin extends Plugin {
     const statusBarEl = this.addStatusBarItem();
     statusBarEl.addClass('mod-clickable');
     let statusIconEl: HTMLElement | null = null;
-    let statusLabelEl: HTMLElement | null = null;
     let appliedStatusClasses: string[] = [];
     const statusBarHost: StatusBarHost = {
       create: ({ onClick }) => {
         statusBarEl.empty();
         statusIconEl = statusBarEl.createSpan({ cls: 'archivist-status-icon' });
-        statusLabelEl = statusBarEl.createSpan({ cls: 'archivist-status-label' });
+        // Per user feedback: text label takes too much space in the status
+        // bar. Keep the StatusBar.setLabel API for symmetry with the ribbon
+        // tooltip, but route it into aria-label only — screen readers and
+        // hover tooltips still get the state copy, the visual surface stays
+        // icon-only.
         statusBarEl.addEventListener('click', onClick);
         const handle: StatusBarHandle = {
           setIcon: (name) => {
             if (statusIconEl) setIcon(statusIconEl, name);
           },
           setLabel: (text) => {
-            if (statusLabelEl) statusLabelEl.setText(text);
+            statusBarEl.setAttribute('aria-label', text);
           },
           setAriaLabel: (label) => {
             statusBarEl.setAttribute('aria-label', label);
