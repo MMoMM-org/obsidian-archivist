@@ -268,21 +268,30 @@ export class OAuthConnectFlow {
    * failure — the caller can still proceed; the email is purely a display
    * value.
    *
-   * Wired by `main.ts` after `handleCallback` succeeds: the email is then
-   * persisted into tokens.json so it survives a plugin reload.
+   * Bypasses `httpPost` because the shared helper hardcodes
+   * `contentType: 'application/x-www-form-urlencoded'` for the OAuth
+   * token-exchange endpoint. `/2/users/get_current_account` rejects that
+   * header with HTTP 400 — Dropbox requires either `application/json` (with
+   * a JSON body) or no Content-Type at all for parameter-less endpoints. We
+   * use the latter and call `requestUrl` directly.
+   *
+   * Wired by `main.ts` after `handleCallback` succeeds and from the onload
+   * backfill path; the email is persisted into tokens.json so it survives a
+   * plugin reload.
    */
   async fetchAccountEmail(accessToken: string): Promise<string | null> {
     try {
-      const response = await this.httpPost(
-        DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL,
-        new URLSearchParams(),
-        { Authorization: `Bearer ${accessToken}` },
-      );
-      if (!response.ok) {
-        this.logger.warn('account_email_fetch_failed', { status: response.status });
+      const resp = await requestUrl({
+        url: DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        throw: false,
+      });
+      if (resp.status < 200 || resp.status >= 300) {
+        this.logger.warn('account_email_fetch_failed', { status: resp.status });
         return null;
       }
-      const parsed = await response.json();
+      const parsed = (resp.json ?? JSON.parse(resp.text)) as unknown;
       const email = extractString(parsed, 'email');
       return email && email.length > 0 ? email : null;
     } catch (err) {
