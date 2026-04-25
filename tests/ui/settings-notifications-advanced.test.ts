@@ -17,13 +17,16 @@ function makeCtx(opts: StubOpts = {}): {
   ctx: SettingsContext;
   updates: Array<Partial<PluginSettings>>;
   confirmCalls: number;
+  settingsRef: { settings: PluginSettings };
 } {
-  const settings = opts.settings ?? DEFAULT_SETTINGS;
+  const settingsRef: { settings: PluginSettings } = {
+    settings: opts.settings ?? DEFAULT_SETTINGS,
+  };
   const updates: Array<Partial<PluginSettings>> = [];
   let confirmCalls = 0;
 
   const ctx: SettingsContext = {
-    getSettings: () => settings,
+    getSettings: () => settingsRef.settings,
     updateSettings: async (patch) => {
       updates.push(patch);
     },
@@ -58,10 +61,16 @@ function makeCtx(opts: StubOpts = {}): {
   return {
     ctx,
     updates,
+    settingsRef,
     get confirmCalls() {
       return confirmCalls;
     },
-  } as { ctx: SettingsContext; updates: Array<Partial<PluginSettings>>; confirmCalls: number };
+  } as {
+    ctx: SettingsContext;
+    updates: Array<Partial<PluginSettings>>;
+    confirmCalls: number;
+    settingsRef: { settings: PluginSettings };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,40 +195,65 @@ describe('renderAdvanced — vault prefix', () => {
     expect(field?.validate?.('a')).not.toBeNull();
   });
 
-  it('onChange to a NEW valid prefix invokes ctx.confirm before persisting', async () => {
+  it('onChange to a NEW valid prefix persists immediately (no confirm)', async () => {
+    // The previous implementation wrapped the save in an async confirm chain;
+    // ctx.confirm in production is a stub (async () => true) so the modal
+    // never actually appeared, the latency just added a stale-closure race
+    // that caused the field to revert to '' after typing. Save now runs
+    // synchronously (no confirm step in this section).
     const host = new RecordingSectionHost();
     const settings = {
       ...DEFAULT_SETTINGS,
       advanced: { ...DEFAULT_SETTINGS.advanced, vault_prefix: 'old-prefix' },
     };
-    const harness = makeCtx({ settings, confirmResult: true });
+    const harness = makeCtx({ settings });
     renderAdvanced(host, harness.ctx);
 
     host.findField('text', S.SETTINGS_VAULT_PREFIX)!.onChange('new-prefix');
-    // The onChange triggers an async confirm → updateSettings chain. Yield.
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(harness.confirmCalls).toBe(1);
+    expect(harness.confirmCalls).toBe(0);
     expect(harness.updates[0].advanced?.vault_prefix).toBe('new-prefix');
   });
 
-  it('confirm=false cancels the change; updateSettings is NOT called', async () => {
+  it('onChange uses the CURRENT advanced state (fresh ctx.getSettings), not the render-time closure', async () => {
+    // Regression: previously the patch carried render-time values for every
+    // OTHER advanced field, so a concurrent save from a different section
+    // could be silently overwritten. The new implementation reads
+    // ctx.getSettings() at change-time so concurrent edits compose correctly.
     const host = new RecordingSectionHost();
-    const settings = {
+    const initial = {
       ...DEFAULT_SETTINGS,
-      advanced: { ...DEFAULT_SETTINGS.advanced, vault_prefix: 'old' },
+      advanced: {
+        ...DEFAULT_SETTINGS.advanced,
+        vault_prefix: '',
+        diagnostic_logging: false,
+      },
     };
-    const harness = makeCtx({ settings, confirmResult: false });
+    const harness = makeCtx({ settings: initial });
     renderAdvanced(host, harness.ctx);
 
-    host.findField('text', S.SETTINGS_VAULT_PREFIX)!.onChange('new-one');
+    // Simulate another section flipping diagnostic_logging on AFTER renderAdvanced
+    // captured its closure but BEFORE the user types into the prefix field.
+    harness.settingsRef.settings = {
+      ...initial,
+      advanced: { ...initial.advanced, diagnostic_logging: true },
+    };
+
+    host.findField('text', S.SETTINGS_VAULT_PREFIX)!.onChange('new-prefix');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(harness.confirmCalls).toBe(1);
-    expect(harness.updates).toHaveLength(0);
+    // The save merged the FRESH advanced state (with diagnostic_logging=true)
+    // and overlaid only vault_prefix.
+    expect(harness.updates[0].advanced).toEqual(
+      expect.objectContaining({
+        vault_prefix: 'new-prefix',
+        diagnostic_logging: true,
+      }),
+    );
   });
 
-  it('onChange to the SAME value is a no-op (no confirm, no update)', async () => {
+  it('onChange to the SAME value is a no-op (no update)', async () => {
     const host = new RecordingSectionHost();
     const settings = {
       ...DEFAULT_SETTINGS,

@@ -81,7 +81,22 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     },
   });
 
-  // ---- Vault prefix (with confirm modal on change) ------------------------
+  // ---- Vault prefix --------------------------------------------------------
+  // Reads the current advanced settings via ctx.getSettings() at change-time
+  // rather than the closure-captured `a` from render-time. With per-keystroke
+  // onChange firing on the same input, a stale closure caused two real bugs:
+  //   1. `merge(a, { vault_prefix: v })` carried RENDER-TIME values for every
+  //      other advanced field, so any concurrent save from a different
+  //      section could be overwritten.
+  //   2. The `if (v === a.vault_prefix) return` early-return compared against
+  //      a frozen value, so duplicate-save suppression silently broke after
+  //      the first save landed.
+  // The previous implementation also wrapped the save in an async IIFE that
+  // awaited ctx.confirm — that confirm is currently a stub (`async () => true`)
+  // in main.ts wiring, so the ceremony added latency without prompting the
+  // user. Drop it; if/when a real confirm modal is wired, it becomes a
+  // separate explicit Save action rather than hiding inside per-keystroke
+  // onChange.
   host.field({
     kind: 'text',
     label: S.SETTINGS_VAULT_PREFIX,
@@ -89,19 +104,11 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     value: a.vault_prefix,
     onChange: (v) => {
       if (!VAULT_PREFIX_REGEX.test(v)) return;
-      if (v === a.vault_prefix) return;
-      void (async (): Promise<void> => {
-        const ok = await ctx.confirm({
-          title: 'Change Dropbox vault folder?',
-          body:
-            'Changing the folder name starts a fresh backup history at the new path. ' +
-            'Your previous backups remain under the old folder until you clean them up manually.',
-          okLabel: 'Change folder',
-          cancelLabel: 'Cancel',
-        });
-        if (!ok) return;
-        await ctx.updateSettings({ advanced: merge(a, { vault_prefix: v }) });
-      })();
+      const currentAdvanced = ctx.getSettings().advanced;
+      if (v === currentAdvanced.vault_prefix) return;
+      void ctx.updateSettings({
+        advanced: merge(currentAdvanced, { vault_prefix: v }),
+      });
     },
     validate: (v) =>
       VAULT_PREFIX_REGEX.test(v)
