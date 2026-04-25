@@ -28,6 +28,7 @@ import {
 } from './ui/Commands';
 import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView } from './ui/BackupBrowserView';
+import { FileHistoryModal } from './ui/FileHistoryModal';
 import { sha256hex } from './infra/Hasher';
 import { slugifyVaultName } from './util/paths';
 import { epochMsFromSnapshotId } from './util/time';
@@ -531,6 +532,37 @@ export default class ArchivistPlugin extends Plugin {
       },
       onOpen: (path: string) => {
         this.logger.info('show_history_command', { path });
+        // Async fetch of the snapshot chain + per-path version list, then
+        // open the modal. Errors fall back to a toast — the modal itself
+        // doesn't have a "loading failed" state and we'd rather not show an
+        // empty modal on a broken cache.
+        void (async (): Promise<void> => {
+          try {
+            const snapshots = await manifestCache.listSnapshotsNewestFirst();
+            const manifests = await Promise.all(
+              snapshots.map((s) => manifestCache.loadManifest(s.id)),
+            );
+            const entries = restoreService.listVersionsForPath(path, manifests);
+            const stat = await vaultAdapter.stat(path).catch(() => null);
+            new FileHistoryModal(this.app, {
+              currentPath: path,
+              entries,
+              restoreService,
+              restoreOperations,
+              vaultInfo: {
+                exists: stat !== null,
+                size: stat?.size ?? 0,
+                mtime: stat?.mtime ?? 0,
+              },
+              vaultHasPath: (p) => vaultAdapter.getFiles().some((f) => f.path === p),
+            }).open();
+          } catch (err) {
+            this.logger.warn('show_history_command_failed', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+            notify(S.TOAST_ERROR_GENERIC);
+          }
+        })();
       },
     });
 
