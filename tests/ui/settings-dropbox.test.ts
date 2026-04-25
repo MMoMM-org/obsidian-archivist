@@ -81,7 +81,7 @@ function makeCtx(opts: StubOpts = {}): {
 // ---------------------------------------------------------------------------
 
 describe('renderDropbox — disconnected', () => {
-  it('shows empty-state title + body + Connect button', () => {
+  it('shows empty-state title + body + a single Connect action on the Account row', () => {
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: null }).ctx);
 
@@ -92,22 +92,23 @@ describe('renderDropbox — disconnected', () => {
     expect(staticTexts).toContain(S.OAUTH_EMPTY_STATE_TITLE);
     expect(staticTexts).toContain(S.OAUTH_EMPTY_STATE_BODY);
 
-    const buttons = host.fields().filter((f) => f.kind === 'button');
-    expect(buttons).toHaveLength(1);
-    expect((buttons[0] as { label: string }).label).toBe(S.OAUTH_CONNECT_BUTTON);
+    const account = host.findField('actionRow', 'Account');
+    expect(account).toBeDefined();
+    expect(account?.description).toBe(S.OAUTH_NOT_CONNECTED);
+    expect(account?.actions).toHaveLength(1);
+    expect(account?.actions[0].label).toBe(S.OAUTH_CONNECT_BUTTON);
   });
 
-  it('Connect button invokes ctx.oauth.beginAuth', () => {
+  it('Connect action invokes ctx.oauth.beginAuth', () => {
     const host = new RecordingSectionHost();
     const harness = makeCtx({ email: null });
     renderDropbox(host, harness.ctx);
-    const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_CONNECT_BUTTON);
-    expect(btn).toBeDefined();
-    (btn as { onClick: () => void }).onClick();
+    const account = host.findField('actionRow', 'Account');
+    account?.actions[0].onClick();
     expect(harness.beginAuthCalls).toBe(1);
   });
 
-  it('Connect button is rendered as a regular button, not CTA', () => {
+  it('Connect action is rendered without CTA / warning styling', () => {
     // Themes that override --interactive-accent or --text-on-accent can render
     // mod-cta buttons unreadable (e.g. white text on a white button bg). The
     // standard button uses --text-normal on --interactive-normal — a pair that
@@ -115,8 +116,9 @@ describe('renderDropbox — disconnected', () => {
     // label is always readable.
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: null }).ctx);
-    const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_CONNECT_BUTTON);
-    expect((btn as { cta?: boolean }).cta).toBeFalsy();
+    const action = host.findField('actionRow', 'Account')?.actions[0];
+    expect(action?.cta).toBeFalsy();
+    expect(action?.warning).toBeFalsy();
   });
 
   it('renders plaintext-token disclosure in disconnected state', () => {
@@ -135,29 +137,38 @@ describe('renderDropbox — disconnected', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderDropbox — connected', () => {
-  it('shows "Connected as <email>" readonly row', () => {
+  it('shows "Connected as <email>" as the Account row description', () => {
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: 'marcus@example.com' }).ctx);
-    const ro = host.findField('readonly', 'Account');
-    expect(ro?.value).toBe(S.OAUTH_CONNECTED_AS('marcus@example.com'));
+    const account = host.findField('actionRow', 'Account');
+    expect(account?.description).toBe(S.OAUTH_CONNECTED_AS('marcus@example.com'));
   });
 
-  it('renders Re-authenticate + Disconnect buttons', () => {
+  it('Account row exposes Re-authenticate + Disconnect actions in that order', () => {
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: 'x@y.z' }).ctx);
-    const labels = host
-      .fields()
-      .filter((f) => f.kind === 'button')
-      .map((f) => (f as { label: string }).label);
+    const labels = host.findField('actionRow', 'Account')?.actions.map((a) => a.label);
     expect(labels).toEqual([S.OAUTH_REAUTHENTICATE_BUTTON, S.OAUTH_DISCONNECT_BUTTON]);
+  });
+
+  it('Disconnect action is flagged as warning (destructive)', () => {
+    const host = new RecordingSectionHost();
+    renderDropbox(host, makeCtx({ email: 'x@y.z' }).ctx);
+    const actions = host.findField('actionRow', 'Account')?.actions ?? [];
+    const reauth = actions.find((a) => a.label === S.OAUTH_REAUTHENTICATE_BUTTON);
+    const disconnect = actions.find((a) => a.label === S.OAUTH_DISCONNECT_BUTTON);
+    expect(reauth?.warning).toBeFalsy();
+    expect(disconnect?.warning).toBe(true);
   });
 
   it('Re-authenticate invokes beginAuth', () => {
     const host = new RecordingSectionHost();
     const harness = makeCtx({ email: 'x@y.z' });
     renderDropbox(host, harness.ctx);
-    const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_REAUTHENTICATE_BUTTON);
-    (btn as { onClick: () => void }).onClick();
+    const reauth = host
+      .findField('actionRow', 'Account')
+      ?.actions.find((a) => a.label === S.OAUTH_REAUTHENTICATE_BUTTON);
+    reauth?.onClick();
     expect(harness.beginAuthCalls).toBe(1);
   });
 
@@ -165,8 +176,10 @@ describe('renderDropbox — connected', () => {
     const host = new RecordingSectionHost();
     const harness = makeCtx({ email: 'x@y.z', confirmResult: true });
     renderDropbox(host, harness.ctx);
-    const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_DISCONNECT_BUTTON);
-    (btn as { onClick: () => void }).onClick();
+    const disconnect = host
+      .findField('actionRow', 'Account')
+      ?.actions.find((a) => a.label === S.OAUTH_DISCONNECT_BUTTON);
+    disconnect?.onClick();
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.confirmCalls).toBe(1);
     expect(harness.disconnectCalls).toBe(1);
@@ -176,8 +189,10 @@ describe('renderDropbox — connected', () => {
     const host = new RecordingSectionHost();
     const harness = makeCtx({ email: 'x@y.z', confirmResult: false });
     renderDropbox(host, harness.ctx);
-    const btn = host.fields().find((f) => f.kind === 'button' && f.label === S.OAUTH_DISCONNECT_BUTTON);
-    (btn as { onClick: () => void }).onClick();
+    const disconnect = host
+      .findField('actionRow', 'Account')
+      ?.actions.find((a) => a.label === S.OAUTH_DISCONNECT_BUTTON);
+    disconnect?.onClick();
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.confirmCalls).toBe(1);
     expect(harness.disconnectCalls).toBe(0);

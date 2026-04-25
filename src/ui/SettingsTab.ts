@@ -20,7 +20,13 @@
 
 import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian';
 import type { NoticeCenter, PersistentBanner } from './NoticeCenter';
-import type { FieldSpec, SectionHost, BannerSpec, LinkFieldSpec } from './settings/SectionHost';
+import type {
+  FieldSpec,
+  SectionHost,
+  BannerSpec,
+  LinkFieldSpec,
+  ActionRowFieldSpec,
+} from './settings/SectionHost';
 import type { SettingsContext } from './settings/context';
 import { renderBackupSchedule } from './settings/sections/BackupSchedule';
 import { renderRetention } from './settings/sections/Retention';
@@ -199,6 +205,9 @@ class ObsidianSectionHost implements SectionHost {
       case 'button':
         this.renderButton(spec);
         return;
+      case 'actionRow':
+        this.renderActionRow(spec);
+        return;
       case 'readonly':
         this.renderReadonly(spec);
         return;
@@ -230,6 +239,18 @@ class ObsidianSectionHost implements SectionHost {
   // ---------------------------------------------------------------------------
   // Per-field renderers — thin wrappers over Obsidian Setting
   // ---------------------------------------------------------------------------
+
+  private renderActionRow(spec: ActionRowFieldSpec): void {
+    const setting = new Setting(this.container).setName(spec.label);
+    if (spec.description) setting.setDesc(spec.description);
+    for (const action of spec.actions) {
+      setting.addButton((btn) => {
+        btn.setButtonText(action.label).onClick(action.onClick);
+        if (action.cta) btn.setCta();
+        if (action.warning) btn.setWarning();
+      });
+    }
+  }
 
   private renderLink(spec: LinkFieldSpec): void {
     const wrapper = this.container.createDiv({ cls: 'archivist-link-row' });

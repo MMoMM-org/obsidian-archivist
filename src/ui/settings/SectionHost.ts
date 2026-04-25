@@ -82,6 +82,25 @@ export interface ButtonFieldSpec {
   onClick: () => void;
 }
 
+/**
+ * Compact one-line row that combines a name + description + one or more inline
+ * action buttons. Used for state-driven controls like the Dropbox Account row,
+ * where the "stateful display" (Connected as …) and the "actions" (Re-auth /
+ * Disconnect) belong together visually rather than as separate Setting rows.
+ */
+export interface ActionRowFieldSpec {
+  kind: 'actionRow';
+  label: string;
+  description?: string;
+  actions: Array<{
+    label: string;
+    cta?: boolean;
+    /** Renders with Obsidian's `mod-warning` class — used for destructive actions. */
+    warning?: boolean;
+    onClick: () => void;
+  }>;
+}
+
 export interface ReadOnlyFieldSpec {
   kind: 'readonly';
   label: string;
@@ -118,6 +137,7 @@ export type FieldSpec =
   | TextareaFieldSpec
   | SliderFieldSpec
   | ButtonFieldSpec
+  | ActionRowFieldSpec
   | ReadOnlyFieldSpec
   | StaticTextSpec
   | LinkFieldSpec

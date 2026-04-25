@@ -42,6 +42,7 @@ export const S = {
   OAUTH_EMPTY_STATE_BODY:
     'Archivist stores backups in an app-scoped folder (Apps/Archivist/) and can only read or write within that folder.',
   OAUTH_CONNECT_BUTTON: 'Connect Dropbox',
+  OAUTH_NOT_CONNECTED: 'Not connected.',
   OAUTH_CONNECTING: 'Waiting for Dropbox authorization…',
   OAUTH_CONNECTED_AS: (email: string): string => `Connected as ${email}`,
   OAUTH_DISCONNECT_BUTTON: 'Disconnect',
