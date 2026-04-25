@@ -37,6 +37,7 @@ export interface ArchivistSettingTabDeps {
 
 export class ArchivistSettingTab extends PluginSettingTab {
   private unsubscribeBanners: (() => void) | null = null;
+  private refreshing = false;
 
   constructor(
     app: App,
@@ -63,6 +64,24 @@ export class ArchivistSettingTab extends PluginSettingTab {
     renderDropbox(host, this.deps.context);
 
     this.subscribeBannerUpdates();
+
+    // Background refresh of async fields (Dropbox account email, device id,
+    // etc.) — re-renders if anything changed since last paint. Important for:
+    //   - First open after enable: tokens may have been written by a prior run
+    //   - After OAuth callback: settings tab needs to reflect connected state
+    //   - After Disconnect: settings tab needs to switch to empty state
+    if (!this.refreshing) {
+      void this.refreshAsyncFields(/* forceRedisplay = */ false);
+    }
+  }
+
+  /**
+   * Public refresh — call after OAuth callback / disconnect / token mutation.
+   * Forces a re-render even if values haven't changed (defensive: ensures UI
+   * mirrors the latest backing state).
+   */
+  async refresh(): Promise<void> {
+    await this.refreshAsyncFields(/* forceRedisplay = */ true);
   }
 
   hide(): void {
@@ -77,6 +96,34 @@ export class ArchivistSettingTab extends PluginSettingTab {
       // rare (quota, auth-lost, device-conflict) so cost is acceptable.
       this.display();
     });
+  }
+
+  private async refreshAsyncFields(forceRedisplay: boolean): Promise<void> {
+    if (this.refreshing) return;
+    this.refreshing = true;
+    try {
+      const ctx = this.deps.context;
+      const [deviceId, designated, email, used] = await Promise.all([
+        ctx.device.getDeviceId().catch(() => ctx.deviceId),
+        ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
+        ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
+        ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
+      ]);
+      const changed =
+        ctx.deviceId !== deviceId ||
+        ctx.deviceDesignated !== designated ||
+        ctx.dropboxAccountEmail !== email ||
+        ctx.dropboxUsedBytes !== used;
+      ctx.deviceId = deviceId;
+      ctx.deviceDesignated = designated;
+      ctx.dropboxAccountEmail = email;
+      ctx.dropboxUsedBytes = used;
+      if (changed || forceRedisplay) {
+        this.display();
+      }
+    } finally {
+      this.refreshing = false;
+    }
   }
 }
 

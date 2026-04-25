@@ -44,6 +44,7 @@ export const S = {
   OAUTH_CONNECT_BUTTON: 'Connect Dropbox',
   OAUTH_CONNECTING: 'Waiting for Dropbox authorization…',
   OAUTH_CONNECTED_AS: (email: string): string => `Connected as ${email}`,
+  OAUTH_CONNECTED_FALLBACK: 'Dropbox connected.',
   OAUTH_DISCONNECT_BUTTON: 'Disconnect',
   OAUTH_DISCONNECT_CONFIRM_TITLE: 'Disconnect Dropbox?',
   OAUTH_DISCONNECT_CONFIRM_BODY:

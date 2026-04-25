@@ -88,6 +88,7 @@ export default class ArchivistPlugin extends Plugin {
   private fsm: SchedulerFSM | null = null;
   private ribbon: RibbonIcon | null = null;
   private maintenanceScheduler: MaintenanceScheduler | null = null;
+  private settingsTab: ArchivistSettingTab | null = null;
   // Exposed for integration tests via type assertion on the plugin instance.
   _backupService: BackupService | null = null;
   _restoreService: RestoreService | null = null;
@@ -112,8 +113,27 @@ export default class ArchivistPlugin extends Plugin {
 
     this.registerObsidianProtocolHandler('archivist-oauth', async (params) => {
       try {
-        await this.oauthFlow!.handleCallback(params as unknown as OAuthCallbackParams);
-        new Notice(S.OAUTH_CONNECTED_AS(''));
+        const tokens = await this.oauthFlow!.handleCallback(
+          params as unknown as OAuthCallbackParams,
+        );
+        // Best-effort: fetch the connected account email and persist it into
+        // tokens.json so the settings UI can show "Connected as <email>" both
+        // immediately AND across plugin reloads.
+        const email = await this.oauthFlow!.fetchAccountEmail(tokens.access_token);
+        if (email) {
+          await tokenStore.save({ ...tokens, dropbox_account_email: email });
+        }
+        // (Re)build the Dropbox SDK now that tokens exist.
+        await buildDropboxClient().catch((e) => {
+          this.logger.warn('dropbox_client_build_failed_after_oauth', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+        new Notice(email ? S.OAUTH_CONNECTED_AS(email) : S.OAUTH_CONNECTED_FALLBACK);
+        // Push the new email into the settings context and redraw the tab if
+        // it's currently open. Without this, the tab stays in empty-state until
+        // the user closes & reopens it.
+        await this.settingsTab?.refresh();
       } catch (err) {
         this.logger.error('oauth_callback_failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -452,8 +472,20 @@ export default class ArchivistPlugin extends Plugin {
         releaseOwnership: async () => {},
       },
       dropbox: {
-        getAccountEmail: async () => null,
-        disconnect: async () => { await tokenStore.clear(); },
+        // Source of truth for the connected account is tokens.json — survives
+        // plugin reload because it's persisted by OAuthConnectFlow + the
+        // post-callback re-save in the protocol handler above.
+        getAccountEmail: async () => {
+          const t = await tokenStore.load();
+          return t?.dropbox_account_email && t.dropbox_account_email.length > 0
+            ? t.dropbox_account_email
+            : null;
+        },
+        disconnect: async () => {
+          await tokenStore.clear();
+          // Settings tab needs to switch back to the empty-state view.
+          await this.settingsTab?.refresh();
+        },
         getUsedBytes: async () => 0,
       },
       oauth: {
@@ -473,13 +505,20 @@ export default class ArchivistPlugin extends Plugin {
       confirm: async () => true,
     };
 
-    this.addSettingTab(
-      new ArchivistSettingTab(this.app, {
-        plugin: this,
-        noticeCenter,
-        context: settingsContext,
-      }),
-    );
+    // Pre-populate dropbox account email from any existing tokens so the
+    // settings tab opens in the connected state immediately on a reload (no
+    // wait for the async refresh tick to repaint).
+    const existingTokens = await tokenStore.load().catch(() => null);
+    if (existingTokens?.dropbox_account_email) {
+      settingsContext.dropboxAccountEmail = existingTokens.dropbox_account_email;
+    }
+
+    this.settingsTab = new ArchivistSettingTab(this.app, {
+      plugin: this,
+      noticeCenter,
+      context: settingsContext,
+    });
+    this.addSettingTab(this.settingsTab);
 
     // ---------------------------------------------------------------------------
     // Step 16: BackupBrowserView registration

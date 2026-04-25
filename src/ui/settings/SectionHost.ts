@@ -95,6 +95,12 @@ export interface StaticTextSpec {
   text: string;
 }
 
+export interface LinkFieldSpec {
+  kind: 'link';
+  label: string;
+  href: string;
+}
+
 export interface BannerSpec {
   kind: 'banner';
   code: string;
@@ -114,6 +120,7 @@ export type FieldSpec =
   | ButtonFieldSpec
   | ReadOnlyFieldSpec
   | StaticTextSpec
+  | LinkFieldSpec
   | BannerSpec;
 
 export interface SectionHost {

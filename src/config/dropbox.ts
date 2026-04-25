@@ -6,6 +6,8 @@ export const DROPBOX_CLIENT_ID = 'aanoqah5sn73rjb';
 export const DROPBOX_AUTHORIZE_URL = 'https://www.dropbox.com/oauth2/authorize';
 export const DROPBOX_TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';
 export const DROPBOX_REVOKE_URL = 'https://api.dropboxapi.com/2/auth/token/revoke';
+export const DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL =
+  'https://api.dropboxapi.com/2/users/get_current_account';
 export const OAUTH_REDIRECT_URI = 'obsidian://archivist-oauth';
 // Dropbox expects space-separated scopes as a single string. Covers upload,
 // download, list, and account_info (needed for dropbox_account_email later).

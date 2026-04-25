@@ -31,6 +31,7 @@ import {
   DROPBOX_CLIENT_ID,
   DROPBOX_REVOKE_URL,
   DROPBOX_TOKEN_URL,
+  DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL,
   OAUTH_REDIRECT_URI,
   OAUTH_SCOPE,
 } from '../config/dropbox';
@@ -257,6 +258,39 @@ export class OAuthConnectFlow {
     this.logger.info('oauth_callback_ok');
 
     return { ...tokens };
+  }
+
+  /**
+   * Best-effort fetch of the connected Dropbox account's email via
+   * `/2/users/get_current_account`. Kept SEPARATE from `handleCallback` so the
+   * auth flow's HTTP contract stays limited to the token-exchange call (and
+   * existing tests don't need to mock a second URL). Returns null on any
+   * failure — the caller can still proceed; the email is purely a display
+   * value.
+   *
+   * Wired by `main.ts` after `handleCallback` succeeds: the email is then
+   * persisted into tokens.json so it survives a plugin reload.
+   */
+  async fetchAccountEmail(accessToken: string): Promise<string | null> {
+    try {
+      const response = await this.httpPost(
+        DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL,
+        new URLSearchParams(),
+        { Authorization: `Bearer ${accessToken}` },
+      );
+      if (!response.ok) {
+        this.logger.warn('account_email_fetch_failed', { status: response.status });
+        return null;
+      }
+      const parsed = await response.json();
+      const email = extractString(parsed, 'email');
+      return email && email.length > 0 ? email : null;
+    } catch (err) {
+      this.logger.warn('account_email_fetch_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   /** Wipe the pending-flows map. Called from `main.ts` `onunload`. */
