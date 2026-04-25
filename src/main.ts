@@ -520,6 +520,22 @@ export default class ArchivistPlugin extends Plugin {
     });
     this.addSettingTab(this.settingsTab);
 
+    // Backfill: if tokens exist but the email field is empty (either from a
+    // pre-fix install, or because fetchAccountEmail had a network blip during
+    // the original OAuth callback), fetch + persist it now. Fire-and-forget so
+    // onload doesn't block on the network call. The settings tab redraws via
+    // refresh() once the email lands.
+    if (existingTokens && !existingTokens.dropbox_account_email) {
+      void (async (): Promise<void> => {
+        const email = await this.oauthFlow!.fetchAccountEmail(existingTokens.access_token);
+        if (!email) return;
+        await tokenStore.save({ ...existingTokens, dropbox_account_email: email });
+        settingsContext.dropboxAccountEmail = email;
+        this.logger.info('account_email_backfilled');
+        await this.settingsTab?.refresh();
+      })();
+    }
+
     // ---------------------------------------------------------------------------
     // Step 16: BackupBrowserView registration
     // ---------------------------------------------------------------------------
