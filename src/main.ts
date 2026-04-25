@@ -402,13 +402,32 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     // Step 12: RibbonIcon
     // ---------------------------------------------------------------------------
+    // Open-or-focus pattern. Earlier `getLeaf(false)` always created a new
+    // leaf, so every ribbon click / command palette invocation stacked
+    // another Backup Browser tab. Now: if a leaf already hosts our view
+    // type, reveal it; only fall back to creating one when none exists.
     const openBrowser = (): void => {
-      const leaf = this.app.workspace.getLeaf(false);
+      const workspace = this.app.workspace as unknown as {
+        getLeavesOfType: (type: string) => Array<{
+          setViewState?: (s: unknown) => Promise<void> | void;
+        }>;
+        revealLeaf: (leaf: unknown) => void;
+        getLeaf: (newLeaf: boolean) => {
+          setViewState: (s: unknown) => Promise<void> | void;
+        } | null;
+      };
+      const existing = workspace.getLeavesOfType(BACKUP_BROWSER_VIEW_TYPE);
+      if (existing.length > 0) {
+        workspace.revealLeaf(existing[0]);
+        return;
+      }
+      const leaf = workspace.getLeaf(false);
       if (leaf) {
-        void (leaf as unknown as { setViewState: (s: unknown) => void }).setViewState({
+        void leaf.setViewState({
           type: BACKUP_BROWSER_VIEW_TYPE,
           active: true,
         });
+        workspace.revealLeaf(leaf);
       }
     };
 
