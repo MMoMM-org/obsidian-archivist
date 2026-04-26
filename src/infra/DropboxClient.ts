@@ -500,8 +500,11 @@ export class DropboxClient {
     } catch (err) {
       // Proactive refresh is best-effort. Log and let the reactive 401 path
       // handle it if the token really is expired. Use a safe error shape so
-      // we never embed raw request bodies from the SDK in the log.
-      this.logger.warn('proactive_refresh_failed', {
+      // we never embed raw request bodies from the SDK in the log. Demoted
+      // to debug because the reactive path will surface a real error if the
+      // token truly is unrecoverable — surfacing this proactive miss as a
+      // warn scares users for an event the system handles automatically.
+      this.logger.debug('proactive_refresh_failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     }

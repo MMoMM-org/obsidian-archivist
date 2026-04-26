@@ -201,6 +201,10 @@ export class ChangeDetector {
         prev_path: prevPath,
         observed_at: new Date().toISOString(),
       });
+      // Diagnostic breadcrumb so a user with diagnostic_logging on can
+      // correlate "I edited X" → queue grew → FSM (maybe) reset its timer.
+      // Visible only at debug; would otherwise spam the console.
+      this.logger.debug('vault_event_enqueued', { type, path: file.path });
       // Notify the scheduler so QUIET_WAIT resets while the user is still
       // editing. Done after a successful enqueue so a failed write doesn't
       // get treated as activity.

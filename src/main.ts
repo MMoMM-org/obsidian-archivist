@@ -105,7 +105,12 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     const pluginStore = new PluginStore(this, createLogger(() => false));
     const settings = await pluginStore.loadSettings();
-    this.logger = createLogger(() => settings.advanced.diagnostic_logging);
+    // Mutable container so the logger's diagnostic-flag closure reflects
+    // settings updates from the UI. Was previously capturing the initial
+    // `settings` snapshot, which meant toggling the flag at runtime had no
+    // effect — the closure kept seeing the old value forever.
+    const cachedRef: { settings: PluginSettings } = { settings };
+    this.logger = createLogger(() => cachedRef.settings.advanced.diagnostic_logging);
     this.logger.info('plugin_loaded');
 
     // ---------------------------------------------------------------------------
@@ -178,7 +183,8 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     // Step 4: Cached settings ref (shared mutable container)
     // ---------------------------------------------------------------------------
-    const cachedRef: { settings: PluginSettings } = { settings };
+    // Container is created in Step 1 (so the logger's diagnostic-flag closure
+    // can read the live value); referenced here for the rest of the pipeline.
 
     // ---------------------------------------------------------------------------
     // Step 5: Notify + NoticeCenter

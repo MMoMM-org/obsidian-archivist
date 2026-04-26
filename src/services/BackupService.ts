@@ -191,7 +191,10 @@ export class BackupService {
    */
   async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
-    this.logger.info('Starting inc backup');
+
+    // "Starting inc backup" is logged AFTER we've confirmed there's actual
+    // work — emitting it up here would pair "Starting" with "no changes" on
+    // every idle tick and read like a noisy attempt-then-fail trio.
 
     // One-shot reconcile decision: claim the flag synchronously so a second
     // overlapping invocation can't double-scan, but only commit to the
@@ -257,15 +260,13 @@ export class BackupService {
 
       // Empty-after-reconcile short-circuit: nothing changed on disk OR in queue.
       if (changesPaths.length === 0 && deleted.length === 0 && renames.length === 0) {
-        this.logger.info('inc backup done');
-        this.logger.info('0 files written');
+        this.logger.info('Inc backup: no changes');
         return;
       }
     } else {
       // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
       if (queue.entries.length === 0) {
-        this.logger.info('inc backup done');
-        this.logger.info('0 files written');
+        this.logger.info('Inc backup: no changes');
         return;
       }
       const buckets = bucketQueueEntries(queue.entries);
@@ -273,6 +274,10 @@ export class BackupService {
       deleted = buckets.deleted;
       renames = buckets.renames;
     }
+
+    // We have actual work — announce the start. (Late on purpose: a no-op
+    // tick stays silent except for the single "Inc backup: no changes" line.)
+    this.logger.info('Starting inc backup');
 
     // --- Pre-upload conflict check (first of two — ROB-001) ---
     await this.coordinator.verifyNoConflict();

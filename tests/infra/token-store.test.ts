@@ -88,10 +88,11 @@ function makePlugin(adapter: FakeAdapter): FakePlugin {
 
 type WarnEntry = { message: string; payload?: Record<string, unknown> };
 
-type TestLogger = Logger & { warnings: WarnEntry[] };
+type TestLogger = Logger & { warnings: WarnEntry[]; debugs: WarnEntry[] };
 
 function makeTestLogger(): TestLogger {
   const warnings: WarnEntry[] = [];
+  const debugs: WarnEntry[] = [];
   // Bypass createLogger — we want to capture the raw message key (e.g.
   // `tokens_corrupt`) so assertions stay stable across formatting tweaks in
   // the production Logger.
@@ -101,8 +102,11 @@ function makeTestLogger(): TestLogger {
       warnings.push({ message, payload });
     },
     error: () => {},
-    debug: () => {},
+    debug: (message: string, payload?: Record<string, unknown>) => {
+      debugs.push({ message, payload });
+    },
     warnings,
+    debugs,
   };
   return logger;
 }
@@ -250,7 +254,7 @@ describe('TokenStore', () => {
   // Resilience / regression guards (code-quality review findings)
   // -------------------------------------------------------------------------
 
-  it('save() tolerates chmod EPERM — file is written, warn logged, promise resolves', async () => {
+  it('save() tolerates chmod EPERM — file is written, debug logged, promise resolves', async () => {
     const { store, plugin, adapter, logger } = setup();
     const fsAdapter = new FileSystemAdapter();
     Object.assign(fsAdapter, adapter);
@@ -264,9 +268,13 @@ describe('TokenStore', () => {
 
     // (a) file is on disk
     expect(adapter.files.has(EXPECTED_PATH)).toBe(true);
-    // (b) warn was emitted with the stable key
-    const warn = logger.warnings.find((w) => w.message === 'tokens_chmod_failed');
-    expect(warn, 'expected tokens_chmod_failed warn entry').toBeDefined();
+    // (b) chmod failure is non-actionable for end users — must NOT surface as
+    // a warn (would scare users on filesystems that don't support POSIX
+    // permissions, e.g. external SMB/exFAT volumes). Demoted to debug so
+    // diagnostic_logging operators can still see it.
+    expect(logger.warnings.find((w) => w.message === 'tokens_chmod_failed')).toBeUndefined();
+    const debug = logger.debugs.find((w) => w.message === 'tokens_chmod_failed');
+    expect(debug, 'expected tokens_chmod_failed debug entry').toBeDefined();
   });
 
   it('load() returns null and warns tokens_corrupt on malformed JSON', async () => {

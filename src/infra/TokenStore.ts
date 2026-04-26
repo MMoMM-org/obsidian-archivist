@@ -148,10 +148,12 @@ export class TokenStore {
       const fs = (await import(specifier)) as unknown as FsLike;
       await fs.promises.chmod(abs, DEFAULT_CHMOD);
     } catch (err) {
-      // chmod failure must NOT block token save — log and move on.
-      // 'path' is redacted by Logger unless diagnostic_logging is enabled —
-      // see Logger.PATH_KEYS.
-      this.logger.warn('tokens_chmod_failed', { error: err, path: abs });
+      // chmod failure must NOT block token save — token write already
+      // succeeded. Demoted to debug because the user can't act on it (it's
+      // a property of the underlying filesystem, e.g. external SMB/exFAT
+      // volumes that don't support POSIX permission bits) and surfacing it
+      // as a warn scares users with no actionable fix.
+      this.logger.debug('tokens_chmod_failed', { error: err, path: abs });
     }
   }
 }

@@ -288,14 +288,14 @@ export class OAuthConnectFlow {
         throw: false,
       });
       if (resp.status < 200 || resp.status >= 300) {
-        this.logger.warn('account_email_fetch_failed', { status: resp.status });
+        this.logger.debug('account_email_fetch_failed', { status: resp.status });
         return null;
       }
       const parsed = (resp.json ?? JSON.parse(resp.text)) as unknown;
       const email = extractString(parsed, 'email');
       return email && email.length > 0 ? email : null;
     } catch (err) {
-      this.logger.warn('account_email_fetch_failed', {
+      this.logger.debug('account_email_fetch_failed', {
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
