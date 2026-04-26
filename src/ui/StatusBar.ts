@@ -6,6 +6,7 @@
 // testable without spinning up real Obsidian DOM.
 
 import type { FSMState, SchedulerFSM } from '../services/SchedulerFSM';
+import { formatStatusTooltip, type StatusTooltipInput } from './StatusTooltip';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,13 @@ export interface StatusBarDeps {
   fsm: SchedulerFSM;
   /** Click handler — typically opens the Backup Browser, same as ribbon. */
   onClick?: () => void;
+  /**
+   * Optional supplier for the live tooltip. When provided, the aria-label
+   * uses the dynamic formatter (e.g. "next backup in 11 min") instead of
+   * the static per-state string. Should be cheap to call — invoked on every
+   * state transition and every refresh().
+   */
+  getTooltipInput?: () => StatusTooltipInput;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,12 +125,25 @@ export class StatusBar {
     this.handle = null;
   }
 
+  /**
+   * Recompute the tooltip without re-reading the FSM state. Call this on a
+   * minute tick so the countdown stays current, and immediately on vault
+   * activity so the user sees the timer reset as evidence the edit landed.
+   */
+  refresh(): void {
+    if (!this.handle) return;
+    this.applyState(this.deps.fsm.getState());
+  }
+
   private applyState(state: FSMState): void {
     if (!this.handle) return;
     const p = presentationFor(state);
     this.handle.setIcon(p.icon);
     this.handle.setLabel(p.label);
     this.handle.setCssClass(p.cssClass);
-    this.handle.setAriaLabel(p.aria);
+    const aria = this.deps.getTooltipInput
+      ? formatStatusTooltip(this.deps.getTooltipInput())
+      : p.aria;
+    this.handle.setAriaLabel(aria);
   }
 }

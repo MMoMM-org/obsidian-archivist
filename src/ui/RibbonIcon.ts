@@ -14,6 +14,7 @@
 // `setIcon` + `setTooltip`; tests pass a recording host.
 
 import type { FSMState, SchedulerFSM } from '../services/SchedulerFSM';
+import { formatStatusTooltip, type StatusTooltipInput } from './StatusTooltip';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,12 @@ export interface RibbonIconDeps {
   fsm: SchedulerFSM;
   /** Phase 8 replaces this with opening the Backup Browser; stub for now. */
   onRibbonClick?: () => void;
+  /**
+   * Optional supplier for the live tooltip. When provided, both the visible
+   * tooltip and the aria-label use the dynamic formatter (e.g. "next backup
+   * in 11 min") instead of the static per-state strings.
+   */
+  getTooltipInput?: () => StatusTooltipInput;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +149,16 @@ export class RibbonIcon {
     this.handle = null;
   }
 
+  /**
+   * Recompute the tooltip without re-reading the FSM state. Caller drives
+   * this on a minute tick (countdown progression) and on vault activity
+   * (instant feedback that the edit was detected — quiet timer just reset).
+   */
+  refresh(): void {
+    if (!this.handle) return;
+    this.applyState(this.deps.fsm.getState());
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
@@ -151,7 +168,10 @@ export class RibbonIcon {
     const p = presentationFor(state);
     this.handle.setIcon(p.icon);
     this.handle.setCssClass(p.cssClass);
-    this.handle.setTooltip(p.tooltip);
-    this.handle.setAriaLabel(p.aria);
+    const dynamic = this.deps.getTooltipInput
+      ? formatStatusTooltip(this.deps.getTooltipInput())
+      : null;
+    this.handle.setTooltip(dynamic ?? p.tooltip);
+    this.handle.setAriaLabel(dynamic ?? p.aria);
   }
 }

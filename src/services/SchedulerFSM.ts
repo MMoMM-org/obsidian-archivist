@@ -104,7 +104,9 @@ const POSTPONE_MS = 60 * 60 * 1000;
 export class SchedulerFSM {
   private state: FSMState = 'LOADING';
   private graceTimer: TimerHandle | null = null;
+  private graceTimerEndAt: number | null = null;
   private quietTimer: TimerHandle | null = null;
+  private quietTimerEndAt: number | null = null;
   private subscribers: StateChangeHandler[] = [];
 
   // T7.2 planner state --------------------------------------------------------
@@ -152,6 +154,26 @@ export class SchedulerFSM {
 
   hasPendingCatchup(): boolean {
     return this.catchupPending;
+  }
+
+  /** Epoch-ms when the GRACE timer fires, or null if not in GRACE. */
+  getGraceEndAt(): number | null {
+    return this.graceTimerEndAt;
+  }
+
+  /** Epoch-ms when the QUIET_WAIT timer fires, or null if not in QUIET_WAIT. */
+  getQuietWaitEndAt(): number | null {
+    return this.quietTimerEndAt;
+  }
+
+  /**
+   * Epoch-ms when the next inc backup becomes interval-eligible.
+   * Returns null when no full has run yet (first inc is immediately eligible).
+   */
+  getNextIncEligibleAt(): number | null {
+    const last = this.deps.getLastIncCommitAt();
+    if (last === null) return null;
+    return last + this.deps.schedule.inc_interval_minutes * 60 * 1000;
   }
 
   // ---------------------------------------------------------------------------
@@ -371,8 +393,10 @@ export class SchedulerFSM {
   private enterGrace(): void {
     this.transition('GRACE');
     const ms = this.deps.schedule.startup_grace_minutes * 60 * 1000;
+    this.graceTimerEndAt = this.now() + ms;
     this.graceTimer = this.setTimeoutFn(() => {
       this.graceTimer = null;
+      this.graceTimerEndAt = null;
       if (this.state === 'GRACE') this.enterQuietWait();
     }, ms);
   }
@@ -385,8 +409,10 @@ export class SchedulerFSM {
   private resetQuietTimer(): void {
     if (this.quietTimer) this.clearTimeoutFn(this.quietTimer);
     const ms = this.deps.schedule.quiet_after_event_minutes * 60 * 1000;
+    this.quietTimerEndAt = this.now() + ms;
     this.quietTimer = this.setTimeoutFn(() => {
       this.quietTimer = null;
+      this.quietTimerEndAt = null;
       if (this.state === 'QUIET_WAIT') this.transition('READY');
     }, ms);
   }
@@ -395,10 +421,12 @@ export class SchedulerFSM {
     if (this.graceTimer) {
       this.clearTimeoutFn(this.graceTimer);
       this.graceTimer = null;
+      this.graceTimerEndAt = null;
     }
     if (this.quietTimer) {
       this.clearTimeoutFn(this.quietTimer);
       this.quietTimer = null;
+      this.quietTimerEndAt = null;
     }
   }
 

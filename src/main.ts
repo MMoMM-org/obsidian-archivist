@@ -483,7 +483,25 @@ export default class ArchivistPlugin extends Plugin {
       },
     };
 
-    this.ribbon = new RibbonIcon({ host: ribbonHost, fsm, onRibbonClick: openBrowser });
+    // Tooltip input supplier — read at the moment of every render so the
+    // user sees the freshest countdown. Cheap (just a few getters); safe to
+    // call from refresh-on-tick and refresh-on-vault-activity.
+    const getTooltipInput = (): import('./ui/StatusTooltip').StatusTooltipInput => ({
+      state: fsm.getState(),
+      graceEndAt: fsm.getGraceEndAt(),
+      quietWaitEndAt: fsm.getQuietWaitEndAt(),
+      nextIncEligibleAt: fsm.getNextIncEligibleAt(),
+      nextScheduledFullAt: fsm.getNextScheduledFullAt(),
+      queueSize: eventQueue.peekSince(eventQueue.committedThrough()).length,
+      now: Date.now(),
+    });
+
+    this.ribbon = new RibbonIcon({
+      host: ribbonHost,
+      fsm,
+      onRibbonClick: openBrowser,
+      getTooltipInput,
+    });
     this.ribbon.mount();
 
     // Status-bar mirror — same FSM signal in the bottom status bar so users
@@ -530,9 +548,18 @@ export default class ArchivistPlugin extends Plugin {
       host: statusBarHost,
       fsm,
       onClick: openBrowser,
+      getTooltipInput,
     });
     statusBar.mount();
-    void statusBar; // referenced via FSM subscription; lifetime tied to plugin onunload
+
+    // Drive the live countdown: refresh tooltips on every tick (minute
+    // resolution is enough for "in N min" copy) and immediately on vault
+    // activity (instant proof that the edit was detected — quiet-timer
+    // reset shows up in the countdown).
+    const refreshTooltips = (): void => {
+      this.ribbon?.refresh();
+      statusBar.refresh();
+    };
 
     // ---------------------------------------------------------------------------
     // Step 13: ChangeDetector — register live vault-event handlers
@@ -541,7 +568,13 @@ export default class ArchivistPlugin extends Plugin {
     // can use it for the startup reconcile pass. Here we wire it to the live
     // vault events (modify / create / delete / rename) so the queue stays
     // current while Obsidian runs.
-    changeDetector.setOnVaultActivity(() => fsm.onVaultEvent());
+    changeDetector.setOnVaultActivity(() => {
+      fsm.onVaultEvent();
+      // Instant tooltip refresh so the user sees the QUIET_WAIT countdown
+      // restart from the full quiet_after_event_minutes. This is the live
+      // diagnostic proof that the change was detected.
+      refreshTooltips();
+    });
     changeDetector.registerEventHandlers(freshSettings.advanced.exclusion_globs);
 
     // ---------------------------------------------------------------------------
@@ -746,7 +779,10 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     this.registerInterval(
       // eslint-disable-next-line obsidianmd/prefer-active-window-timers
-      setInterval(() => fsm.tick(), 60_000),
+      setInterval(() => {
+        fsm.tick();
+        refreshTooltips();
+      }, 60_000),
     );
 
     this.logger.info('plugin_wired');
