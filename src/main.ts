@@ -763,16 +763,20 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     // Step 18: layout-ready
     // ---------------------------------------------------------------------------
-    type LayoutReadyOn = (ev: 'layout-ready', cb: () => void) => import('obsidian').EventRef;
-    const workspace = this.app.workspace;
-    const onLayoutReady = workspace.on.bind(workspace) as unknown as LayoutReadyOn;
-    this.registerEvent(
-      onLayoutReady('layout-ready', () => {
-        fsm.onLayoutReady();
-        fsm.recoverOnStartup();
-        predecessorDetector.check();
-      }),
-    );
+    // CRITICAL: use `workspace.onLayoutReady(cb)` (the helper), NOT
+    // `workspace.on('layout-ready', cb)`. When the user enables the plugin
+    // AFTER Obsidian has already loaded the workspace, the `layout-ready`
+    // event has already fired — registering a listener for it via `on(...)`
+    // attaches a callback that never runs, so `fsm.onLayoutReady()` is never
+    // called and the FSM stays in LOADING forever (no GRACE → QUIET_WAIT →
+    // READY chain, no auto-inc, only manual `triggerBackupNow` works). The
+    // helper variant fires the callback immediately when layout is already
+    // ready, otherwise registers a one-shot listener.
+    this.app.workspace.onLayoutReady(() => {
+      fsm.onLayoutReady();
+      fsm.recoverOnStartup();
+      predecessorDetector.check();
+    });
 
     // ---------------------------------------------------------------------------
     // Step 19: Tick interval
