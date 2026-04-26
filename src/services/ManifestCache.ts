@@ -104,6 +104,6 @@ export class ManifestCache implements ManifestLoader {
     this.indexCache = null;
     this.indexPromise = null;
     this.manifestById.clear();
-    this.deps.logger.info('manifest_cache_invalidated', {});
+    this.deps.logger.debug('manifest_cache_invalidated', {});
   }
 }

@@ -413,7 +413,7 @@ export class SchedulerFSM {
     const prev = this.state;
     if (prev === to) return;
     this.state = to;
-    this.deps.logger.info('fsm_transition', { from: prev, to });
+    this.deps.logger.debug('fsm_transition', { from: prev, to });
     const snapshot = this.subscribers.slice();
     for (const s of snapshot) s(to, prev);
   }

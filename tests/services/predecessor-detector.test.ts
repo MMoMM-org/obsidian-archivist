@@ -8,7 +8,7 @@ import type { Logger } from '../../src/infra/Logger';
 import { S } from '../../src/ui/strings';
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function makeNotifications(): NotificationSettings {

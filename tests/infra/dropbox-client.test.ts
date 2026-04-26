@@ -38,7 +38,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 // Build a TokenStore-compatible double. We avoid standing up the real plugin
@@ -615,7 +615,7 @@ describe('DropboxClient', () => {
     const client2 = new DropboxClient(
       sdk2 as never,
       fakeTokenStore,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       {
         singleShotMaxBytes: 1,  // force upload_session path
         uploadChunkBytes: 4,    // instance default = 4 bytes
@@ -660,7 +660,7 @@ describe('DropboxClient', () => {
     const client = new DropboxClient(
       sdk as never,
       fakeTokenStore,
-      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       {
         singleShotMaxBytes: 1,
         uploadChunkBytes: 3,  // instance default = 3 bytes

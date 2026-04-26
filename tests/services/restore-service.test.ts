@@ -16,7 +16,7 @@ import { ChainError } from '../../src/model/Errors';
 // ---------------------------------------------------------------------------
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function fe(hash: string, size = 100, mtime = 1000): FileEntry {

@@ -232,6 +232,7 @@ export default class ArchivistPlugin extends Plugin {
       pluginStore,
       snapshotIndexStore,
       changeDetector,
+      logger: this.logger,
       vaultPrefix,
       vaultName,
     });
@@ -534,6 +535,7 @@ export default class ArchivistPlugin extends Plugin {
     // can use it for the startup reconcile pass. Here we wire it to the live
     // vault events (modify / create / delete / rename) so the queue stays
     // current while Obsidian runs.
+    changeDetector.setOnVaultActivity(() => fsm.onVaultEvent());
     changeDetector.registerEventHandlers(freshSettings.advanced.exclusion_globs);
 
     // ---------------------------------------------------------------------------

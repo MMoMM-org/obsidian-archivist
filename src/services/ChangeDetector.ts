@@ -36,6 +36,12 @@ export interface ChangeDetectorDeps {
   queue: EventQueue;
   plugin: Plugin;
   logger: Logger;
+  /**
+   * Notification hook fired after every successful enqueue of a vault event.
+   * Wired in production to SchedulerFSM.onVaultEvent() so the QUIET_WAIT
+   * timer actually resets on activity. Tests can omit it.
+   */
+  onVaultActivity?: () => void;
   /** Injectable for tests — defaults to Hasher.sha256hex. */
   hash?: (bytes: Uint8Array | ArrayBuffer) => Promise<string>;
   /** Injectable for tests — defaults to setTimeout(resolve, 0). */
@@ -51,6 +57,7 @@ export class ChangeDetector {
   private readonly queue: EventQueue;
   private readonly plugin: Plugin;
   private readonly logger: Logger;
+  private onVaultActivity: () => void;
   private readonly hash: (bytes: Uint8Array | ArrayBuffer) => Promise<string>;
   private readonly yieldFn: () => Promise<void>;
 
@@ -62,6 +69,7 @@ export class ChangeDetector {
     this.queue = deps.queue;
     this.plugin = deps.plugin;
     this.logger = deps.logger;
+    this.onVaultActivity = deps.onVaultActivity ?? (() => {});
     this.hash = deps.hash ?? sha256hex;
     this.yieldFn = deps.yieldFn ?? (() => new Promise<void>((resolve) => setT(resolve, 0)));
   }
@@ -89,6 +97,16 @@ export class ChangeDetector {
   /** Update the event-time exclusion list without re-registering vault handlers. */
   setExclusions(exclusions: string[]): void {
     this.exclusions = exclusions;
+  }
+
+  /**
+   * Late-bind the activity callback. Production wires this to
+   * SchedulerFSM.onVaultEvent — but the FSM is constructed AFTER ChangeDetector
+   * (BackupService construction depends on the detector), so the wiring has
+   * to happen post-hoc.
+   */
+  setOnVaultActivity(fn: () => void): void {
+    this.onVaultActivity = fn;
   }
 
   /** Full-vault reconcile scan per Algorithm 1. Returns the set of changed paths. */
@@ -183,6 +201,10 @@ export class ChangeDetector {
         prev_path: prevPath,
         observed_at: new Date().toISOString(),
       });
+      // Notify the scheduler so QUIET_WAIT resets while the user is still
+      // editing. Done after a successful enqueue so a failed write doesn't
+      // get treated as activity.
+      this.onVaultActivity();
     })().catch((err) => {
       this.logger.error('change_detector_enqueue_failed', {
         error: err instanceof Error ? err : new Error(String(err)),

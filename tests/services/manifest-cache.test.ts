@@ -8,7 +8,7 @@ import type { SnapshotIndex } from '../../src/model/SnapshotIndex';
 import { PathError } from '../../src/model/Errors';
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function makeManifest(id: string, type: 'full' | 'inc' = 'inc'): SnapshotManifest {

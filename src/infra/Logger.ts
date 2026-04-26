@@ -12,6 +12,8 @@ export interface Logger {
   info(message: string, payload?: LogPayload): void;
   warn(message: string, payload?: LogPayload): void;
   error(message: string, payload?: LogPayload): void;
+  /** Diagnostic-only. Suppressed entirely unless diagnostic_logging is enabled. */
+  debug(message: string, payload?: LogPayload): void;
 }
 
 // Keys whose values are assumed to be vault paths. Redacted to
@@ -89,5 +91,9 @@ export function createLogger(
     info: (m, p) => emit('log', m, p),
     warn: (m, p) => emit('warn', m, p),
     error: (m, p) => emit('error', m, p),
+    debug: (m, p) => {
+      if (!getDiagnosticFlag()) return;
+      emit('log', m, p);
+    },
   };
 }

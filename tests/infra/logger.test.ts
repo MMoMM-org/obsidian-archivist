@@ -82,4 +82,23 @@ describe('Logger', () => {
     logger.info('stats', { count: 42, ok: true });
     expect(sink.calls[0]!.payload).toEqual({ count: 42, ok: true });
   });
+
+  it('drops debug entries when diagnostic flag is false', () => {
+    const sink = makeSink();
+    const logger = createLogger(() => false, { sink });
+    logger.debug('quiet detail', { count: 1 });
+    expect(sink.calls).toHaveLength(0);
+  });
+
+  it('emits debug entries when diagnostic flag is true', () => {
+    const sink = makeSink();
+    const logger = createLogger(() => true, { sink });
+    logger.debug('detail', { path: 'Notes/Secret.md', count: 1 });
+    expect(sink.calls).toHaveLength(1);
+    expect(sink.calls[0]).toEqual({
+      level: 'log',
+      message: '[archivist] detail',
+      payload: { path: 'Notes/Secret.md', count: 1 },
+    });
+  });
 });

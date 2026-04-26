@@ -37,7 +37,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 interface FakeTokenStoreShape {

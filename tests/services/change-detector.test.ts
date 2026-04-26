@@ -49,7 +49,7 @@ function makeFakeAdapter(): FakeAdapter {
 }
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 /** Drain the microtask queue so fire-and-forget enqueue promises resolve. */
@@ -224,6 +224,56 @@ describe('event handling — before/after onLayoutReady', () => {
     const entries = queue.peekSince(null);
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe('notes/after.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Event handling — onVaultActivity hook (FSM quiet-timer reset)
+// ---------------------------------------------------------------------------
+
+describe('event handling — onVaultActivity callback', () => {
+  it('fires after a successful enqueue', async () => {
+    const { app, plugin, queue, detector } = await makeSetup();
+    const onActivity = vi.fn();
+    detector.setOnVaultActivity(onActivity);
+    detector.registerEventHandlers();
+    (plugin.app.workspace as unknown as Workspace & { _fireLayoutReady(): void })._fireLayoutReady();
+
+    const file = app.vault._addFile('notes/a.md', { mtime: 100, size: 10 });
+    app.vault._fire('create', file);
+    // Drain the persistence chain — same approach as other dispatch tests but
+    // budget for the full enqueue → saveQueue round trip.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    expect(queue.peekSince(null)).toHaveLength(1);
+    expect(onActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire for events dropped before onLayoutReady', async () => {
+    const { app, detector } = await makeSetup();
+    const onActivity = vi.fn();
+    detector.setOnVaultActivity(onActivity);
+    detector.registerEventHandlers();
+
+    const file = app.vault._addFile('notes/early.md', { mtime: 1, size: 1 });
+    app.vault._fire('create', file);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    expect(onActivity).not.toHaveBeenCalled();
+  });
+
+  it('does not fire for excluded paths', async () => {
+    const { app, plugin, detector } = await makeSetup();
+    const onActivity = vi.fn();
+    detector.setOnVaultActivity(onActivity);
+    detector.registerEventHandlers(['**/.obsidian/**']);
+    (plugin.app.workspace as unknown as Workspace & { _fireLayoutReady(): void })._fireLayoutReady();
+
+    const file = app.vault._addFile('.obsidian/cache.json', { mtime: 1, size: 1 });
+    app.vault._fire('modify', file);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    expect(onActivity).not.toHaveBeenCalled();
   });
 });
 

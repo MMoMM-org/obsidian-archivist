@@ -188,7 +188,7 @@ function buildHistory(): HistoryFixture {
 // ---------------------------------------------------------------------------
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function fixtureLoader(fx: HistoryFixture): ManifestLoader {

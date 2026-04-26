@@ -20,7 +20,7 @@ import type { Logger } from '../../src/infra/Logger';
 // ---------------------------------------------------------------------------
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function makeSchedule(overrides: Partial<ScheduleSettings> = {}): ScheduleSettings {

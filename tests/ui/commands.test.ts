@@ -13,7 +13,7 @@ import type { Command } from 'obsidian';
 import { S } from '../../src/ui/strings';
 
 function makeLogger(): Logger {
-  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 }
 
 function makeSchedule(): ScheduleSettings {

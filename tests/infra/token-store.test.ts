@@ -101,6 +101,7 @@ function makeTestLogger(): TestLogger {
       warnings.push({ message, payload });
     },
     error: () => {},
+    debug: () => {},
     warnings,
   };
   return logger;

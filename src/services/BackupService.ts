@@ -21,6 +21,7 @@ import type { ChangeDetector } from './ChangeDetector';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { DeviceCoordinator } from './DeviceCoordinator';
 import type { DropboxClient } from '../infra/DropboxClient';
+import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { LocalIndex } from '../model/Index';
@@ -36,6 +37,13 @@ const SMALL_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024;    // 50 MB
 const SMALL_FILE_CHUNK_BYTES = 8 * 1024 * 1024;         // 8 MB
 const LARGE_FILE_CHUNK_BYTES = 150 * 1024 * 1024;       // 150 MB
 const DEFAULT_UPLOAD_PARALLELISM = 4;
+
+const NOOP_LOGGER: Logger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -63,6 +71,12 @@ export interface BackupServiceDeps {
    * Obsidian is running. Tests that only exercise the queue path may omit it.
    */
   changeDetector?: ChangeDetector;
+  /**
+   * Optional logger for backup lifecycle events ("Starting full backup",
+   * "N files written", per-path debug lines). Tests omit it to stay quiet —
+   * production code always provides one.
+   */
+  logger?: Logger;
   /** Injectable clock for deterministic tests. Defaults to new Date().toISOString(). */
   now?: () => string;
 }
@@ -81,6 +95,7 @@ export class BackupService {
   private readonly vaultPrefix: string;
   private readonly vaultName: string;
   private readonly changeDetector: ChangeDetector | null;
+  private readonly logger: Logger;
   private readonly now: () => string;
 
   /**
@@ -101,6 +116,7 @@ export class BackupService {
     this.vaultPrefix = deps.vaultPrefix;
     this.vaultName = deps.vaultName;
     this.changeDetector = deps.changeDetector ?? null;
+    this.logger = deps.logger ?? NOOP_LOGGER;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -114,6 +130,7 @@ export class BackupService {
   async runFull(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
     const createdAt = this.now();
+    this.logger.info('Starting full backup');
 
     // --- Pre-upload conflict check (first of two — ROB-001) ---
     await this.coordinator.verifyNoConflict();
@@ -146,6 +163,10 @@ export class BackupService {
     // matrix semantics. `fileBytes` is still passed for interface symmetry
     // but commitSnapshot's blob-upload branch is gated on manifest.type === 'inc'.
 
+    for (const path of Object.keys(manifest.files)) {
+      this.logger.debug('wrote', { path });
+    }
+
     // --- Steps 2-7: crash-safe commit protocol ---
     const queueForFull = await this.pluginStore.loadQueue();
     await this.commitSnapshot({
@@ -155,6 +176,10 @@ export class BackupService {
       queueCursorAdvanceTo: manifest.created_at,
       baseQueueSnapshot: queueForFull,
     });
+
+    const fileCount = Object.keys(manifest.files).length;
+    this.logger.info('full backup done');
+    this.logger.info(`${fileCount} files written`);
   }
 
   /**
@@ -166,6 +191,7 @@ export class BackupService {
    */
   async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
+    this.logger.info('Starting inc backup');
 
     // One-shot reconcile decision: claim the flag synchronously so a second
     // overlapping invocation can't double-scan, but only commit to the
@@ -230,10 +256,18 @@ export class BackupService {
       deleted = [...deleteSet];
 
       // Empty-after-reconcile short-circuit: nothing changed on disk OR in queue.
-      if (changesPaths.length === 0 && deleted.length === 0 && renames.length === 0) return;
+      if (changesPaths.length === 0 && deleted.length === 0 && renames.length === 0) {
+        this.logger.info('inc backup done');
+        this.logger.info('0 files written');
+        return;
+      }
     } else {
       // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
-      if (queue.entries.length === 0) return;
+      if (queue.entries.length === 0) {
+        this.logger.info('inc backup done');
+        this.logger.info('0 files written');
+        return;
+      }
       const buckets = bucketQueueEntries(queue.entries);
       changesPaths = buckets.changesPaths;
       deleted = buckets.deleted;
@@ -297,6 +331,10 @@ export class BackupService {
             queue.entries[0].observed_at,
           );
 
+    for (const path of Object.keys(manifest.files)) {
+      this.logger.debug('wrote', { path });
+    }
+
     // --- Steps 2-7: crash-safe commit protocol ---
     await this.commitSnapshot({
       manifest,
@@ -305,6 +343,10 @@ export class BackupService {
       queueCursorAdvanceTo: maxObservedAt,
       baseQueueSnapshot: queue,
     });
+
+    const fileCount = Object.keys(manifest.files).length;
+    this.logger.info('inc backup done');
+    this.logger.info(`${fileCount} files written`);
   }
 
   // ---------------------------------------------------------------------------
