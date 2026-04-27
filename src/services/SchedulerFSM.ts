@@ -167,12 +167,16 @@ export class SchedulerFSM {
   }
 
   /**
-   * Epoch-ms when the next inc backup becomes interval-eligible.
-   * Returns null when no full has run yet (first inc is immediately eligible).
+   * Epoch-ms when the next inc backup becomes interval-eligible. Anchors
+   * on the most recent commit of any type (full or inc) — same logic as
+   * incIntervalElapsed so the tooltip and the tick stay consistent.
+   * Returns null when no backup has ever run (immediately eligible).
    */
   getNextIncEligibleAt(): number | null {
-    const last = this.deps.getLastIncCommitAt();
-    if (last === null) return null;
+    const lastInc = this.deps.getLastIncCommitAt();
+    const lastFull = this.deps.getLastFullCommitAt();
+    const last = Math.max(lastInc ?? 0, lastFull ?? 0);
+    if (last === 0) return null;
     return last + this.deps.schedule.inc_interval_minutes * 60 * 1000;
   }
 
@@ -431,8 +435,16 @@ export class SchedulerFSM {
   }
 
   private incIntervalElapsed(): boolean {
-    const last = this.deps.getLastIncCommitAt();
-    if (last === null) return true;
+    // The interval applies between ANY commit and the next inc — full or
+    // incremental. Originally only checked last_inc_commit_at, which made
+    // an inc fire ~60s after every full (full clears last_inc to null,
+    // null is treated as "first ever, run now"). For the user that read
+    // as "two backups back-to-back". Now we anchor on the most recent
+    // commit of any type.
+    const lastInc = this.deps.getLastIncCommitAt();
+    const lastFull = this.deps.getLastFullCommitAt();
+    const last = Math.max(lastInc ?? 0, lastFull ?? 0);
+    if (last === 0) return true; // bootstrap — no backup has ever run
     const elapsed = this.now() - last;
     return elapsed >= this.deps.schedule.inc_interval_minutes * 60 * 1000;
   }

@@ -294,6 +294,23 @@ export class BackupService {
     // --- Filter: skip files whose hash is unchanged vs index ---
     const changes = buildChanges(fileData, changesPaths, index);
 
+    // No-op inc short-circuit: queue had events but after hashing every
+    // file's content matched the index — nothing actually changed. This
+    // happens with formatters / linters / "save on focus loss" plugins
+    // that rewrite a file with identical content. Advance the queue
+    // cursor so we don't re-evaluate the same no-op events on every
+    // tick, then skip the commit chain entirely (no manifest, no HEAD
+    // bump, no Dropbox round-trip).
+    if (changes.length === 0 && deleted.length === 0 && renames.length === 0) {
+      const maxObservedAt = queue.entries.reduce(
+        (max, e) => (e.observed_at > max ? e.observed_at : max),
+        queue.entries[0]?.observed_at ?? this.now(),
+      );
+      await this.advanceQueueCursor(maxObservedAt, queue);
+      this.logger.info('Inc backup: no actual changes');
+      return;
+    }
+
     // --- Determine parent snapshot ---
     // Same bootstrap fallback as the index-null case above: if the index
     // exists but never recorded a successful commit, the chain has no head to

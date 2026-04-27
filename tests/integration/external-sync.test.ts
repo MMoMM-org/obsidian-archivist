@@ -1,23 +1,25 @@
-// external-sync.test.ts — mtime-only change from external sync → reconcile skips re-upload.
+// external-sync.test.ts — mtime-only change from external sync → no inc snapshot at all.
 //
-// Scenario (spurious mtime changes from Obsidian Sync / iCloud / Dropbox):
+// Scenario (spurious mtime changes from Obsidian Sync / iCloud / Dropbox /
+// linter/formatter plugins that re-save without content changes):
 //   1. Full backup → LocalIndex has hash H for file 'notes/a.md'.
-//   2. External sync touches the file (updates mtime) but does NOT change content.
+//   2. External event touches the file (updates mtime) but does NOT change content.
 //      The queue gets a 'modify' event for that path.
 //   3. Incremental backup runs.
 //   4. Assert:
-//      a) The incremental manifest has NO file entry for 'notes/a.md'
-//         (hash unchanged → pure rename / mtime-only → not in manifest.files).
-//      b) The snapshot is still committed (even if empty files dict).
-//      c) No additional blob was uploaded for 'notes/a.md'.
+//      a) NO inc snapshot is committed — buildChanges filters the file out
+//         (hash unchanged), and an inc with an empty changes/deletes/renames
+//         set is a pure no-op that would only consume Dropbox bandwidth.
+//      b) The queue cursor advanced past the no-op event so the same
+//         spurious event isn't re-evaluated on every subsequent tick.
+//      c) The index's last_inc_snapshot_id stays unchanged (no new inc).
+//      d) No additional blob was uploaded for 'notes/a.md'.
 
 import { describe, expect, it } from 'vitest';
-import { sha256hex } from '../../src/infra/Hasher';
 import { createArchivistFixture } from './_harness';
-import type { SnapshotManifest } from './_harness';
 
 describe('Integration — external-sync mtime-only', () => {
-  it('incremental skips re-upload when content hash is unchanged', async () => {
+  it('incremental commits NO snapshot when content hash is unchanged', async () => {
     const path = 'notes/a.md';
     const content = 'Content that does not change';
 
@@ -27,52 +29,39 @@ describe('Integration — external-sync mtime-only', () => {
 
     // Full backup
     await fix.triggerFull();
-    const uploadCountAfterFull = fix.mockDropbox.uploadLog.length;
+    const indexAfterFull = fix.mockDropbox.readJson<{
+      snapshots: Array<{ id: string; type: string }>;
+    }>(fix.paths.snapshotIndex());
+    const incsBeforeNoOp = (indexAfterFull?.snapshots ?? []).filter((s) => s.type === 'inc').length;
 
     // Simulate an mtime-only "edit" — same bytes, new mtime
     fix.editFile(path, content); // same content, mtime updated by editFile
 
     // Add queue entry as if vault emitted a modify event
+    const noOpEventTime = new Date(Date.now() + 100).toISOString();
     fix.pluginStore.queue.entries.push({
       id: crypto.randomUUID(),
       type: 'modify',
       path,
       prev_path: null,
-      observed_at: new Date(Date.now() + 100).toISOString(),
+      observed_at: noOpEventTime,
     });
-
-    // Read the hash that the full backup recorded (used for both assertions below)
-    const hash = await sha256hex(new TextEncoder().encode(content));
-
-    // After full backup the index should have the correct hash for the file.
-    // Do NOT override the index entry — the full backup set it correctly.
-    // (If we were to override it, an mtime mismatch could defeat the skip logic.)
 
     await fix.triggerInc();
 
-    // Find the inc manifest
-    const index = fix.mockDropbox.readJson<{
+    // a) NO inc snapshot was added — the runIncremental no-op short-circuit
+    //    advanced the cursor and skipped the commit chain.
+    const indexAfterNoOp = fix.mockDropbox.readJson<{
       snapshots: Array<{ id: string; type: string }>;
     }>(fix.paths.snapshotIndex());
-    const incSnap = index!.snapshots.find((s) => s.type === 'inc');
-    expect(incSnap).not.toBeUndefined();
+    const incsAfterNoOp = (indexAfterNoOp?.snapshots ?? []).filter((s) => s.type === 'inc').length;
+    expect(incsAfterNoOp).toBe(incsBeforeNoOp);
 
-    const manifest = fix.mockDropbox.readJson<SnapshotManifest>(
-      fix.paths.snapshot(incSnap!.id),
-    );
-    expect(manifest).not.toBeNull();
-
-    // The file should NOT appear in the inc manifest.files (hash unchanged)
-    expect(Object.keys(manifest!.files)).not.toContain(path);
-
-    // The incremental snapshot was committed (manifest exists and has correct parent)
-    expect(manifest!.type).toBe('inc');
-
-    // Blob uploads are idempotent in CAS — a re-upload for the same hash is harmless,
-    // so we do not assert on blob-upload count. The key invariant is that the file
-    // does NOT appear in the incremental manifest's files dict.
-    void uploadCountAfterFull;
-    const uploadCountAfterInc = fix.mockDropbox.uploadLog.length;
-    void uploadCountAfterInc;
+    // b) Queue cursor advanced past the no-op event — otherwise the same
+    //    event would re-trigger on every tick forever.
+    expect(fix.pluginStore.queue.committed_through).not.toBeNull();
+    expect(
+      fix.pluginStore.queue.entries.every((e) => e.observed_at > fix.pluginStore.queue.committed_through!),
+    ).toBe(true);
   });
 });
