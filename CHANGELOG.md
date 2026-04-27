@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.1.0...0.1.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **dropbox:** share rate-limit gate across parallel ops ([#7](https://github.com/MMoMM-org/obsidian-archivist/issues/7)) ([7639abc](https://github.com/MMoMM-org/obsidian-archivist/commit/7639abc906bcb22cc22694416f91c126e6422c4e))
+
 # Changelog
 
 All notable changes to Archivist are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

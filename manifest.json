@@ -1,14 +1,14 @@
 {
-  "id": "obsidian-archivist",
-  "name": "Archivist",
-  "version": "0.1.0",
-  "minAppVersion": "1.5.0",
-  "description": "Versioned Obsidian vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.",
-  "author": "Marcus Breiden",
-  "authorUrl": "https://github.com/MMoMM-org/obsidian-archivist",
-  "fundingUrl": {
-    "Buy Me a Coffee": "https://ko-fi.com/mmomm",
-    "GitHub Sponsor": "https://github.com/sponsors/MMoMM-org"
-  },
-  "isDesktopOnly": true
+	"id": "obsidian-archivist",
+	"name": "Archivist",
+	"version": "0.1.1",
+	"minAppVersion": "1.5.0",
+	"description": "Versioned Obsidian vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.",
+	"author": "Marcus Breiden",
+	"authorUrl": "https://github.com/MMoMM-org/obsidian-archivist",
+	"fundingUrl": {
+		"Buy Me a Coffee": "https://ko-fi.com/mmomm",
+		"GitHub Sponsor": "https://github.com/sponsors/MMoMM-org"
+	},
+	"isDesktopOnly": true
 }

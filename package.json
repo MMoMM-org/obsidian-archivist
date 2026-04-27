@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-archivist",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Your vault's quiet historian. Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.",
 	"main": "main.js",
 	"author": "Marcus Breiden",
@@ -19,7 +19,13 @@
 		"typecheck": "tsc --noEmit",
 		"audit": "npm audit --audit-level=high --omit=dev"
 	},
-	"keywords": ["obsidian", "obsidian-plugin", "backup", "dropbox", "versioning"],
+	"keywords": [
+		"obsidian",
+		"obsidian-plugin",
+		"backup",
+		"dropbox",
+		"versioning"
+	],
 	"dependencies": {
 		"dropbox": "10.34.0"
 	},
