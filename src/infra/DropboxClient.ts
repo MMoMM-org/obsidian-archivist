@@ -12,10 +12,13 @@
 //     JSON endpoints it's NetworkError (treat as transient glitch).
 //   - listFolder auto-paginates via list_folder/continue.
 //   - uploadLarge picks single-shot vs upload_session based on singleShotMaxBytes.
-//   - A shared rate-limit gate pauses ALL in-flight + new ops on the same
-//     client when any op observes 429 / too_many_write_operations. Without
-//     it, parallel uploaders each retry independently and produce a 429
-//     storm against Dropbox on large vaults.
+//   - PROACTIVE rate limiting: a token bucket (default 8 req/s, 15 burst)
+//     gates every SDK call. Smooths bursts so a 4-way parallel upload of a
+//     5k-file vault never crosses Dropbox's per-app files/upload limit.
+//   - REACTIVE shared back-off: a rate-limit resume-at timestamp pauses ALL
+//     in-flight + new ops when any op observes 429 / too_many_write_operations.
+//     Catches the case where the user's other apps push the same account over
+//     the limit unexpectedly.
 //
 // References: SDD/Runtime View/Error Handling; ADR-14; plan phase-3.md T3.1.
 
@@ -78,11 +81,28 @@ const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 60;
 // Floor we apply when Dropbox returns 429 with no Retry-After header. Keeps
 // the gate from collapsing to zero and re-flooding the API on the next tick.
 const RATE_LIMIT_MIN_PAUSE_MS = 1_000;
+// Token-bucket defaults — sized below Dropbox's documented per-app per-second
+// budget for files/upload so a 4-way parallel backup of a 5k-file vault never
+// crosses the line. Burst lets short flurries (manifest+HEAD+index writes at
+// commit time) go through without artificial delay.
+const DEFAULT_RATE_LIMIT_REQUESTS_PER_SECOND = 8;
+const DEFAULT_RATE_LIMIT_BURST = 15;
 
 export interface DropboxClientOptions {
   uploadChunkBytes?: number;
   singleShotMaxBytes?: number;
   retry?: RetryOptions;
+  /**
+   * Proactive token-bucket gate on every SDK call. Defaults to 8 req/s with a
+   * 15-token burst — sized to keep parallel-uploader bursts under Dropbox's
+   * per-app `files/upload` budget. Set `enabled: false` to disable entirely
+   * (tests that need to fire many sequential calls without artificial delay).
+   */
+  rateLimit?: {
+    enabled?: boolean;
+    requestsPerSecond?: number;
+    burst?: number;
+  };
 }
 
 export interface ListFolderEntry {
@@ -310,6 +330,12 @@ export class DropboxClient {
   // re-flooding Dropbox.
   private rateLimitResumeAt = 0;
 
+  // Proactive token bucket. Sized so a 4-way parallel upload of a 5k-file
+  // vault stays under Dropbox's per-app `files/upload` budget by smoothing
+  // the burst from 80 req/s (4 ops × ~20/s each) to a steady ~8 req/s. Null
+  // when explicitly disabled via options.rateLimit.enabled = false.
+  private readonly bucket: TokenBucket | null;
+
   constructor(sdk: Dropbox, tokenStore: TokenStore, logger: Logger, options: DropboxClientOptions = {}) {
     this.sdk = asDropboxLike(sdk);
     this.tokenStore = tokenStore;
@@ -320,6 +346,16 @@ export class DropboxClient {
       isRetryable: (e) => e instanceof ArchivistError && e.retryable,
       ...options.retry,
     };
+    const rl = options.rateLimit ?? {};
+    if (rl.enabled === false) {
+      this.bucket = null;
+    } else {
+      this.bucket = new TokenBucket(
+        rl.requestsPerSecond ?? DEFAULT_RATE_LIMIT_REQUESTS_PER_SECOND,
+        rl.burst ?? DEFAULT_RATE_LIMIT_BURST,
+        this.retryOptions.sleep ?? defaultGateSleep,
+      );
+    }
   }
 
   // ---- Public API --------------------------------------------------------
@@ -502,6 +538,9 @@ export class DropboxClient {
     op: () => Promise<T>,
     context: { endpoint: string; isManifestEndpoint?: boolean },
   ): Promise<T> {
+    // Order matters: bucket FIRST (smooths burst rate), gate SECOND (extends
+    // back-off after an observed 429 beyond what the bucket alone would do).
+    if (this.bucket) await this.bucket.acquire();
     await this.awaitRateLimit();
     try {
       return await op();
@@ -672,6 +711,57 @@ async function extractBytes(result: FileDownloadResult): Promise<Uint8Array> {
 const setT: typeof setTimeout = setTimeout;
 function defaultGateSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setT(resolve, ms));
+}
+
+// Token bucket used by DropboxClient as a proactive rate limiter.
+//
+// Decoupled from the reactive gate so callers don't have to wait for a 429
+// to discover a budget exists. Uses Date.now() directly for refill timing so
+// it responds correctly even when the test sleep is a no-op (refill window
+// never opens, bucket reports empty, acquire() loops via injected sleep —
+// which IS observable in tests).
+//
+// Not exported: the bucket is an implementation detail of DropboxClient. If a
+// future caller needs its own bucket, promote at that point — over-exposing
+// it now would invite ad-hoc rate-limiter clones across the codebase.
+class TokenBucket {
+  private tokens: number;
+  private lastRefillMs: number;
+
+  constructor(
+    private readonly refillPerSecond: number,
+    private readonly capacity: number,
+    private readonly sleep: (ms: number) => Promise<void>,
+  ) {
+    // Start full so the first burst (commit-time HEAD/manifest/index writes)
+    // doesn't pay a startup tax.
+    this.tokens = capacity;
+    this.lastRefillMs = Date.now();
+  }
+
+  async acquire(): Promise<void> {
+    while (true) {
+      this.refill();
+      if (this.tokens >= 1) {
+        this.tokens -= 1;
+        return;
+      }
+      // Wait just long enough for one token to refill, then re-check. Looping
+      // on re-check (instead of computing exact wait once) keeps the bucket
+      // honest under concurrent acquirers — each gets a fresh refill view
+      // after waking and only takes a token if one is genuinely available.
+      const waitMs = Math.max(1, Math.ceil(1000 / this.refillPerSecond));
+      await this.sleep(waitMs);
+    }
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsedSec = (now - this.lastRefillMs) / 1000;
+    if (elapsedSec <= 0) return;
+    this.tokens = Math.min(this.capacity, this.tokens + elapsedSec * this.refillPerSecond);
+    this.lastRefillMs = now;
+  }
 }
 
 function safeExpiresAt(d: Date | undefined | null): string {
