@@ -478,6 +478,8 @@ export interface MockEl {
   empty(): void;
   /** Set a DOM attribute (mirrors HTMLElement.setAttribute). */
   setAttribute(name: string, value: string): void;
+  /** Remove a DOM attribute (mirrors HTMLElement.removeAttribute). */
+  removeAttribute(name: string): void;
   addEventListener(
     event: string,
     cb: (e: { key: string; preventDefault: () => void }) => void,
@@ -485,6 +487,12 @@ export interface MockEl {
   dispatchEvent(e: { key: string; preventDefault: () => void; type: string }): void;
   focus(): void;
   _focusCalled: boolean;
+  /**
+   * Minimal selector engine — supports `.class`, `tag`, and the
+   * descendant-then-tag combo `.class tag` used by views to find
+   * specific buttons inside an action row. Not a full CSS engine.
+   */
+  querySelectorAll<T extends MockEl = MockEl>(selector: string): T[];
 }
 
 function makeMockEl(tag: string): MockEl {
@@ -534,6 +542,9 @@ function makeMockEl(tag: string): MockEl {
     setAttribute(name, value) {
       el.attrs[name] = value;
     },
+    removeAttribute(name) {
+      delete el.attrs[name];
+    },
     addEventListener(event, cb) {
       if (!el.listeners.has(event)) el.listeners.set(event, []);
       el.listeners.get(event)!.push(cb);
@@ -544,6 +555,36 @@ function makeMockEl(tag: string): MockEl {
     },
     focus() {
       el._focusCalled = true;
+    },
+    querySelectorAll<T extends MockEl = MockEl>(selector: string): T[] {
+      // Strip leading dot for class selectors. Supports two forms:
+      //   ".cls"       → all descendants whose className contains cls
+      //   ".cls tag"   → tag descendants whose ancestor matches .cls
+      //   "tag"        → all descendants of the given tag name
+      const parts = selector.trim().split(/\s+/);
+      const matches: MockEl[] = [];
+      const matchOne = (node: MockEl, sel: string): boolean => {
+        if (sel.startsWith('.')) return node.className.includes(sel.slice(1));
+        if (sel.startsWith('[')) return false; // attribute selectors not supported
+        return node.tagName === sel;
+      };
+      const walk = (node: MockEl, idx: number, gateMet: boolean): void => {
+        for (const child of node.children) {
+          const childGate = gateMet || matchOne(child, parts[idx]);
+          if (idx === parts.length - 1) {
+            if (childGate || matchOne(child, parts[idx])) {
+              if (matchOne(child, parts[parts.length - 1])) matches.push(child);
+            }
+          }
+          // For multi-segment selectors, advance the gate index when matched.
+          const nextIdx = matchOne(child, parts[idx]) && idx < parts.length - 1
+            ? idx + 1
+            : idx;
+          walk(child, nextIdx, childGate);
+        }
+      };
+      walk(el, 0, false);
+      return matches as T[];
     },
   };
   return el;
@@ -752,6 +793,8 @@ export async function requestUrl(_arg: unknown): Promise<{
 
 export class Component {
   private _children: Component[] = [];
+  /** Test introspection: was unload() called? */
+  _unloaded = false;
 
   addChild(c: Component): void {
     this._children.push(c);
@@ -759,6 +802,13 @@ export class Component {
 
   removeChild(c: Component): void {
     this._children = this._children.filter((ch) => ch !== c);
+  }
+
+  load(): void {}
+  unload(): void {
+    this._unloaded = true;
+    for (const child of this._children) child.unload();
+    this._children = [];
   }
 }
 

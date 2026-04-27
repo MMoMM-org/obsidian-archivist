@@ -29,12 +29,19 @@ import {
 } from './PreviewPane';
 import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
+import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * View-type constant. **Frozen** — Obsidian persists this string in
+ * `workspace.json` the first time a user opens the view; renaming it will
+ * silently drop the saved leaf on next load. Any rename requires an
+ * `onload` migration that converts stale leaf states.
+ */
 export const FILE_VERSIONS_VIEW_TYPE = 'archivist-file-versions';
 
 export interface FileVersionsViewState {
@@ -111,6 +118,13 @@ export class FileVersionsView extends ItemView {
   /** snapshot_id → tier (from SnapshotIndexEntry) for tier-tag rendering. */
   private tierByID: Map<string, SnapshotTier | null> = new Map();
   private selectedSnapshotId: string | null = null;
+  /**
+   * The Component scoping the currently-rendered preview. We unload it
+   * before rendering a new preview so each render does not leak a
+   * MarkdownRenderChild — `previewColEl.empty()` removes DOM nodes but the
+   * View still holds Component refs in its child list otherwise.
+   */
+  private _activeRenderChild: MarkdownRenderChild | null = null;
 
   // Column shells
   private fileColEl!: HTMLElement;
@@ -166,16 +180,45 @@ export class FileVersionsView extends ItemView {
     this.fileColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_FILE });
 
     const snapshotsCol = columns.createEl('div', { cls: 'archivist-fv-snapshots' });
-    snapshotsCol.createEl('h3', { text: S.FILE_VERSIONS_COL_SNAPSHOTS });
+    snapshotsCol.createEl('h3', {
+      text: S.FILE_VERSIONS_COL_SNAPSHOTS,
+      attr: { id: 'archivist-fv-snapshots-label' },
+    });
     this.snapshotsListEl = snapshotsCol.createEl('div', {
       cls: 'archivist-fv-snapshots-list',
-      attr: { tabindex: '0', role: 'listbox' },
+      attr: {
+        tabindex: '0',
+        role: 'listbox',
+        'aria-labelledby': 'archivist-fv-snapshots-label',
+      },
+    });
+    // Roving-tabindex bridge: when the user tabs INTO the listbox container
+    // and presses Arrow keys, focus the first (or last on ArrowUp) row.
+    // Without this, the user lands on the container with no path to the
+    // rows themselves — keyboard-trap.
+    this.snapshotsListEl.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const rows = Array.from(
+        this.snapshotsListEl.querySelectorAll<HTMLElement>('.archivist-fv-snapshot-row'),
+      );
+      if (rows.length === 0) return;
+      // If focus is already on a row inside the list, let the row's own
+      // handler take over.
+      if (rows.includes(activeDocument.activeElement as HTMLElement)) return;
+      e.preventDefault();
+      const target = e.key === 'ArrowDown' ? rows[0] : rows[rows.length - 1];
+      target.focus();
     });
 
     this.previewColEl = columns.createEl('div', {
       cls: 'archivist-fv-preview',
       attr: { tabindex: '0' },
     });
+    // Note: per-version timestamp is rendered as a `role=status` element
+    // below this static heading, NOT as a replacement for the heading.
+    // Heading-nav users (NVDA/JAWS H key) keep a stable structural anchor;
+    // the live region announces each selection without overloading the
+    // heading semantics.
     this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
 
     if (this.currentPath) {
@@ -185,6 +228,7 @@ export class FileVersionsView extends ItemView {
 
   async onClose(): Promise<void> {
     this._closed = true;
+    this._unloadActiveRenderChild();
     this.contentEl.empty();
   }
 
@@ -355,7 +399,12 @@ export class FileVersionsView extends ItemView {
     this._renderVersionsList();
 
     this.previewColEl.empty();
-    this.previewColEl.createEl('h3', { text: fvFormatTimestamp(new Date(entry.created_at)) });
+    this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
+    this.previewColEl.createEl('p', {
+      text: fvFormatTimestamp(new Date(entry.created_at)),
+      cls: 'archivist-fv-preview-timestamp',
+      attr: { role: 'status', 'aria-live': 'polite' },
+    });
     this.previewColEl.createEl('p', {
       text: S.BROWSER_LOADING,
       cls: 'archivist-loading',
@@ -372,11 +421,22 @@ export class FileVersionsView extends ItemView {
     if (this._closed || this.selectedSnapshotId !== capturedId) return;
 
     this.previewColEl.empty();
-    this.previewColEl.createEl('h3', { text: fvFormatTimestamp(new Date(entry.created_at)) });
+    this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
+    this.previewColEl.createEl('p', {
+      text: fvFormatTimestamp(new Date(entry.created_at)),
+      cls: 'archivist-fv-preview-timestamp',
+      attr: { role: 'status', 'aria-live': 'polite' },
+    });
 
+    // Unload the previous renderChild before adding a new one. previewColEl.
+    // empty() above clears the DOM but does not detach Component children
+    // from the view; without this unload, every selection click leaks a
+    // MarkdownRenderChild for the lifetime of the view.
+    this._unloadActiveRenderChild();
     const previewContent = this.previewColEl.createEl('div', { cls: 'archivist-preview-content' });
     const renderChild = new MarkdownRenderChild(previewContent);
     this.addChild(renderChild);
+    this._activeRenderChild = renderChild;
     try {
       await renderPreview(
         this.app,
@@ -386,27 +446,50 @@ export class FileVersionsView extends ItemView {
         renderChild,
       );
     } catch (err) {
-      if (this._closed || this.selectedSnapshotId !== capturedId) return;
+      if (this._closed || this.selectedSnapshotId !== capturedId) {
+        this._unloadActiveRenderChild();
+        return;
+      }
+      this._unloadActiveRenderChild();
       this._renderPreviewError(err);
       return;
     }
-    if (this._closed || this.selectedSnapshotId !== capturedId) return;
+    if (this._closed || this.selectedSnapshotId !== capturedId) {
+      this._unloadActiveRenderChild();
+      return;
+    }
 
     this._renderPreviewActions(entry);
   }
 
+  private _unloadActiveRenderChild(): void {
+    if (this._activeRenderChild) {
+      this._activeRenderChild.unload();
+      this._activeRenderChild = null;
+    }
+  }
+
   private _renderPreviewActions(entry: VersionEntry): void {
     const actions = this.previewColEl.createEl('div', { cls: 'archivist-fv-preview-actions' });
-    const inPlaceBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_IN_PLACE });
-    const asCopyBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_TO_LOCATION });
-
     const targetPath = entry.currentPath;
+    const targetBasename = basename(targetPath);
+    const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const inPlaceBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_IN_PLACE });
+    inPlaceBtn.setAttribute(
+      'aria-label',
+      `Restore ${targetBasename} in place from snapshot ${ts}`,
+    );
+    const asCopyBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_TO_LOCATION });
+    asCopyBtn.setAttribute(
+      'aria-label',
+      `Restore ${targetBasename} to a new location from snapshot ${ts}`,
+    );
+
     inPlaceBtn.addEventListener('click', () => {
       const missingDirs = computeMissingDirs(targetPath, this.deps.vaultHasPath);
-      const timestamp = fvFormatTimestamp(new Date(entry.created_at));
       new ConfirmRestoreModal(this.app, {
         filePath: targetPath,
-        timestamp,
+        timestamp: ts,
         size: formatBytes(entry.size),
         missingDirs,
         onConfirm: () => {
@@ -414,8 +497,7 @@ export class FileVersionsView extends ItemView {
             .restoreInPlace(targetPath, entry.snapshot_id)
             .then(() => this.deps.notify?.(S.TOAST_RESTORE_DONE))
             .catch((err: unknown) => {
-              const msg = err instanceof Error ? err.message : String(err);
-              this.deps.notify?.(msg);
+              this.deps.notify?.(mapRestoreErrorToToast(err));
             });
         },
         onCancel: () => {},
@@ -423,13 +505,27 @@ export class FileVersionsView extends ItemView {
     });
 
     asCopyBtn.addEventListener('click', () => {
-      void this.deps.restoreOperations
-        .restoreAsCopy(targetPath, entry.snapshot_id)
-        .then(() => this.deps.notify?.(S.TOAST_RESTORE_DONE))
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.deps.notify?.(msg);
-        });
+      // Symmetric with in-place: confirm before any write so a misclick
+      // (or an AT-tab-and-Enter) cannot create a sibling file silently.
+      // The body explains that this branch creates a copy, not an
+      // overwrite, which is materially different from the in-place
+      // confirm — pass via customBody so the modal title stays neutral.
+      new ConfirmRestoreModal(this.app, {
+        filePath: targetPath,
+        timestamp: ts,
+        size: formatBytes(entry.size),
+        missingDirs: [],
+        customBody: `A copy of "${targetPath}" from ${ts} will be created next to the live file. The live file is not modified.`,
+        onConfirm: () => {
+          void this.deps.restoreOperations
+            .restoreAsCopy(targetPath, entry.snapshot_id)
+            .then(() => this.deps.notify?.(S.TOAST_RESTORE_DONE))
+            .catch((err: unknown) => {
+              this.deps.notify?.(mapRestoreErrorToToast(err));
+            });
+        },
+        onCancel: () => {},
+      }).open();
     });
   }
 

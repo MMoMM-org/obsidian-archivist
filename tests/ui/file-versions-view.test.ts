@@ -362,3 +362,105 @@ describe('FileVersionsView stale-async bailout', () => {
     expect(internal.contentEl.children.length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// fetchContent rejection in _selectVersion
+// ---------------------------------------------------------------------------
+
+describe('FileVersionsView fetchContent error handling', () => {
+  it('renders BROWSER_ERROR_CHAIN_BROKEN in preview when fetchContent throws ChainError', async () => {
+    const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
+    const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+        loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
+      },
+      restoreService: {
+        fetchContent: vi.fn().mockRejectedValue(new ChainError('CHAIN_BROKEN', 'broken', false)),
+        listVersionsForPath: vi.fn().mockReturnValue(versions),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    const internal = view as unknown as { contentEl: MockEl };
+    const previewCol = findByClass(internal.contentEl, 'archivist-fv-preview')!;
+    const errEl = findByClass(previewCol, 'archivist-error');
+    expect(errEl).toBeDefined();
+    expect(errEl!.textContent).toContain('chain has a missing ancestor');
+  });
+
+  it('renders generic error in preview when fetchContent throws non-ChainError', async () => {
+    const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
+    const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+        loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
+      },
+      restoreService: {
+        fetchContent: vi.fn().mockRejectedValue(new Error('disk on fire')),
+        listVersionsForPath: vi.fn().mockReturnValue(versions),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    const internal = view as unknown as { contentEl: MockEl };
+    const previewCol = findByClass(internal.contentEl, 'archivist-fv-preview')!;
+    const errEl = findByClass(previewCol, 'archivist-error');
+    expect(errEl).toBeDefined();
+    expect(errEl!.textContent).toContain('disk on fire');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Explicit non-newest version-row click — _selectVersion swap
+// ---------------------------------------------------------------------------
+
+describe('FileVersionsView version-row click', () => {
+  it('clicking a non-newest row triggers fetchContent for that version', async () => {
+    const snap1 = makeSnapshot('m1', '2026-04-25T10:00:00Z');
+    const snap2 = makeSnapshot('m2', '2026-04-24T10:00:00Z');
+    const v1 = makeVersion('m1', '2026-04-25T10:00:00Z');
+    const v2 = makeVersion('m2', '2026-04-24T10:00:00Z');
+    const fetchContent = vi.fn().mockResolvedValue(new Uint8Array());
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap1, snap2]),
+        loadManifest: vi.fn().mockImplementation((id: string) =>
+          Promise.resolve(makeManifest(id, '2026-04-25T10:00:00Z')),
+        ),
+      },
+      restoreService: {
+        fetchContent,
+        listVersionsForPath: vi.fn().mockReturnValue([v1, v2]),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    const internal = view as unknown as { contentEl: MockEl };
+    const snapsList = findByClass(internal.contentEl, 'archivist-fv-snapshots-list')!;
+    const rows = findAllByClass(snapsList, 'archivist-fv-snapshot-row');
+    expect(rows.length).toBe(2);
+
+    fetchContent.mockClear();
+    rows[1].dispatchEvent({ type: 'click', key: '', preventDefault: () => {} });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    expect(fetchContent).toHaveBeenLastCalledWith('m2', 'notes/a.md');
+    // Re-query after the click — _renderVersionsList rebuilds the row list,
+    // so the originally captured `rows[]` references are stale MockEls.
+    const refreshedRows = findAllByClass(snapsList, 'archivist-fv-snapshot-row');
+    expect(refreshedRows[1]?.attrs['aria-selected']).toBe('true');
+    expect(refreshedRows[0]?.attrs['aria-selected']).toBe('false');
+  });
+});

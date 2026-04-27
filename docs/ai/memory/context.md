@@ -1,5 +1,51 @@
 # Context Memory
 
+<!-- 2026-04-27 — review feedback on dir-restore + FileVersionsView -->
+
+## Deferred Review Items
+
+Findings from `/review` on `feat/backup-browser-dir-restore-and-versions-view` (branch `87ed702..30a8e26`) that were intentionally not actioned in the immediate post-review pass. Address in a follow-up cleanup PR or when the area is touched again.
+
+### M7 — Cap parallelism on FileVersionsView manifest load (2026-04-27)
+- Location: `src/ui/FileVersionsView.ts:224-226`
+- Concern: `Promise.allSettled(snapshots.map(loadManifest))` opens N parallel fetches on view open. Cold start for a 1000-snapshot vault hits ManifestCache hard; warm-cache case is fine.
+- Reason deferred: V1-acceptable for current vault sizes; needs a `p-limit` dep + chunked rendering refactor to do right.
+- Branch: feat/backup-browser-dir-restore-and-versions-view
+
+### M8 — `_renderVersionsList` rebuilds whole DOM list per click (2026-04-27)
+- Location: `src/ui/FileVersionsView.ts:355` (and same anti-pattern in `BackupBrowserView`'s `renderSnapshotsColumn` / `renderFilesColumn`)
+- Concern: Re-rendering all rows just to flip `aria-selected` on two of them. Up to 4000+ DOM ops per click for a 1000-version file.
+- Reason deferred: Pre-existing pattern, not a regression. Fix touches both views and benefits from a shared `RowList` helper that doesn't yet exist.
+- Branch: feat/backup-browser-dir-restore-and-versions-view
+
+### M9 — `restoreDirectory` sequential — no concurrency cap (2026-04-27)
+- Location: `src/services/RestoreOperations.ts:152-164`
+- Concern: 50-file restore = 50 sequential round-trips. A small cap (e.g. 4) would 4× throughput while staying under Dropbox's 200/min limit.
+- Reason deferred: Plan rationale (Dropbox throttling) explicitly chose sequential for V1. Add a TODO + advanced-setting hook when the loop is touched again.
+- Branch: feat/backup-browser-dir-restore-and-versions-view
+
+### M14 — Renamed-from `<span>` not deterministically in row's accessible name (2026-04-27)
+- Location: `src/ui/FileVersionsView.ts:328-333`
+- Concern: ARIA spec doesn't guarantee subtree concatenation for `role="option"` in all AT modes. Low risk but non-zero.
+- Reason deferred: Speculative AT-mode-specific issue; cheap to add `aria-label` later when other accessible-name work touches this.
+- Branch: feat/backup-browser-dir-restore-and-versions-view
+
+### LOW-tier findings (polish batch) — 2026-04-27
+The following 22 LOW-tier findings (L1–L22 in review) are batched as polish for a follow-up cleanup PR:
+
+- Test gaps: `collectDirMatches` direct unit test, `buildFileTree` root-level file `fullPath` assertion, `Menu._last` / `ConfirmRestoreModal._last` reset between tests, stale-async flush count fragility.
+- Accessibility polish: live-region for toast announcements, `archivist-fv-file-live` differentiated classes for present/missing, `aria-labelledby` on listbox containers (some done in H6, leftover BackupBrowser listboxes still pending).
+- Code-quality refactors: 4-positional `CONFIRM_DIR_RESTORE_BODY` → named-args, extract `WorkspaceWithLeafState` alias for the inline workspace casts in main.ts, hoist `formatSnapshotDate` / `fvFormatTimestamp` into shared `src/ui/format.ts`, rename `restoreAsCopyAt` → `restoreAsCopyWithSharedTimestamp`, central `BannerCode` union.
+- Minor perf: `computeMissingDirs` Set-memo per click, `buildFileTree` ancestor array reallocation reduction.
+- DRY: `collectDirMatches` duplicates `restoreDirectory` filter — hoist to shared util, both call it.
+- Comment WHY-vs-WHAT cleanup at `BackupBrowserView.ts:691`.
+- Function decomposition: `_renderForCurrentPath` long async with 4 stale-bails — extract `_loadManifestsForPath` + `_renderVersionsAndAutoSelect`.
+- API ergonomics: `buildCopyPath(orig, sharedTs?)` foreshadows positional bloat — switch to opts object when next touched.
+- FV ArrowDown `preventDefault` only inside bounds check — move outside to match BackupBrowser's `wireArrowNav`.
+- `_selectDir` no-await invariant comment.
+
+Reason deferred: Polish-tier; bundling them into one cleanup PR keeps history clean and keeps the V1 ship-blocker scope focused.
+
 <!-- 2026-04-25 evening — manual-test session -->
 - **First-light end-to-end test session complete** on branch `feat/xdd-001-archivist-plugin`. Plugin reached "FULL backup + restore-in-place + Backup Browser navigation all visibly working" against real Dropbox. ~17 commits today (`41e8461` through `24d9b20`) covering: path double-prefix fix (Apps/Archivist/ no longer client-side because App-Folder OAuth scope auto-prefixes server-side), leading-slash normalisation in `DropboxClient.normalizeApiPath`, OAuth account-email backfill, scope-rights debug helper `scripts/dropbox-inspect.mjs`, ribbon centering + status-bar item with FSM state mirror, validation-error inline display, file-history command modal wiring, restore-in-place via `vault.modifyBinary` (not adapter.write+rename), Backup Browser polish (selection highlights, "Files at YYYY-MM-DD HH:MM" header, basename + path subtitle in preview column), open-or-focus pattern via `getLeavesOfType` + `revealLeaf`. All 1050 tests green at session end; manifest deployed to test vault at `0.1.0-dev.20260425-1518`. Many lessons documented in `docs/ai/memory/troubleshooting.md` (worth re-reading before next UI work).
 - **Open TODOs for next session** (user-flagged at session close):

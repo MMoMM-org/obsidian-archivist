@@ -1238,5 +1238,128 @@ describe('BackupBrowserView directory selection', () => {
     };
     expect(restoreOps.restoreDirectory).not.toHaveBeenCalled();
   });
+
+  it('confirming the dir-restore modal triggers _runDirectoryRestore', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md', 'notes/b.md']);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectDir('notes');
+
+    const previewCol = (view as unknown as { previewColEl: MockEl }).previewColEl;
+    const actions = findByClass(previewCol, 'archivist-dir-actions');
+    const inPlaceBtn = actions!.children.find((c) => c.tagName === 'button');
+    inPlaceBtn!.dispatchEvent({ type: 'click', key: '', preventDefault: () => {} });
+
+    const ModalMock = await import('../../src/ui/ConfirmRestoreModal');
+    const last = (ModalMock.ConfirmRestoreModal as unknown as { _last: { opts: { onConfirm: () => void } } | null })._last;
+    expect(last).not.toBeNull();
+    last!.opts.onConfirm();
+    // Drain the void promise from _runDirectoryRestore.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const restoreOps = deps.restoreOperations as unknown as {
+      restoreDirectory: ReturnType<typeof vi.fn>;
+    };
+    expect(restoreOps.restoreDirectory).toHaveBeenCalledWith(
+      'notes',
+      snap.id,
+      'in_place',
+    );
+  });
+
+  it('_runDirectoryRestore success path notifies and clears in-flight flag', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md']);
+    const restoreDirectory = vi.fn().mockResolvedValue({ ok: 3, failed: [] });
+    const notify = vi.fn();
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+      restoreOperations: {
+        restoreInPlace: vi.fn(),
+        restoreAsCopy: vi.fn(),
+        restoreDirectory,
+      },
+      notify,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const internal = view as unknown as {
+      _runDirectoryRestore: (
+        prefix: string,
+        snapshotId: string,
+        mode: 'in_place' | 'as_copy',
+      ) => Promise<void>;
+      _dirRestoreInFlight: boolean;
+    };
+    await internal._runDirectoryRestore('notes', snap.id, 'in_place');
+
+    expect(notify).toHaveBeenCalledWith(S.TOAST_DIR_RESTORE_OK(3));
+    expect(internal._dirRestoreInFlight).toBe(false);
+  });
+
+  it('_runDirectoryRestore partial-failure path notifies + emits persistent banner', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md']);
+    const restoreDirectory = vi.fn().mockResolvedValue({
+      ok: 2,
+      failed: [{ path: 'notes/b.md', error: 'simulated' }],
+    });
+    const showPersistent = vi.fn();
+    const notify = vi.fn();
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+      restoreOperations: {
+        restoreInPlace: vi.fn(),
+        restoreAsCopy: vi.fn(),
+        restoreDirectory,
+      },
+      noticeCenter: {
+        showPersistent,
+        onBannersChange: vi.fn().mockReturnValue(() => {}),
+      },
+      notify,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const internal = view as unknown as {
+      _runDirectoryRestore: (
+        prefix: string,
+        snapshotId: string,
+        mode: 'in_place' | 'as_copy',
+      ) => Promise<void>;
+      _dirRestoreInFlight: boolean;
+    };
+    await internal._runDirectoryRestore('notes', snap.id, 'in_place');
+
+    expect(notify).toHaveBeenCalledWith(S.TOAST_DIR_RESTORE_PARTIAL(2, 1));
+    expect(showPersistent).toHaveBeenCalledWith(
+      'DIR_RESTORE_PARTIAL_FAILURE',
+      expect.stringContaining('notes/b.md: simulated'),
+      {},
+    );
+    expect(internal._dirRestoreInFlight).toBe(false);
+  });
 });
 

@@ -28,6 +28,7 @@ const PATH_KEYS: ReadonlySet<string> = new Set([
   'vault_path',
   'file',
   'filename',
+  'dir',
 ]);
 
 function redactPath(p: unknown): unknown {

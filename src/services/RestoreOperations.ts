@@ -15,6 +15,7 @@
 // PathError('BINARY_NOT_TEXT').
 
 import { CorruptionError, PathError } from '../model/Errors';
+import type { FileEntry } from '../model/Manifest';
 import type { ManifestLoader } from './RestoreService';
 import type { RestoreService } from './RestoreService';
 import type { VaultAdapter } from '../infra/VaultAdapter';
@@ -145,16 +146,20 @@ export class RestoreOperations {
       count: matches.length,
     });
 
-    const sharedTs = mode === 'as_copy' ? this.now() : 0;
+    // Compute the timestamp once for as-copy batches so every file shares
+    // the same `.restored-<ts>.<ext>` suffix. Use undefined (not 0) on the
+    // in_place branch to flow through the buildCopyPath fallback contract.
+    const sharedTs = mode === 'as_copy' ? this.now() : undefined;
     let ok = 0;
     const failed: Array<{ path: string; error: string }> = [];
 
     for (const path of matches) {
       try {
         if (mode === 'in_place') {
-          await this.restoreInPlace(path, snapshotId);
+          await this.restoreInPlaceWithState(path, snapshotId, state);
         } else {
-          await this.restoreAsCopyAt(path, snapshotId, sharedTs);
+          // sharedTs is defined here — narrowed by the mode check above.
+          await this.restoreAsCopyAt(path, snapshotId, sharedTs!, state);
         }
         ok++;
       } catch (err) {
@@ -175,15 +180,35 @@ export class RestoreOperations {
   /**
    * Restore a single file as a copy using a caller-supplied timestamp.
    * Used by `restoreDirectory` so every file in a batch shares the same
-   * `<basename>.restored-<ts>.<ext>` suffix.
+   * `<basename>.restored-<ts>.<ext>` suffix. The pre-materialized state is
+   * threaded through so the per-file pre-write hash check skips a
+   * redundant chain merge.
    */
   private async restoreAsCopyAt(
     path: string,
     snapshotId: string,
     sharedTs: number,
+    precomputedState?: Record<string, FileEntry>,
   ): Promise<RestoreResult> {
     const copyPath = this.buildCopyPath(path, sharedTs);
-    return this.runWithMutex(path, () => this.writeRestore(path, snapshotId, copyPath));
+    return this.runWithMutex(path, () =>
+      this.writeRestore(path, snapshotId, copyPath, precomputedState),
+    );
+  }
+
+  /**
+   * Internal in-place restore that accepts the pre-materialized state, so
+   * the dir-restore loop's first materialize can be reused for every
+   * file's pre-write hash check.
+   */
+  private async restoreInPlaceWithState(
+    path: string,
+    snapshotId: string,
+    precomputedState: Record<string, FileEntry>,
+  ): Promise<RestoreResult> {
+    return this.runWithMutex(path, () =>
+      this.writeRestore(path, snapshotId, path, precomputedState),
+    );
   }
 
   async copyToClipboard(path: string, snapshotId: string): Promise<void> {
@@ -228,6 +253,14 @@ export class RestoreOperations {
     sourcePath: string,
     snapshotId: string,
     writePath: string,
+    /**
+     * Optional pre-materialized vault state for the snapshot. When
+     * `restoreDirectory` orchestrates a batch, it materializes once and
+     * passes the same map to every per-file write — saving O(N) full
+     * chain-merge replays. Single-file callers omit it; verifyPreWriteHash
+     * falls back to materializing on demand.
+     */
+    precomputedState?: Record<string, FileEntry>,
   ): Promise<RestoreResult> {
     const operation = writePath === sourcePath ? 'in_place' : 'as_copy';
     this.deps.logger.info(`Starting ${operation} restore`);
@@ -237,7 +270,7 @@ export class RestoreOperations {
 
     // 2. Pre-write hash (SEC-M6). Guards against buffer mutation between
     //    fetch and write — unlikely but cheap insurance.
-    await this.verifyPreWriteHash(bytes, sourcePath, snapshotId);
+    await this.verifyPreWriteHash(bytes, sourcePath, snapshotId, precomputedState);
 
     // 3. Recreate missing parent directories (PRD F4 AC-4).
     await this.deps.vault.mkdirParents(writePath);
@@ -258,8 +291,11 @@ export class RestoreOperations {
     bytes: Uint8Array,
     sourcePath: string,
     snapshotId: string,
+    precomputedState?: Record<string, FileEntry>,
   ): Promise<void> {
-    const state = await this.deps.restoreService.materializeVaultStateAt(snapshotId);
+    const state =
+      precomputedState ??
+      (await this.deps.restoreService.materializeVaultStateAt(snapshotId));
     const entry = state[sourcePath];
     if (!entry) {
       // Defensive — fetchContent would have caught this, but order-independence
@@ -281,7 +317,13 @@ export class RestoreOperations {
   }
 
   private buildCopyPath(original: string, sharedTs?: number): string {
-    const ts = new Date(sharedTs ?? this.now()).toISOString().replace(/[:.]/g, '-');
+    // Defensive against `0` being passed as a "don't-care" sentinel — `??`
+    // would also accept 0 here, but a future caller passing 0 explicitly
+    // would silently get the epoch path. The undefined-aware check makes
+    // the contract explicit: only undefined falls back to now().
+    const ts = new Date(sharedTs !== undefined ? sharedTs : this.now())
+      .toISOString()
+      .replace(/[:.]/g, '-');
     const dot = original.lastIndexOf('.');
     if (dot === -1 || dot < original.lastIndexOf('/')) {
       return `${original}.restored-${ts}`;

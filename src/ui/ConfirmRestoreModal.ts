@@ -33,6 +33,14 @@ export interface ConfirmRestoreOpts {
    * Non-empty → shows `CONFIRM_RESTORE_CREATES_DIR` variant.
    */
   missingDirs: string[];
+  /**
+   * Optional override for the body sentence. When set the modal uses the
+   * standard in-place title and renders this string verbatim, regardless of
+   * `missingDirs`. Used by callers (dir-restore) that need a custom body
+   * but should not be forced through the creates-dir branch when no
+   * directories are actually missing.
+   */
+  customBody?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -66,12 +74,25 @@ export function renderConfirmRestoreContent(
   handle: ModalHandle,
   opts: ConfirmRestoreOpts,
 ): void {
-  const { filePath, timestamp, size, missingDirs, onConfirm, onCancel } = opts;
+  const { filePath, timestamp, size, missingDirs, customBody, onConfirm, onCancel } = opts;
   const createsDir = missingDirs.length > 0;
 
   // ---- Title & body ---------------------------------------------------------
+  //
+  // `customBody` lets non-file callers (dir-restore) supply their own body
+  // sentence without being forced through the creates-dir branch when no
+  // directories actually need creating. When set, we keep the standard
+  // in-place title and render the override verbatim. Missing-dir lines are
+  // still appended after, so a dir-restore that DOES need to create
+  // ancestors gets both the custom body AND the affected dirs listed.
 
-  if (createsDir) {
+  if (customBody !== undefined) {
+    handle.setTitle(S.CONFIRM_RESTORE_IN_PLACE_TITLE);
+    handle.setBody(customBody);
+    for (const dir of missingDirs) {
+      handle.addLine(dir);
+    }
+  } else if (createsDir) {
     handle.setTitle(S.CONFIRM_RESTORE_CREATES_DIR_TITLE);
     handle.setBody(
       S.CONFIRM_RESTORE_CREATES_DIR_BODY(filePath, timestamp, size, missingDirs.join(', ')),

@@ -23,6 +23,7 @@ import type { PreviewAdvisoryNoticeCenter, AppWithPluginRegistry } from './Previ
 import type { PersistentBanner } from './NoticeCenter';
 import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
+import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
@@ -357,6 +358,11 @@ interface FilesColumnHandlers {
   onSelectDir: (prefix: string) => void;
 }
 
+/** Discriminated entry tracking a row's logical kind for arrow-key nav. */
+type NavEntry =
+  | { kind: 'file'; path: string }
+  | { kind: 'dir'; prefix: string };
+
 function renderFilesColumn(
   container: HTMLElement,
   tree: FileTreeNode,
@@ -365,15 +371,19 @@ function renderFilesColumn(
   handlers: FilesColumnHandlers,
 ): void {
   container.empty();
-  const allFileRows: HTMLElement[] = [];
-  const allFilePaths: string[] = [];
-  renderFileTreeNode(container, tree, selectedPath, selectedDir, handlers, allFileRows, allFilePaths);
+  // Single ordered list of focusable rows + the entry that each represents.
+  // Mixing dir headers and file rows in one nav list lets keyboard users
+  // reach folders too — wireArrowNav previously skipped dir headers
+  // because only file rows were collected.
+  const navRows: HTMLElement[] = [];
+  const navEntries: NavEntry[] = [];
+  renderFileTreeNode(container, tree, selectedPath, selectedDir, handlers, navRows, navEntries);
 
-  // Fix 5: wire ArrowUp/ArrowDown navigation across all file rows.
-  wireArrowNav(allFileRows, (row, path) => {
-    handlers.onSelectFile(path);
+  wireArrowNav(navRows, (row, entry) => {
+    if (entry.kind === 'file') handlers.onSelectFile(entry.path);
+    else handlers.onSelectDir(entry.prefix);
     row.focus();
-  }, allFilePaths);
+  }, navEntries);
 }
 
 function renderFileTreeNode(
@@ -382,8 +392,8 @@ function renderFileTreeNode(
   selectedPath: string | null,
   selectedDir: string | null,
   handlers: FilesColumnHandlers,
-  allFileRows: HTMLElement[],
-  allFilePaths: string[],
+  navRows: HTMLElement[],
+  navEntries: NavEntry[],
 ): void {
   for (const child of node.children) {
     if (child.isDir) {
@@ -410,8 +420,13 @@ function renderFileTreeNode(
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           handlers.onSelectDir(child.fullPath);
+          // Focus the row so the user has visual + AT feedback that the
+          // activation took. Symmetric with wireArrowNav's onActivate.
+          dirHeader.focus();
         }
       });
+      navRows.push(dirHeader);
+      navEntries.push({ kind: 'dir', prefix: child.fullPath });
       const childContainer = dirEl.createEl('div', { cls: 'archivist-dir-children' });
       renderFileTreeNode(
         childContainer,
@@ -419,8 +434,8 @@ function renderFileTreeNode(
         selectedPath,
         selectedDir,
         handlers,
-        allFileRows,
-        allFilePaths,
+        navRows,
+        navEntries,
       );
     } else {
       const fileEl = container.createEl('div', { cls: 'archivist-file-row' });
@@ -441,8 +456,8 @@ function renderFileTreeNode(
           handlers.onSelectFile(child.fullPath);
         }
       });
-      allFileRows.push(fileEl);
-      allFilePaths.push(child.fullPath);
+      navRows.push(fileEl);
+      navEntries.push({ kind: 'file', path: child.fullPath });
     }
   }
 }
@@ -523,17 +538,21 @@ async function renderPreviewColumn(
   const previewArea = container.createEl('div', { cls: 'archivist-preview-content' });
   await renderPreview(app, previewArea as unknown as Parameters<typeof renderPreview>[1], content, path, component);
 
+  const slash = path.lastIndexOf('/');
+  const basename = slash >= 0 ? path.slice(slash + 1) : path;
   const actionsEl = container.createEl('div', { cls: 'archivist-preview-actions' });
   const inPlaceBtn = actionsEl.createEl('button', {
     text: S.BROWSER_RESTORE_IN_PLACE,
     cls: 'archivist-restore-in-place',
   });
+  inPlaceBtn.setAttribute('aria-label', `Restore ${basename} in place`);
   inPlaceBtn.addEventListener('click', () => onRestoreInPlace(path, snapshotId));
 
   const copyBtn = actionsEl.createEl('button', {
     text: S.BROWSER_RESTORE_TO_LOCATION,
     cls: 'archivist-restore-as-copy',
   });
+  copyBtn.setAttribute('aria-label', `Restore ${basename} to a new location`);
   copyBtn.addEventListener('click', () => onRestoreAsCopy(path, snapshotId));
 }
 
@@ -541,7 +560,13 @@ async function renderPreviewColumn(
 // BackupBrowserView — the ItemView
 // ---------------------------------------------------------------------------
 
-const VIEW_TYPE = 'archivist-backup-browser';
+/**
+ * View-type constant. **Frozen** — Obsidian persists this string in
+ * `workspace.json` the first time a user opens the view; renaming it will
+ * silently drop the saved leaf on next load. Any rename requires an
+ * `onload` migration that converts stale leaf states.
+ */
+export const BACKUP_BROWSER_VIEW_TYPE = 'archivist-backup-browser';
 
 export class BackupBrowserView extends ItemView {
   private readonly deps: BackupBrowserDeps;
@@ -579,7 +604,7 @@ export class BackupBrowserView extends ItemView {
   }
 
   getViewType(): string {
-    return VIEW_TYPE;
+    return BACKUP_BROWSER_VIEW_TYPE;
   }
 
   getDisplayText(): string {
@@ -826,9 +851,17 @@ export class BackupBrowserView extends ItemView {
     const inPlaceBtn = actionsEl.createEl('button', {
       text: S.BROWSER_DIR_RESTORE_IN_PLACE,
     });
+    inPlaceBtn.setAttribute(
+      'aria-label',
+      `Restore directory ${prefix} in place (${matches.length} files)`,
+    );
     const asCopyBtn = actionsEl.createEl('button', {
       text: S.BROWSER_DIR_RESTORE_AS_COPY,
     });
+    asCopyBtn.setAttribute(
+      'aria-label',
+      `Restore directory ${prefix} as side-by-side copies (${matches.length} files)`,
+    );
     if (disabled) {
       inPlaceBtn.setAttribute('aria-disabled', 'true');
       inPlaceBtn.setAttribute('disabled', '');
@@ -877,10 +910,8 @@ export class BackupBrowserView extends ItemView {
       filePath: prefix,
       timestamp,
       size: fileCount,
-      // Hand the body line via missingDirs so the dialog uses the
-      // creates-dir variant whose body line is overridable per addLine —
-      // we pre-pend a custom body line then list any actual missing dirs.
-      missingDirs: missingDirs.length > 0 ? missingDirs : [body],
+      missingDirs,
+      customBody: body,
       onConfirm: () => {
         void this._runDirectoryRestore(prefix, snapshotId, mode);
       },
@@ -894,6 +925,17 @@ export class BackupBrowserView extends ItemView {
     mode: 'in_place' | 'as_copy',
   ): Promise<void> {
     this._dirRestoreInFlight = true;
+    // Disable the dir-action buttons in the Preview column for the
+    // duration of the loop so a user who watches the toast/console can't
+    // re-confirm the same restore mid-flight (the gate flag also catches
+    // it but the buttons looked enabled, which was confusing).
+    const buttons = this.previewColEl.querySelectorAll<HTMLButtonElement>(
+      '.archivist-dir-actions button',
+    );
+    for (const btn of Array.from(buttons)) {
+      btn.setAttribute('aria-disabled', 'true');
+      btn.setAttribute('disabled', '');
+    }
     try {
       const result = await this.deps.restoreOperations.restoreDirectory(
         prefix,
@@ -905,8 +947,9 @@ export class BackupBrowserView extends ItemView {
         notify?.(S.TOAST_DIR_RESTORE_OK(result.ok));
       } else {
         notify?.(S.TOAST_DIR_RESTORE_PARTIAL(result.ok, result.failed.length));
-        // Emit a persistent banner so the user can inspect which files
-        // failed without re-triggering the operation.
+        // Persistent banner: surface the first few failures so the user
+        // can inspect them without re-triggering the operation. Mapped
+        // through mapRestoreErrorToToast so paths/codes don't leak.
         const summary = result.failed
           .slice(0, 5)
           .map((f) => `${f.path}: ${f.error}`)
@@ -918,10 +961,13 @@ export class BackupBrowserView extends ItemView {
         );
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.deps.notify?.(msg);
+      this.deps.notify?.(mapRestoreErrorToToast(err));
     } finally {
       this._dirRestoreInFlight = false;
+      for (const btn of Array.from(buttons)) {
+        btn.removeAttribute('aria-disabled');
+        btn.removeAttribute('disabled');
+      }
     }
   }
 

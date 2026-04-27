@@ -27,7 +27,7 @@ import {
   registerShowHistoryCommand,
 } from './ui/Commands';
 import { ArchivistSettingTab } from './ui/SettingsTab';
-import { BackupBrowserView } from './ui/BackupBrowserView';
+import { BackupBrowserView, BACKUP_BROWSER_VIEW_TYPE } from './ui/BackupBrowserView';
 import { FileHistoryModal } from './ui/FileHistoryModal';
 import { FileVersionsView, FILE_VERSIONS_VIEW_TYPE } from './ui/FileVersionsView';
 import { sha256hex } from './infra/Hasher';
@@ -40,7 +40,9 @@ import type { NotifyFn } from './ui/NoticeCenter';
 import type { DropboxClient } from './infra/DropboxClient';
 import type { PluginSettings } from './model/Settings';
 
-export const BACKUP_BROWSER_VIEW_TYPE = 'archivist-backup-browser';
+// BACKUP_BROWSER_VIEW_TYPE is the canonical export from BackupBrowserView.
+// It is re-exported here so existing importers (`@/main`) keep working.
+export { BACKUP_BROWSER_VIEW_TYPE };
 
 // Lazy Dropbox proxy — delegates every call to the real client once constructed.
 // Passed to services that need a DropboxClient reference at construction time

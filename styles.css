@@ -269,6 +269,13 @@
 	background-color: var(--background-modifier-hover);
 }
 
+.archivist-snapshot-row:focus-visible,
+.archivist-dir-header:focus-visible,
+.archivist-fv-snapshot-row:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
 .archivist-snapshot-row[aria-selected="true"] {
 	background-color: var(--background-modifier-active-hover);
 }
@@ -522,7 +529,7 @@
 }
 
 .archivist-dir-actions button[aria-disabled="true"] {
-	opacity: 0.5;
+	color: var(--text-faint);
 	cursor: not-allowed;
 }
 
