@@ -23,7 +23,7 @@ describe('Integration — external-sync mtime-only', () => {
     const path = 'notes/a.md';
     const content = 'Content that does not change';
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path, content }],
     });
 

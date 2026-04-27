@@ -15,13 +15,13 @@ import { SchedulerFSM } from '../../src/services/SchedulerFSM';
 import { createLogger } from '../../src/infra/Logger';
 
 describe('Integration — catch-up-full', () => {
-  it('FSM sets catchupPending when scheduled full was missed during offline period', () => {
+  it('FSM sets catchupPending when scheduled full was missed during offline period', async () => {
     const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
     const now = new Date('2026-04-24T12:00:00.000Z').getTime();
     // Last full was 10 days ago — one weekly full was missed.
     const lastFullAt = now - 10 * 24 * 60 * 60 * 1000;
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       settings: {
         schedule: {
           ...DEFAULT_SETTINGS.schedule,

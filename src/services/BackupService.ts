@@ -21,11 +21,12 @@ import type { ChangeDetector } from './ChangeDetector';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { DeviceCoordinator } from './DeviceCoordinator';
 import type { DropboxClient } from '../infra/DropboxClient';
+import type { EventQueue as EventQueueInfra } from '../infra/EventQueue';
 import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { LocalIndex } from '../model/Index';
-import type { EventQueue, QueueEntry } from '../model/QueueEntry';
+import type { QueueEntry } from '../model/QueueEntry';
 import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
 import { contentPath, headPath, snapshotPath } from '../util/paths';
 
@@ -60,6 +61,14 @@ export interface BackupServiceDeps {
   deviceCoordinator: DeviceCoordinator;
   pluginStore: PluginStore;
   snapshotIndexStore: SnapshotIndexStore;
+  /**
+   * The live, in-memory EventQueue. Required so cursor advances after a
+   * commit go through the same opQueue as enqueues — without this routing,
+   * the queue file ends up correct but the in-memory state is stale, and
+   * FSM.getQueueSize keeps returning phantom pending events for an entire
+   * inc_interval after every successful inc.
+   */
+  eventQueue: EventQueueInfra;
   vaultPrefix: string;
   vaultName: string;
   /**
@@ -92,6 +101,7 @@ export class BackupService {
   private readonly coordinator: DeviceCoordinator;
   private readonly pluginStore: PluginStore;
   private readonly snapshotIndexStore: SnapshotIndexStore;
+  private readonly eventQueue: EventQueueInfra;
   private readonly vaultPrefix: string;
   private readonly vaultName: string;
   private readonly changeDetector: ChangeDetector | null;
@@ -113,6 +123,7 @@ export class BackupService {
     this.coordinator = deps.deviceCoordinator;
     this.pluginStore = deps.pluginStore;
     this.snapshotIndexStore = deps.snapshotIndexStore;
+    this.eventQueue = deps.eventQueue;
     this.vaultPrefix = deps.vaultPrefix;
     this.vaultName = deps.vaultName;
     this.changeDetector = deps.changeDetector ?? null;
@@ -127,7 +138,7 @@ export class BackupService {
    * to the user and scheduling recovery. Orphan blobs left by a mid-upload
    * crash are GC candidates (Phase 6).
    */
-  async runFull(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
+  async runFull(opts?: { exclusionsApplied?: string[] | null }): Promise<{ filesWritten: number }> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
     const createdAt = this.now();
     this.logger.info('Starting full backup');
@@ -168,18 +179,17 @@ export class BackupService {
     }
 
     // --- Steps 2-7: crash-safe commit protocol ---
-    const queueForFull = await this.pluginStore.loadQueue();
     await this.commitSnapshot({
       manifest,
       fileBytes: fileData,
       parallelism,
       queueCursorAdvanceTo: manifest.created_at,
-      baseQueueSnapshot: queueForFull,
     });
 
     const fileCount = Object.keys(manifest.files).length;
     this.logger.info('full backup done');
     this.logger.info(`${fileCount} files written`);
+    return { filesWritten: fileCount };
   }
 
   /**
@@ -189,7 +199,7 @@ export class BackupService {
    * Throws ConflictError if another device committed during our window (queue intact on throw).
    * Throws if LocalIndex is null — caller must ensure a Full has run first.
    */
-  async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<void> {
+  async runIncremental(opts?: { exclusionsApplied?: string[] | null }): Promise<{ filesWritten: number }> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
 
     // "Starting inc backup" is logged AFTER we've confirmed there's actual
@@ -261,13 +271,13 @@ export class BackupService {
       // Empty-after-reconcile short-circuit: nothing changed on disk OR in queue.
       if (changesPaths.length === 0 && deleted.length === 0 && renames.length === 0) {
         this.logger.info('Inc backup: no changes');
-        return;
+        return { filesWritten: 0 };
       }
     } else {
       // Empty-queue short-circuit: BEFORE verifyNoConflict (idle tick — no Dropbox calls)
       if (queue.entries.length === 0) {
         this.logger.info('Inc backup: no changes');
-        return;
+        return { filesWritten: 0 };
       }
       const buckets = bucketQueueEntries(queue.entries);
       changesPaths = buckets.changesPaths;
@@ -306,15 +316,16 @@ export class BackupService {
         (max, e) => (e.observed_at > max ? e.observed_at : max),
         queue.entries[0]?.observed_at ?? this.now(),
       );
-      await this.advanceQueueCursor(maxObservedAt, queue);
+      await this.eventQueue.commitWindow(maxObservedAt);
       this.logger.info('Inc backup: no actual changes');
-      return;
+      return { filesWritten: 0 };
     }
 
     // --- Determine parent snapshot ---
     // Same bootstrap fallback as the index-null case above: if the index
     // exists but never recorded a successful commit, the chain has no head to
-    // diff against — run a FULL instead.
+    // diff against — run a FULL instead. runFull returns its own
+    // { filesWritten } so the caller's toast count stays accurate.
     const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
     if (parentId === null) {
       return this.runFull(opts);
@@ -363,12 +374,12 @@ export class BackupService {
       fileBytes: fileData,
       parallelism,
       queueCursorAdvanceTo: maxObservedAt,
-      baseQueueSnapshot: queue,
     });
 
     const fileCount = Object.keys(manifest.files).length;
     this.logger.info('inc backup done');
     this.logger.info(`${fileCount} files written`);
+    return { filesWritten: fileCount };
   }
 
   // ---------------------------------------------------------------------------
@@ -392,9 +403,8 @@ export class BackupService {
     fileBytes: Map<string, { hash: string; bytes: Uint8Array }>;
     parallelism: number;
     queueCursorAdvanceTo: string;
-    baseQueueSnapshot: EventQueue;
   }): Promise<void> {
-    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo, baseQueueSnapshot } = args;
+    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo } = args;
 
     // --- Step 1: Upload new content blobs ---
     // runFull pre-uploads blobs before calling commitSnapshot (so a crash between blob upload
@@ -434,8 +444,8 @@ export class BackupService {
     // --- Step 6: Update LocalIndex ---
     await this.saveLocalIndex(manifest, committedAt);
 
-    // --- Step 7: Advance queue cursor ---
-    await this.advanceQueueCursor(queueCursorAdvanceTo, baseQueueSnapshot);
+    // --- Step 7: Advance queue cursor (in-memory + disk via EventQueue) ---
+    await this.eventQueue.commitWindow(queueCursorAdvanceTo);
   }
 
   // ---------------------------------------------------------------------------
@@ -566,17 +576,11 @@ export class BackupService {
     await this.pluginStore.saveIndex(updated);
   }
 
-  private async advanceQueueCursor(
-    committedThrough: string,
-    baseSnapshot: EventQueue,
-  ): Promise<void> {
-    const updated: EventQueue = {
-      ...baseSnapshot,
-      committed_through: committedThrough,
-      entries: baseSnapshot.entries.filter((e) => e.observed_at > committedThrough),
-    };
-    await this.pluginStore.saveQueue(updated);
-  }
+  // advanceQueueCursor was removed — its callers now use this.eventQueue.commitWindow,
+  // which serializes through the EventQueue's opQueue and keeps the in-memory state
+  // in sync with the on-disk write. The old direct-to-pluginStore write left the
+  // EventQueue's state.entries stale, which made FSM.getQueueSize report phantom
+  // pending events for an entire inc_interval after every successful inc.
 }
 
 // ---------------------------------------------------------------------------

@@ -173,6 +173,27 @@ function makeFakePluginStore(
 // Fake SnapshotIndexStore
 // ---------------------------------------------------------------------------
 
+// EventQueue stub: BackupService calls `eventQueue.commitWindow(ts)` after a
+// successful commit. It must update committed_through AND prune entries with
+// observed_at <= ts, then persist via the same pluginStore the test fixture
+// already tracks. Mirrors the production EventQueue.applyCommitWindow path.
+function makeFakeEventQueue(pluginStore: {
+  loadQueue: () => Promise<EventQueue>;
+  saveQueue: (q: EventQueue) => Promise<void>;
+}) {
+  return {
+    commitWindow: vi.fn(async (committedThrough: string) => {
+      const current = await pluginStore.loadQueue();
+      const updated: EventQueue = {
+        ...current,
+        committed_through: committedThrough,
+        entries: current.entries.filter((e) => e.observed_at > committedThrough),
+      };
+      await pluginStore.saveQueue(updated);
+    }),
+  };
+}
+
 function makeFakeSnapshotIndexStore(dropbox: FakeDropbox) {
   return {
     append: vi.fn(async (entry: unknown) => {
@@ -225,6 +246,7 @@ function makeHarness(
     deviceCoordinator: coordinator as never,
     pluginStore: pluginStore as never,
     snapshotIndexStore: snapshotIndexStore as never,
+    eventQueue: makeFakeEventQueue(pluginStore) as never,
     vaultPrefix: VAULT_PREFIX,
     vaultName: VAULT_NAME,
     now: opts.now ?? (() => '2026-04-24T10:00:00.000Z'),
@@ -557,7 +579,8 @@ describe('BackupService.runFull — upload_parallelism validation', () => {
       ),
     ]);
 
-    await expect(runWithTimeout).resolves.toBeUndefined();
+    // runFull now returns { filesWritten }, so just await without asserting shape.
+    await runWithTimeout;
 
     // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (4) was used
     expect(getContentPaths(dropbox.store)).toHaveLength(3);
@@ -614,6 +637,7 @@ describe('BackupService.runFull — TOCTOU single-read guarantee', () => {
       deviceCoordinator: coordinator as never,
       pluginStore: pluginStore as never,
       snapshotIndexStore: snapshotIndexStore as never,
+      eventQueue: makeFakeEventQueue(pluginStore) as never,
       vaultPrefix: VAULT_PREFIX,
       vaultName: VAULT_NAME,
       now: () => '2026-04-24T10:00:00.000Z',
@@ -709,6 +733,7 @@ describe('BackupService.runFull — crash at step 6 and 7', () => {
       deviceCoordinator: makeFakeDeviceCoordinator() as never,
       pluginStore: pluginStore as never,
       snapshotIndexStore: snapshotIndexStore as never,
+      eventQueue: makeFakeEventQueue(pluginStore) as never,
       vaultPrefix: VAULT_PREFIX,
       vaultName: VAULT_NAME,
       now: () => '2026-04-24T10:00:00.000Z',
@@ -748,6 +773,7 @@ describe('BackupService.runFull — crash at step 6 and 7', () => {
       deviceCoordinator: makeFakeDeviceCoordinator() as never,
       pluginStore: pluginStore as never,
       snapshotIndexStore: snapshotIndexStore as never,
+      eventQueue: makeFakeEventQueue(pluginStore) as never,
       vaultPrefix: VAULT_PREFIX,
       vaultName: VAULT_NAME,
       now: () => '2026-04-24T10:00:00.000Z',
@@ -1103,7 +1129,9 @@ describe('BackupService.runIncremental — bootstrap fallback: no parent → pro
     // "LocalIndex is null — run a Full backup first".
     pluginStore.loadIndex.mockResolvedValue(null);
 
-    await expect(service.runIncremental()).resolves.toBeUndefined();
+    // runIncremental now returns { filesWritten } from the escalated runFull —
+    // we don't assert on it; the fact that a manifest landed is what we check.
+    await service.runIncremental();
 
     // A FULL manifest landed instead of an INC.
     const manifestPaths = getManifestPaths(dropbox.store);
@@ -1135,7 +1163,7 @@ describe('BackupService.runIncremental — bootstrap fallback: no parent → pro
       },
     });
 
-    await expect(service.runIncremental()).resolves.toBeUndefined();
+    await service.runIncremental();
 
     const manifestPaths = getManifestPaths(dropbox.store);
     expect(manifestPaths).toHaveLength(1);

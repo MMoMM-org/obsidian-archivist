@@ -237,6 +237,7 @@ export default class ArchivistPlugin extends Plugin {
       deviceCoordinator,
       pluginStore,
       snapshotIndexStore,
+      eventQueue,
       changeDetector,
       logger: this.logger,
       vaultPrefix,
@@ -339,7 +340,11 @@ export default class ArchivistPlugin extends Plugin {
     const fsm = new SchedulerFSM({
       schedule: freshSettings.schedule,
       isDesignated: () => true, // DeviceCoordinator gates actual upload via verifyNoConflict
-      getQueueSize: () => eventQueue.peekSince(null).length,
+      // Pending = events after committed_through. Using `null` as the cursor
+      // counted ALL entries — including ones already in a committed snapshot —
+      // and produced phantom inc triggers for an entire inc_interval after
+      // every successful inc.
+      getQueueSize: () => eventQueue.peekSince(eventQueue.committedThrough()).length,
       getLastIncCommitAt: () => lastCommitRef.inc,
       getLastFullCommitAt: () => lastCommitRef.full,
       preflightHost: noticeCenter,
@@ -358,11 +363,10 @@ export default class ArchivistPlugin extends Plugin {
 
       void (async () => {
         try {
-          if (pending.type === 'full') {
-            await backupService.runFull();
-          } else {
-            await backupService.runIncremental();
-          }
+          const result =
+            pending.type === 'full'
+              ? await backupService.runFull()
+              : await backupService.runIncremental();
 
           const now = Date.now();
           if (pending.type === 'full') {
@@ -376,7 +380,7 @@ export default class ArchivistPlugin extends Plugin {
           noticeCenter.showSuccess(
             pending.type === 'full'
               ? { type: 'full' }
-              : { type: 'inc', fileCount: eventQueue.peekSince(null).length },
+              : { type: 'inc', fileCount: result.filesWritten },
           );
           await maintenanceScheduler.scheduleRetentionIfDue();
           fsm.onBackupSuccess();

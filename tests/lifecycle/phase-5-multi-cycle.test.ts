@@ -201,6 +201,16 @@ function makeMultiCycleHarness(
     deviceCoordinator: coordinator as never,
     pluginStore: pluginStore as never,
     snapshotIndexStore: snapshotIndexStore as never,
+    eventQueue: {
+      commitWindow: async (committedThrough: string): Promise<void> => {
+        const current = await pluginStore.loadQueue();
+        await pluginStore.saveQueue({
+          ...current,
+          committed_through: committedThrough,
+          entries: current.entries.filter((e) => e.observed_at > committedThrough),
+        });
+      },
+    } as never,
     vaultPrefix: VAULT_PREFIX,
     vaultName: VAULT_NAME,
     now: nowFn,

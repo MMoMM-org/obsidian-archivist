@@ -18,7 +18,7 @@ describe('Integration — incremental-cycle', () => {
       content: `# Note ${i} v1`,
     }));
 
-    const fix = createArchivistFixture({ initialFiles: allFiles });
+    const fix = await createArchivistFixture({ initialFiles: allFiles });
 
     // Run a full backup first (incremental requires a prior full)
     await fix.triggerFull();

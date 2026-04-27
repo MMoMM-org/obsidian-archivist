@@ -14,7 +14,7 @@ import { createArchivistFixture } from './_harness';
 
 describe('Integration — auth-revoked', () => {
   it('surfaces AUTH_LOST banner when backup fails with auth error', async () => {
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path: 'notes/a.md', content: 'Hello' }],
     });
 

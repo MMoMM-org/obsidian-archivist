@@ -20,7 +20,7 @@ import type { SnapshotManifest } from '../../src/model/Manifest';
 
 describe('Integration — retention-35d soak', () => {
   it('35-day daily-full schedule respects never-prune window and tier counts', async () => {
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path: 'vault.md', content: 'root' }],
       settings: {
         retention: {

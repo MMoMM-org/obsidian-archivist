@@ -17,7 +17,7 @@ describe('Integration — restore-in-place', () => {
     const v1 = '# Journal v1 — original content';
     const v2 = '# Journal v2 — edited content';
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path, content: v1 }],
     });
 

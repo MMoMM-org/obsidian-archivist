@@ -21,7 +21,7 @@ describe('Integration — first-run', () => {
       { path: 'projects/alpha.md', content: '# Alpha' },
     ];
 
-    const fix = createArchivistFixture({ initialFiles: files });
+    const fix = await createArchivistFixture({ initialFiles: files });
 
     await fix.triggerFull();
 

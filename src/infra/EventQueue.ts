@@ -50,6 +50,23 @@ export class EventQueue {
     return next;
   }
 
+  /**
+   * Atomic post-commit window update: advance committed_through AND prune
+   * entries whose observed_at is at or before the cursor. Goes through
+   * opQueue so concurrent enqueues serialize cleanly — events that arrived
+   * during a long-running backup keep their observed_at > committedThrough
+   * and survive the prune. Replaces BackupService writing the queue file
+   * directly through PluginStore, which left this in-memory state stale
+   * and made FSM.getQueueSize report phantom pending events for 15 minutes
+   * after every real inc.
+   */
+  async commitWindow(committedThrough: string): Promise<void> {
+    this.assertInitialized();
+    const next = this.opQueue.then(() => this.applyCommitWindow(committedThrough));
+    this.opQueue = next.catch(() => undefined);
+    return next;
+  }
+
   committedThrough(): string | null {
     return this.state.committed_through;
   }
@@ -72,6 +89,15 @@ export class EventQueue {
 
   private async applyAdvanceCursor(ts: string): Promise<void> {
     this.state = { ...this.state, committed_through: ts };
+    await this.pluginStore.saveQueue(this.state);
+  }
+
+  private async applyCommitWindow(committedThrough: string): Promise<void> {
+    this.state = {
+      ...this.state,
+      committed_through: committedThrough,
+      entries: this.state.entries.filter((e) => e.observed_at > committedThrough),
+    };
     await this.pluginStore.saveQueue(this.state);
   }
 

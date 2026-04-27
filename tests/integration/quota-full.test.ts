@@ -13,7 +13,7 @@ import { createArchivistFixture } from './_harness';
 
 describe('Integration — quota-full', () => {
   it('backup pauses and QUOTA_EXCEEDED banner appears when Dropbox returns 507', async () => {
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path: 'notes/a.md', content: 'Hello' }],
     });
 

@@ -285,7 +285,7 @@ export interface Fixture {
 // createArchivistFixture
 // ---------------------------------------------------------------------------
 
-export function createArchivistFixture(config: FixtureConfig = {}): Fixture {
+export async function createArchivistFixture(config: FixtureConfig = {}): Promise<Fixture> {
   const vaultName = config.vaultName ?? 'test-vault';
   const vaultPrefix = config.vaultPrefix ?? 'test-vault';
 
@@ -319,6 +319,11 @@ export function createArchivistFixture(config: FixtureConfig = {}): Fixture {
     vaultPrefix,
   });
 
+  const eventQueue = new EventQueue(
+    pluginStore as unknown as Parameters<typeof EventQueue>[0],
+  );
+  await eventQueue.init();
+
   const backupService = new BackupService({
     dropbox: mockDropbox as unknown as Parameters<typeof BackupService>[0]['dropbox'],
     vault: vault as unknown as Parameters<typeof BackupService>[0]['vault'],
@@ -326,6 +331,7 @@ export function createArchivistFixture(config: FixtureConfig = {}): Fixture {
     deviceCoordinator,
     pluginStore: pluginStore as unknown as Parameters<typeof BackupService>[0]['pluginStore'],
     snapshotIndexStore,
+    eventQueue,
     vaultPrefix,
     vaultName,
   });

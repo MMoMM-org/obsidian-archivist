@@ -13,7 +13,7 @@ import { createArchivistFixture } from './_harness';
 
 describe('Integration — device-conflict', () => {
   it('second device backup aborts with DEVICE_CONFLICT when HEAD is recent', async () => {
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path: 'notes/a.md', content: 'Hello' }],
       vaultPrefix: 'test-vault',
     });

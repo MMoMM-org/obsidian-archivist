@@ -20,7 +20,7 @@ describe('Integration — restore-deleted-dir', () => {
     const path = 'archived/2025/q4.md';
     const content = '# Q4 2025 archive';
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path, content }],
     });
 

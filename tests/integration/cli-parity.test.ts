@@ -59,7 +59,7 @@ function sha256HexSync(content: string): string {
 describe('Integration — CLI parity (import-based)', () => {
   it('materializeVaultStateAt matches expected state for all 4 parity assertion points', async () => {
     const vaultPrefix = mergeSpec.vault_prefix;
-    const fix = createArchivistFixture({ vaultPrefix });
+    const fix = await createArchivistFixture({ vaultPrefix });
 
     // Seed snapshots into mock Dropbox
     const allSnapshots = mergeSpec.snapshots;
@@ -132,7 +132,7 @@ describe('Integration — CLI parity (import-based)', () => {
 
   it('--verify-only equivalent: detects corrupted blob in merge-spec fixture', async () => {
     const vaultPrefix = mergeSpec.vault_prefix;
-    const fix = createArchivistFixture({ vaultPrefix });
+    const fix = await createArchivistFixture({ vaultPrefix });
 
     // Seed all snapshots
     const allSnapshots = mergeSpec.snapshots;

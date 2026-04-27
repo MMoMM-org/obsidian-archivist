@@ -87,6 +87,7 @@ function makeTestLogger(): Logger {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    debug: vi.fn(),
   };
 }
 
@@ -311,6 +312,86 @@ describe('EventQueue.advanceCursor()', () => {
     // On-disk also retains entries
     const persisted = JSON.parse(adapter.files.get(QUEUE_PATH)!);
     expect(persisted.entries).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: commitWindow() — atomic post-commit cursor advance + entry prune
+// ---------------------------------------------------------------------------
+
+describe('EventQueue.commitWindow()', () => {
+  it('advances committedThrough AND removes entries with observed_at <= cursor', async () => {
+    const adapter = makeFakeAdapter();
+    const queue = makeEventQueue(adapter);
+    await queue.init();
+
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'a.md', observed_at: '2026-04-24T11:00:00.000Z' }));
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'b.md', observed_at: '2026-04-24T11:30:00.000Z' }));
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'c.md', observed_at: '2026-04-24T13:00:00.000Z' }));
+
+    await queue.commitWindow('2026-04-24T12:00:00.000Z');
+
+    expect(queue.committedThrough()).toBe('2026-04-24T12:00:00.000Z');
+    // Only c.md (after cursor) should remain in memory.
+    const remaining = queue.peekSince(null);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].path).toBe('c.md');
+  });
+
+  it('persists the pruned state to disk', async () => {
+    const adapter = makeFakeAdapter();
+    const queue = makeEventQueue(adapter);
+    await queue.init();
+
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'old.md', observed_at: '2026-04-24T09:00:00.000Z' }));
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'new.md', observed_at: '2026-04-24T13:00:00.000Z' }));
+    await queue.commitWindow('2026-04-24T12:00:00.000Z');
+
+    const persisted = JSON.parse(adapter.files.get(QUEUE_PATH)!);
+    expect(persisted.committed_through).toBe('2026-04-24T12:00:00.000Z');
+    expect(persisted.entries).toHaveLength(1);
+    expect(persisted.entries[0].path).toBe('new.md');
+  });
+
+  it('peekSince(committedThrough()) returns 0 right after commitWindow when all events were consumed', async () => {
+    // Regression guard for the phantom-no-op-inc bug: BackupService used to
+    // write the queue file directly through PluginStore, which left the
+    // in-memory state stale and made FSM.getQueueSize report > 0 for an
+    // entire inc_interval after every successful inc — triggering an
+    // empty inc on the next interval. With commitWindow, the in-memory
+    // state matches disk immediately.
+    const adapter = makeFakeAdapter();
+    const queue = makeEventQueue(adapter);
+    await queue.init();
+
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'a.md', observed_at: '2026-04-24T11:00:00.000Z' }));
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'b.md', observed_at: '2026-04-24T11:30:00.000Z' }));
+    await queue.commitWindow('2026-04-24T11:30:00.000Z');
+
+    expect(queue.peekSince(queue.committedThrough()).length).toBe(0);
+  });
+
+  it('preserves entries enqueued during commit (events between snapshot and commit survive)', async () => {
+    // Models the timeline where a vault event arrives WHILE a backup is in
+    // flight: the BackupService snapshot taken at T0 sees only [E1, E2],
+    // but E3 (observed_at > T0) arrives before commitWindow runs. Because
+    // commitWindow operates on live in-memory state via opQueue and filters
+    // by observed_at > committedThrough, E3 survives and is picked up by
+    // the next inc.
+    const adapter = makeFakeAdapter();
+    const queue = makeEventQueue(adapter);
+    await queue.init();
+
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'a.md', observed_at: '2026-04-24T11:00:00.000Z' }));
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'b.md', observed_at: '2026-04-24T11:30:00.000Z' }));
+    // Inflight event — observed_at past the soon-to-be cursor.
+    await queue.enqueue(makeEntry({ type: 'modify', path: 'inflight.md', observed_at: '2026-04-24T12:30:00.000Z' }));
+
+    await queue.commitWindow('2026-04-24T11:30:00.000Z');
+
+    const remaining = queue.peekSince(null);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].path).toBe('inflight.md');
   });
 });
 

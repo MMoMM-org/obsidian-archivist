@@ -23,7 +23,7 @@ describe('Integration — rename-history', () => {
     const v1 = '# Brainstorm v1';
     const v3 = '# Brainstorm v3 — post-rename edit';
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [{ path: oldPath, content: v1 }],
     });
 

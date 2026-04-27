@@ -17,7 +17,7 @@ import { createArchivistFixture } from './_harness';
 
 describe('Integration — gc-orphans', () => {
   it('sweeps orphan blobs and preserves referenced blobs', async () => {
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       initialFiles: [
         { path: 'notes/a.md', content: 'Content A' },
         { path: 'notes/b.md', content: 'Content B' },
