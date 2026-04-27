@@ -295,20 +295,20 @@ function renderSnapshotRow(
   selectedId: string | null,
   onSelect: (snap: SnapshotIndexEntry) => void,
 ): HTMLElement {
-  const row = container.createEl('div', { cls: 'archivist-snapshot-row' });
+  const row = container.createDiv({ cls: 'archivist-snapshot-row' });
   row.setAttribute('tabindex', '-1');
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', snap.id === selectedId ? 'true' : 'false');
 
   const dateStr = formatSnapshotDate(new Date(snap.created_at));
-  row.createEl('span', { text: dateStr, cls: 'archivist-snapshot-date' });
+  row.createSpan({ text: dateStr, cls: 'archivist-snapshot-date' });
   // Type tag wraps in brackets for visual symmetry with the tier tag and to
   // keep a clean separation from the date — `[full]` / `[inc]` instead of a
   // bare `full` running into the date with no whitespace between spans.
-  row.createEl('span', { text: `[${snap.type}]`, cls: 'archivist-snapshot-type' });
+  row.createSpan({ text: `[${snap.type}]`, cls: 'archivist-snapshot-type' });
   const tierLabel = snapTierLabel(snap.tier);
   if (tierLabel) {
-    row.createEl('span', { text: tierLabel, cls: 'archivist-snapshot-tier' });
+    row.createSpan({ text: tierLabel, cls: 'archivist-snapshot-tier' });
   }
 
   row.addEventListener('click', () => onSelect(snap));
@@ -397,8 +397,8 @@ function renderFileTreeNode(
 ): void {
   for (const child of node.children) {
     if (child.isDir) {
-      const dirEl = container.createEl('div', { cls: 'archivist-file-dir' });
-      const dirHeader = dirEl.createEl('div', { cls: 'archivist-dir-header' });
+      const dirEl = container.createDiv({ cls: 'archivist-file-dir' });
+      const dirHeader = dirEl.createDiv({ cls: 'archivist-dir-header' });
       dirHeader.setAttribute('tabindex', '-1');
       dirHeader.setAttribute('role', 'option');
       dirHeader.setAttribute(
@@ -407,9 +407,9 @@ function renderFileTreeNode(
       );
       // Lucide folder icon — visual cue separating directories from files
       // without relying on extension-text-only inspection.
-      const dirIconEl = dirHeader.createEl('span', { cls: 'archivist-dir-icon' });
+      const dirIconEl = dirHeader.createSpan({ cls: 'archivist-dir-icon' });
       setIcon(dirIconEl, 'folder');
-      dirHeader.createEl('span', { text: child.name, cls: 'archivist-dir-name' });
+      dirHeader.createSpan({ text: child.name, cls: 'archivist-dir-name' });
       // Click on the header itself selects the directory; clicks on the
       // children container fall through to file rows below.
       dirHeader.addEventListener('click', (e) => {
@@ -427,7 +427,7 @@ function renderFileTreeNode(
       });
       navRows.push(dirHeader);
       navEntries.push({ kind: 'dir', prefix: child.fullPath });
-      const childContainer = dirEl.createEl('div', { cls: 'archivist-dir-children' });
+      const childContainer = dirEl.createDiv({ cls: 'archivist-dir-children' });
       renderFileTreeNode(
         childContainer,
         child,
@@ -438,7 +438,7 @@ function renderFileTreeNode(
         navEntries,
       );
     } else {
-      const fileEl = container.createEl('div', { cls: 'archivist-file-row' });
+      const fileEl = container.createDiv({ cls: 'archivist-file-row' });
       fileEl.setAttribute('tabindex', '-1');
       fileEl.setAttribute('role', 'option');
       fileEl.setAttribute('aria-selected', child.fullPath === selectedPath ? 'true' : 'false');
@@ -446,9 +446,9 @@ function renderFileTreeNode(
       // Lucide file icon — same intent as the folder icon: signal to the
       // user that THIS row represents a file (clickable for preview), not
       // a directory header.
-      const fileIconEl = fileEl.createEl('span', { cls: 'archivist-file-icon' });
+      const fileIconEl = fileEl.createSpan({ cls: 'archivist-file-icon' });
       setIcon(fileIconEl, 'file-text');
-      fileEl.createEl('span', { text: child.name, cls: 'archivist-file-name' });
+      fileEl.createSpan({ text: child.name, cls: 'archivist-file-name' });
       fileEl.addEventListener('click', () => handlers.onSelectFile(child.fullPath));
       fileEl.addEventListener('keydown', (e: KeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -535,12 +535,12 @@ async function renderPreviewColumn(
     });
   }
 
-  const previewArea = container.createEl('div', { cls: 'archivist-preview-content' });
+  const previewArea = container.createDiv({ cls: 'archivist-preview-content' });
   await renderPreview(app, previewArea as unknown as Parameters<typeof renderPreview>[1], content, path, component);
 
   const slash = path.lastIndexOf('/');
   const basename = slash >= 0 ? path.slice(slash + 1) : path;
-  const actionsEl = container.createEl('div', { cls: 'archivist-preview-actions' });
+  const actionsEl = container.createDiv({ cls: 'archivist-preview-actions' });
   const inPlaceBtn = actionsEl.createEl('button', {
     text: S.BROWSER_RESTORE_IN_PLACE,
     cls: 'archivist-restore-in-place',
@@ -625,7 +625,7 @@ export class BackupBrowserView extends ItemView {
     contentEl.addClass('archivist-browser');
 
     // Fix 7: banner region at the top of the content area.
-    this.bannerRegionEl = contentEl.createEl('div', { cls: 'archivist-browser-banners' });
+    this.bannerRegionEl = contentEl.createDiv({ cls: 'archivist-browser-banners' });
 
     // Storage warning banner subscription — re-renders banner region on change.
     this.unsubBanners = this.deps.noticeCenter.onBannersChange(() => {
@@ -633,26 +633,26 @@ export class BackupBrowserView extends ItemView {
     });
 
     // 3-column shell
-    const columnsEl = contentEl.createEl('div', { cls: 'archivist-browser-columns' });
+    const columnsEl = contentEl.createDiv({ cls: 'archivist-browser-columns' });
 
     // -- Snapshots column --
-    const snapshotsColEl = columnsEl.createEl('div', { cls: 'archivist-snapshots' });
+    const snapshotsColEl = columnsEl.createDiv({ cls: 'archivist-snapshots' });
     snapshotsColEl.createEl('h3', { text: S.BROWSER_COL_SNAPSHOTS });
-    this.snapshotsListEl = snapshotsColEl.createEl('div', {
+    this.snapshotsListEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-list',
       attr: { tabindex: '0', role: 'listbox' },
     });
 
     // -- Files column --
-    const filesColEl = columnsEl.createEl('div', { cls: 'archivist-files' });
+    const filesColEl = columnsEl.createDiv({ cls: 'archivist-files' });
     this.filesColHeaderEl = filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
-    this.filesListEl = filesColEl.createEl('div', {
+    this.filesListEl = filesColEl.createDiv({
       cls: 'archivist-files-list',
       attr: { tabindex: '0', role: 'listbox' },
     });
 
     // -- Preview column --
-    this.previewColEl = columnsEl.createEl('div', {
+    this.previewColEl = columnsEl.createDiv({
       cls: 'archivist-preview',
       attr: { tabindex: '0' },
     });
@@ -696,10 +696,10 @@ export class BackupBrowserView extends ItemView {
     this.bannerRegionEl.empty();
     const banners = this.deps.noticeCenter.getPersistentBanners?.() ?? [];
     for (const banner of banners) {
-      const bannerEl = this.bannerRegionEl.createEl('div', {
+      const bannerEl = this.bannerRegionEl.createDiv({
         cls: 'archivist-banner',
       });
-      bannerEl.createEl('span', { text: banner.message, cls: 'archivist-banner-message' });
+      bannerEl.createSpan({ text: banner.message, cls: 'archivist-banner-message' });
       if (banner.onDismiss) {
         const dismissBtn = bannerEl.createEl('button', {
           text: banner.dismissLabel ?? '×',
@@ -823,16 +823,16 @@ export class BackupBrowserView extends ItemView {
       return;
     }
 
-    const listEl = this.previewColEl.createEl('div', { cls: 'archivist-dir-file-list' });
+    const listEl = this.previewColEl.createDiv({ cls: 'archivist-dir-file-list' });
     for (const path of matches) {
       const entry = this.fileState[path];
-      const row = listEl.createEl('div', { cls: 'archivist-dir-file-row' });
-      row.createEl('span', { text: path, cls: 'archivist-dir-file-name' });
-      row.createEl('span', {
+      const row = listEl.createDiv({ cls: 'archivist-dir-file-row' });
+      row.createSpan({ text: path, cls: 'archivist-dir-file-name' });
+      row.createSpan({
         text: entry ? new Date(entry.mtime).toISOString() : '',
         cls: 'archivist-dir-file-meta',
       });
-      row.createEl('span', {
+      row.createSpan({
         text: entry ? formatBytes(entry.size) : '',
         cls: 'archivist-dir-file-meta',
       });
@@ -847,7 +847,7 @@ export class BackupBrowserView extends ItemView {
     snapshotId: string,
     disabled: boolean,
   ): void {
-    const actionsEl = this.previewColEl.createEl('div', { cls: 'archivist-dir-actions' });
+    const actionsEl = this.previewColEl.createDiv({ cls: 'archivist-dir-actions' });
     const inPlaceBtn = actionsEl.createEl('button', {
       text: S.BROWSER_DIR_RESTORE_IN_PLACE,
     });

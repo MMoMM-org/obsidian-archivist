@@ -467,8 +467,8 @@ export interface MockEl {
     tag: T,
     opts?: { text?: string; cls?: string; attr?: Record<string, string> },
   ): MockEl;
-  createDiv(opts?: { cls?: string }): MockEl;
-  createSpan(opts?: { text?: string; cls?: string }): MockEl;
+  createDiv(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
+  createSpan(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
   setText(text: string): void;
   addClass(cls: string): void;
   removeClass(cls: string): void;
@@ -513,9 +513,13 @@ function makeMockEl(tag: string): MockEl {
       return child;
     },
     createDiv(opts = {}) {
-      return el.createEl('div', { cls: opts.cls });
+      // Forward ALL opts (text + cls + attr) — production code uses
+      // createDiv({ cls, attr }) for tabindex/role wiring; dropping attr
+      // here breaks any test that asserts those attributes.
+      return el.createEl('div', opts);
     },
     createSpan(opts = {}) {
+      // Forward all opts (text + cls + attr) for parity with createEl.
       return el.createEl('span', opts);
     },
     setText(text) {

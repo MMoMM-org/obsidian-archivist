@@ -380,8 +380,8 @@ export class FileHistoryModal extends Modal {
     this.triggerEl = el instanceof HTMLElement ? el : null;
 
     this.contentEl.empty();
-    this.listEl = this.contentEl.createEl('div', { cls: 'archivist-file-history-list' });
-    this.previewEl = this.contentEl.createEl('div', { cls: 'archivist-file-history-preview' });
+    this.listEl = this.contentEl.createDiv({ cls: 'archivist-file-history-list' });
+    this.previewEl = this.contentEl.createDiv({ cls: 'archivist-file-history-preview' });
 
     const handle = makeContentElHandle(
       this.contentEl,
@@ -588,20 +588,20 @@ function makeContentElHandle(
     },
 
     addRow(row): void {
-      const rowEl = listEl.createEl('div', { cls: 'archivist-file-history-row' });
+      const rowEl = listEl.createDiv({ cls: 'archivist-file-history-row' });
 
-      const metaEl = rowEl.createEl('span', { cls: 'archivist-fh-meta' });
+      const metaEl = rowEl.createSpan({ cls: 'archivist-fh-meta' });
       metaEl.textContent = `${row.timestamp} · ${row.size}`;
 
       if (row.tierTag) {
-        rowEl.createEl('span', {
+        rowEl.createSpan({
           text: row.tierTag,
           cls: 'archivist-fh-tier',
         });
       }
 
       if (row.renamedFrom) {
-        rowEl.createEl('span', {
+        rowEl.createSpan({
           text: row.renamedFrom,
           cls: 'archivist-fh-renamed',
         });
