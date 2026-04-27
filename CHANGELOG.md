@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.0...0.2.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **dropbox:** detect corrupt remote state, surface chain breaks, allow manual full ([#9](https://github.com/MMoMM-org/obsidian-archivist/issues/9)) ([3e8fca1](https://github.com/MMoMM-org/obsidian-archivist/commit/3e8fca1f5f369efbf1cdc0ea3c39c8474eb62065)), closes [#8](https://github.com/MMoMM-org/obsidian-archivist/issues/8)
+
 # [0.2.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.1.1...0.2.0) (2026-04-27)
 
 
