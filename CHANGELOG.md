@@ -1,3 +1,10 @@
+# [0.2.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.1.1...0.2.0) (2026-04-27)
+
+
+### Features
+
+* **progress:** live backup progress in status-bar tooltip ([#8](https://github.com/MMoMM-org/obsidian-archivist/issues/8)) ([58c4925](https://github.com/MMoMM-org/obsidian-archivist/commit/58c492599196cb49883ccdc88e05a18d3c8c8ff9))
+
 ## [0.1.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.1.0...0.1.1) (2026-04-27)
 
 
