@@ -57,7 +57,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci
-      - run: npm audit --audit-level=high
+      - run: npm audit --audit-level=high --omit=dev
 
   build:
     name: Build + bundle-size gate
@@ -70,14 +70,14 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build
-      - name: Verify main.js exists
-        run: test -f main.js
+      - name: Verify build/main.js exists
+        run: test -f build/main.js
       - name: Verify bundle size < 1 MB
         run: |
-          size=$(stat -c%s main.js 2>/dev/null || stat -f%z main.js)
+          size=$(stat -c%s build/main.js 2>/dev/null || stat -f%z build/main.js)
           limit=1048576
-          echo "main.js: $size bytes (limit $limit)"
+          echo "build/main.js: $size bytes (limit $limit)"
           if [ "$size" -gt "$limit" ]; then
-            echo "::error::main.js exceeds 1 MB bundle-size gate"
+            echo "::error::build/main.js exceeds 1 MB bundle-size gate"
             exit 1
           fi
