@@ -17,7 +17,7 @@
 		"test:coverage": "vitest run --coverage",
 		"lint": "eslint src/",
 		"typecheck": "tsc --noEmit",
-		"audit": "npm audit --audit-level=high"
+		"audit": "npm audit --audit-level=high --omit=dev"
 	},
 	"keywords": ["obsidian", "obsidian-plugin", "backup", "dropbox", "versioning"],
 	"dependencies": {
