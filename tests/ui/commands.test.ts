@@ -45,18 +45,22 @@ function makeFSM(designated = true): SchedulerFSM {
 }
 
 interface CapturedCommand {
+  /** Last-registered command (legacy single-command test ergonomics). */
   command: Command | null;
+  /** All registered commands — registerBackupNowCommand now wires inc + full. */
+  byId: Map<string, Command>;
 }
 
 function makePluginStub(): {
   plugin: { addCommand: (c: Command) => Command };
   captured: CapturedCommand;
 } {
-  const captured: CapturedCommand = { command: null };
+  const captured: CapturedCommand = { command: null, byId: new Map() };
   return {
     plugin: {
       addCommand: (c) => {
         captured.command = c;
+        captured.byId.set(c.id, c);
         return c;
       },
     },
@@ -82,31 +86,46 @@ function makeNotify(): { fn: NotifyFn; calls: NotifyCall[] } {
 // ---------------------------------------------------------------------------
 
 describe('registerBackupNowCommand', () => {
-  it('registers a command with S.CMD_BACKUP_NOW as the display name', () => {
+  it('registers both inc and full commands with their respective display names', () => {
     const fsm = makeFSM();
     const { plugin, captured } = makePluginStub();
     const { fn: notify } = makeNotify();
 
     registerBackupNowCommand({ plugin, fsm, notify });
 
-    expect(captured.command).not.toBeNull();
-    expect(captured.command!.id).toBe('archivist-backup-now');
-    expect(captured.command!.name).toBe(S.CMD_BACKUP_NOW);
-    expect(typeof captured.command!.callback).toBe('function');
+    const inc = captured.byId.get('archivist-backup-now');
+    const full = captured.byId.get('archivist-full-backup-now');
+    expect(inc).toBeDefined();
+    expect(full).toBeDefined();
+    expect(inc!.name).toBe(S.CMD_BACKUP_NOW);
+    expect(full!.name).toBe(S.CMD_FULL_BACKUP_NOW);
+    expect(typeof inc!.callback).toBe('function');
+    expect(typeof full!.callback).toBe('function');
   });
 
-  it('invoking the command from READY starts an incremental backup (transition to BACKUP_RUNNING)', () => {
+  it('invoking the inc command from READY starts an incremental backup (transition to BACKUP_RUNNING)', () => {
     const fsm = makeFSM();
-    // Drive FSM to READY via layout-ready + timers skipped via direct calls.
-    // Manual trigger bypasses GRACE/QUIET_WAIT, so starting from LOADING works.
     const { plugin, captured } = makePluginStub();
     const { fn: notify, calls: notifyCalls } = makeNotify();
 
     registerBackupNowCommand({ plugin, fsm, notify });
-    captured.command!.callback!();
+    captured.byId.get('archivist-backup-now')!.callback!();
 
     expect(fsm.getState()).toBe('BACKUP_RUNNING');
     expect(fsm.getPendingBackup()).toEqual({ type: 'inc' });
+    expect(notifyCalls).toHaveLength(0);
+  });
+
+  it('invoking the full command from READY starts a full backup', () => {
+    const fsm = makeFSM();
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls: notifyCalls } = makeNotify();
+
+    registerBackupNowCommand({ plugin, fsm, notify });
+    captured.byId.get('archivist-full-backup-now')!.callback!();
+
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'scheduled' });
     expect(notifyCalls).toHaveLength(0);
   });
 

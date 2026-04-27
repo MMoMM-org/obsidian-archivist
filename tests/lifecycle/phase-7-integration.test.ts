@@ -129,12 +129,13 @@ function makeHarness(nowMs: number): Harness {
   };
   const ribbon = new RibbonIcon({ host: ribbonHost, fsm });
 
-  // Command
+  // Commands — registerBackupNowCommand wires inc + full; we need the inc one
+  // to drive this integration test (the "Back up now" → BACKUP_RUNNING flow).
   let backupNowCommand: Command = { id: '', name: '' };
   registerBackupNowCommand({
     plugin: {
       addCommand: (c) => {
-        backupNowCommand = c;
+        if (c.id === 'archivist-backup-now') backupNowCommand = c;
         return c;
       },
     },

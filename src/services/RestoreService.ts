@@ -255,7 +255,24 @@ export class RestoreService {
         );
       }
       seen.add(cursor);
-      const m = await this.deps.loader.loadManifest(cursor);
+      let m: SnapshotManifest;
+      try {
+        m = await this.deps.loader.loadManifest(cursor);
+      } catch (err) {
+        // A missing parent manifest mid-walk means the chain is broken — the
+        // user's Dropbox folder lost data. Convert the raw "Path not found:
+        // path" PathError into a ChainError so the BackupBrowserView shows
+        // its friendly recovery hint instead of a SDK-leaked path lookup tag.
+        if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
+          throw new ChainError(
+            'CHAIN_BROKEN',
+            `Manifest ${cursor} missing on Dropbox — backup chain is broken; run a Full backup to recover`,
+            false,
+            err,
+          );
+        }
+        throw err;
+      }
       chain.push(m);
       if (m.type === 'full') break;
       cursor = m.parent_id;
