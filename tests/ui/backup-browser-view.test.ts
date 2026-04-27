@@ -142,7 +142,6 @@ function makeDeps(overrides?: Partial<BackupBrowserDeps>): BackupBrowserDeps {
       saveDismissed: vi.fn().mockResolvedValue(undefined),
     },
     vaultHasPath: vi.fn().mockReturnValue(true),
-    openFileVersions: vi.fn(),
     notify: vi.fn(),
     app: makeApp(),
     ...overrides,
@@ -1241,51 +1240,3 @@ describe('BackupBrowserView directory selection', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Section 23: Right-click context menu on file rows
-// ---------------------------------------------------------------------------
-
-describe('BackupBrowserView file-row context menu', () => {
-  it('contextmenu event on a file row calls deps.openFileVersions(path)', async () => {
-    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
-    const state = makeVaultState(['notes/a.md']);
-    const openFileVersions = vi.fn();
-    const deps = makeDeps({
-      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
-      restoreService: {
-        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
-        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
-      },
-      openFileVersions,
-    });
-    const view = new BackupBrowserView(makeLeaf(), deps);
-    await view.onOpen();
-    await view._selectSnapshot(snap);
-
-    // Locate the file row and dispatch a contextmenu event on it.
-    const filesList = (view as unknown as { filesListEl: MockEl }).filesListEl;
-    const fileRows = findAllByClass(filesList, 'archivist-file-row');
-    expect(fileRows.length).toBe(1);
-    fileRows[0].dispatchEvent({
-      type: 'contextmenu',
-      key: '',
-      preventDefault: () => {},
-    });
-
-    // The handler builds an Obsidian Menu, registers the Restore item, and
-    // shows it. Firing the item's onClick must dispatch to openFileVersions.
-    // Import is via the module alias; access the captured Menu via the mock's
-    // static handle on require, so it works without import-binding into this
-    // file.
-    const obsidianMock = await import('../fixtures/obsidian-mock');
-    const menu = obsidianMock.Menu._last;
-    expect(menu).not.toBeNull();
-    expect(menu!.items.length).toBe(1);
-    expect(menu!.items[0].title).toContain('Restore');
-    expect(menu!.shown).toBe(true);
-
-    // Activate the menu item — should call openFileVersions with the path.
-    for (const cb of menu!.items[0].onClickCallbacks) cb();
-    expect(openFileVersions).toHaveBeenCalledWith('notes/a.md');
-  });
-});

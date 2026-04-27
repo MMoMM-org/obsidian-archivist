@@ -795,7 +795,6 @@ export default class ArchivistPlugin extends Plugin {
           },
         },
         vaultHasPath: (path) => vaultAdapter.getFiles().some((f) => f.path === path),
-        openFileVersions,
         notify,
         app: this.app,
       });
@@ -815,6 +814,29 @@ export default class ArchivistPlugin extends Plugin {
         app: this.app,
       });
     });
+
+    // ---------------------------------------------------------------------------
+    // Step 16b: FileVersionsView entry points — Obsidian file-menu
+    // ---------------------------------------------------------------------------
+    // Single `file-menu` event covers the file explorer's right-click context
+    // menu AND the markdown view's three-dots more-options menu (Obsidian
+    // dispatches both through the same hook with different `source` strings).
+    // Folders dispatch the same event but we only show the entry for files —
+    // directory restore lives in BackupBrowserView. registerEvent ensures the
+    // listener is detached on plugin unload.
+    this.registerEvent(
+      this.app.workspace.on('file-menu', (menu, file) => {
+        // TFolder has no `extension`; using the duck-typed `extension` check
+        // sidesteps importing TFile/TFolder just for an instanceof guard.
+        if (!('extension' in file)) return;
+        menu.addItem((item) =>
+          item
+            .setTitle(S.BROWSER_CONTEXT_RESTORE_DOTS)
+            .setIcon('archive-restore')
+            .onClick(() => openFileVersions(file.path)),
+        );
+      }),
+    );
 
     // ---------------------------------------------------------------------------
     // Step 17: PredecessorDetector

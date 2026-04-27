@@ -14,7 +14,7 @@
 //   - Keyboard nav: column wrappers have tabindex="0"; row items use
 //     tabindex="-1" with aria-selected so AT can track selection.
 
-import { ItemView, Menu, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
+import { ItemView, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
@@ -65,11 +65,6 @@ export interface BackupBrowserDeps {
   };
   /** Returns true when the given vault-relative path exists in the live vault. */
   vaultHasPath: (path: string) => boolean;
-  /**
-   * Open the per-file FileVersionsView in a new tab. Wired in main.ts;
-   * tests inject a stub. Receives the vault-relative file path.
-   */
-  openFileVersions: (path: string) => void;
   /** Toast / notice surface — used to report directory-restore results. */
   notify?: (message: string) => void;
   /** Inject app for tests (ItemView sets this.app from the leaf in production). */
@@ -360,7 +355,6 @@ function wireArrowNav<T>(
 interface FilesColumnHandlers {
   onSelectFile: (path: string) => void;
   onSelectDir: (prefix: string) => void;
-  onContextMenuFile?: (path: string, evt: MouseEvent) => void;
 }
 
 function renderFilesColumn(
@@ -447,12 +441,6 @@ function renderFileTreeNode(
           handlers.onSelectFile(child.fullPath);
         }
       });
-      if (handlers.onContextMenuFile) {
-        fileEl.addEventListener('contextmenu', (evt: MouseEvent) => {
-          evt.preventDefault();
-          handlers.onContextMenuFile?.(child.fullPath, evt);
-        });
-      }
       allFileRows.push(fileEl);
       allFilePaths.push(child.fullPath);
     }
@@ -777,24 +765,8 @@ export class BackupBrowserView extends ItemView {
       {
         onSelectFile: (path) => { void this._selectFile(path); },
         onSelectDir: (prefix) => { void this._selectDir(prefix); },
-        onContextMenuFile: (path, evt) => this._showFileContextMenu(path, evt),
       },
     );
-  }
-
-  private _showFileContextMenu(path: string, evt: MouseEvent): void {
-    // Selection follows the right-click target so the user has visual
-    // feedback for which file the menu refers to. A real Obsidian Menu is
-    // built; tests that don't run inside Obsidian stub the API or skip.
-    void this._selectFile(path);
-    const menu = new Menu();
-    menu.addItem((item) =>
-      item
-        .setTitle(S.BROWSER_CONTEXT_RESTORE_DOTS)
-        .setIcon('archive-restore')
-        .onClick(() => this.deps.openFileVersions(path)),
-    );
-    menu.showAtMouseEvent(evt);
   }
 
   async _selectDir(prefix: string): Promise<void> {
