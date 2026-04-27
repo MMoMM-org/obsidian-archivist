@@ -236,13 +236,16 @@ export class SchedulerFSM {
    * a result code so the caller (Command handler) can surface the appropriate
    * Notice copy.
    */
-  triggerBackupNow(): 'started' | 'already_running' | 'not_designated' | 'auth_lost' {
+  triggerBackupNow(
+    kind: 'inc' | 'full' = 'inc',
+  ): 'started' | 'already_running' | 'not_designated' | 'auth_lost' {
     if (!this.deps.isDesignated()) return 'not_designated';
     if (this.state === 'AUTH_LOST') return 'auth_lost';
     if (this.state === 'BACKUP_RUNNING') return 'already_running';
     // Clear any pending grace/quiet so the manual trigger takes effect cleanly.
     this.clearTimers();
-    this.pendingBackup = { type: 'inc' };
+    this.pendingBackup =
+      kind === 'full' ? { type: 'full', reason: 'scheduled' } : { type: 'inc' };
     this.transition('BACKUP_RUNNING');
     return 'started';
   }

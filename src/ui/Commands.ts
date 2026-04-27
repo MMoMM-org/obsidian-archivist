@@ -20,17 +20,26 @@ export interface BackupNowCommandDeps {
 }
 
 const COMMAND_ID = 'archivist-backup-now';
+const COMMAND_ID_FULL = 'archivist-full-backup-now';
 
 export function registerBackupNowCommand(deps: BackupNowCommandDeps): void {
   deps.plugin.addCommand({
     id: COMMAND_ID,
     name: S.CMD_BACKUP_NOW,
-    callback: () => handleBackupNow(deps),
+    callback: () => handleBackupNow(deps, 'inc'),
+  });
+  // Manual FULL command: lets users self-recover from a corrupt Dropbox
+  // folder (deleted by mistake, replaced from an old backup, etc.) without
+  // waiting for the next scheduled full or for the inc-tick auto-fallback.
+  deps.plugin.addCommand({
+    id: COMMAND_ID_FULL,
+    name: S.CMD_FULL_BACKUP_NOW,
+    callback: () => handleBackupNow(deps, 'full'),
   });
 }
 
-function handleBackupNow(deps: BackupNowCommandDeps): void {
-  const result = deps.fsm.triggerBackupNow();
+function handleBackupNow(deps: BackupNowCommandDeps, kind: 'inc' | 'full'): void {
+  const result = deps.fsm.triggerBackupNow(kind);
   switch (result) {
     case 'started':
       return;

@@ -239,6 +239,26 @@ function makeHarness(
   const pluginStore = makeFakePluginStore(opts.initialIndex, opts.settingsOverrides, opts.initialQueue);
   const snapshotIndexStore = opts.snapshotIndexStore ?? makeFakeSnapshotIndexStore(dropbox);
 
+  // When the test provides an initialIndex (claiming a chain exists), seed a
+  // matching HEAD on Dropbox unless the test already supplied one. Mirrors
+  // the production invariant: a non-null local index always has a HEAD on
+  // Dropbox. Without this, the runIncremental HEAD-existence check (added
+  // for corrupt-state recovery) trips on every reconcile / inc-after-priming
+  // test and falls back to FULL.
+  if (opts.initialIndex && !dropbox.store.has(HEAD_PATH)) {
+    const lastId =
+      opts.initialIndex.last_inc_snapshot_id ??
+      opts.initialIndex.last_full_snapshot_id ??
+      'seeded-head';
+    dropbox.store.set(HEAD_PATH, {
+      schema_version: '1.0',
+      snapshot_id: lastId,
+      snapshot_type: opts.initialIndex.last_inc_snapshot_id ? 'inc' : 'full',
+      device_id: DEVICE_ID,
+      committed_at: opts.now?.() ?? '2026-04-24T10:00:00.000Z',
+    });
+  }
+
   const deps: BackupServiceDeps = {
     dropbox: dropbox as never,
     vault: vault as never,

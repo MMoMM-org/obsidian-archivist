@@ -26,6 +26,7 @@ import type { EventQueue as EventQueueInfra } from '../infra/EventQueue';
 import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
+import { PathError } from '../model/Errors';
 import type { LocalIndex } from '../model/Index';
 import type { QueueEntry } from '../model/QueueEntry';
 import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
@@ -123,6 +124,17 @@ export class BackupService {
    * once Obsidian is running.
    */
   private firstIncSinceLoad = true;
+
+  /**
+   * One-shot flag for the Dropbox HEAD-existence check. We probe the remote
+   * HEAD on the first INC of the session: if it's gone (user nuked the
+   * Apps/Archivist/<prefix>/ folder, OAuth scope re-created it empty, etc.)
+   * the local index is out of sync with Dropbox and committing another INC
+   * just deepens the corruption. Falling back to FULL re-bootstraps the
+   * chain instead. Flips to false after the first probe so steady-state INCs
+   * don't pay the extra round-trip.
+   */
+  private dropboxHeadVerified = false;
 
   constructor(deps: BackupServiceDeps) {
     this.dropbox = deps.dropbox;
@@ -245,6 +257,34 @@ export class BackupService {
     const index = await this.pluginStore.loadIndex();
     if (index === null) {
       return this.runFull(opts);
+    }
+
+    // Once-per-session HEAD verification: if the local index claims a chain
+    // exists but Dropbox has no HEAD.json, the remote folder was nuked or
+    // re-created empty (BackupBrowser then shows "Path not found: path" on
+    // chain walk). Re-bootstrap with FULL instead of stacking another orphan
+    // INC. Any other error (auth, network, 5xx) propagates — it would have
+    // surfaced from the next downloadJson anyway, and treating it as a
+    // probe-only failure would let an AuthError silently turn into a wasted
+    // FULL attempt that re-trips the same auth wall.
+    if (!this.dropboxHeadVerified) {
+      try {
+        await this.dropbox.downloadJson<unknown>(headPath(this.vaultPrefix));
+        this.dropboxHeadVerified = true;
+      } catch (err) {
+        if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
+          this.dropboxHeadVerified = true;
+          this.logger.warn('dropbox_head_missing_falling_back_to_full', {
+            head_path: headPath(this.vaultPrefix),
+            local_last_full: index.last_full_snapshot_id,
+            local_last_inc: index.last_inc_snapshot_id,
+          });
+          return this.runFull(opts);
+        }
+        // Leave dropboxHeadVerified=false so a transient failure (network
+        // blip, throttle) gets re-probed on the next inc attempt.
+        throw err;
+      }
     }
 
     // Snapshot queue at call time; new events enqueued during the run stay untouched
