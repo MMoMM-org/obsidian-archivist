@@ -17,6 +17,7 @@
 //   - Adaptive chunk size: 8 MB for files < 50 MB, 150 MB for files >= 50 MB (PERF-M2).
 
 import { buildFullManifest, buildIncManifest } from './ManifestBuilder';
+import type { BackupProgressReporter } from './BackupProgress';
 import type { ChangeDetector } from './ChangeDetector';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { DeviceCoordinator } from './DeviceCoordinator';
@@ -86,6 +87,12 @@ export interface BackupServiceDeps {
    * production code always provides one.
    */
   logger?: Logger;
+  /**
+   * Optional progress reporter — drives the live status-bar tooltip ("Archivist
+   * — uploading 432/5988"). When absent (most tests, batch CLI flows) the
+   * service is a strict no-op for progress events.
+   */
+  progress?: BackupProgressReporter;
   /** Injectable clock for deterministic tests. Defaults to new Date().toISOString(). */
   now?: () => string;
 }
@@ -106,6 +113,7 @@ export class BackupService {
   private readonly vaultName: string;
   private readonly changeDetector: ChangeDetector | null;
   private readonly logger: Logger;
+  private readonly progress: BackupProgressReporter | null;
   private readonly now: () => string;
 
   /**
@@ -128,6 +136,7 @@ export class BackupService {
     this.vaultName = deps.vaultName;
     this.changeDetector = deps.changeDetector ?? null;
     this.logger = deps.logger ?? NOOP_LOGGER;
+    this.progress = deps.progress ?? null;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -142,54 +151,67 @@ export class BackupService {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
     const createdAt = this.now();
     this.logger.info('Starting full backup');
+    this.progress?.start({ kind: 'full' });
 
-    // --- Pre-upload conflict check (first of two — ROB-001) ---
-    await this.coordinator.verifyNoConflict();
+    try {
+      // --- Pre-upload conflict check (first of two — ROB-001) ---
+      await this.coordinator.verifyNoConflict();
 
-    const deviceId = await this.coordinator.getOrCreateDeviceId();
-    const settings = await this.pluginStore.loadSettings();
-    const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
+      const deviceId = await this.coordinator.getOrCreateDeviceId();
+      const settings = await this.pluginStore.loadSettings();
+      const parallelism = resolveParallelism(settings.advanced.upload_parallelism);
 
-    // --- Read, hash, and collect all vault files in one batched pass (TOCTOU fix) ---
-    const vaultFiles = this.vault.getFiles();
-    const fileData = await this.readAndHashFiles(vaultFiles.map((f) => f.path), parallelism);
-    const hashes = new Map(Array.from(fileData.entries()).map(([p, d]) => [p, d.hash]));
+      // --- Read, hash, and collect all vault files in one batched pass (TOCTOU fix) ---
+      const vaultFiles = this.vault.getFiles();
+      this.progress?.setPhase('reading', vaultFiles.length);
+      const fileData = await this.readAndHashFiles(
+        vaultFiles.map((f) => f.path),
+        parallelism,
+        (delta) => this.progress?.advance(delta),
+      );
+      const hashes = new Map(Array.from(fileData.entries()).map(([p, d]) => [p, d.hash]));
 
-    // --- Step 1: Upload new content blobs (CAS, idempotent) ---
-    const newBlobs = this.collectNewBlobs(fileData);
-    await this.uploadBlobs(newBlobs, parallelism);
+      // --- Step 1: Upload new content blobs (CAS, idempotent) ---
+      const newBlobs = this.collectNewBlobs(fileData);
+      this.progress?.setPhase('uploading', newBlobs.size);
+      await this.uploadBlobs(newBlobs, parallelism, (delta) => this.progress?.advance(delta));
 
-    // --- Build manifest ---
-    const manifest = buildFullManifest({
-      vaultFiles,
-      hashes,
-      vaultName: this.vaultName,
-      vaultPrefix: this.vaultPrefix,
-      deviceId,
-      createdAt,
-      exclusionsApplied,
-    });
+      // --- Build manifest ---
+      const manifest = buildFullManifest({
+        vaultFiles,
+        hashes,
+        vaultName: this.vaultName,
+        vaultPrefix: this.vaultPrefix,
+        deviceId,
+        createdAt,
+        exclusionsApplied,
+      });
 
-    // Full pre-uploaded blobs at step 1 above to preserve the crash-recovery
-    // matrix semantics. `fileBytes` is still passed for interface symmetry
-    // but commitSnapshot's blob-upload branch is gated on manifest.type === 'inc'.
+      // Full pre-uploaded blobs at step 1 above to preserve the crash-recovery
+      // matrix semantics. `fileBytes` is still passed for interface symmetry
+      // but commitSnapshot's blob-upload branch is gated on manifest.type === 'inc'.
 
-    for (const path of Object.keys(manifest.files)) {
-      this.logger.debug('wrote', { path });
+      for (const path of Object.keys(manifest.files)) {
+        this.logger.debug('wrote', { path });
+      }
+
+      // --- Steps 2-7: crash-safe commit protocol ---
+      this.progress?.setPhase('committing', 1);
+      await this.commitSnapshot({
+        manifest,
+        fileBytes: fileData,
+        parallelism,
+        queueCursorAdvanceTo: manifest.created_at,
+      });
+      this.progress?.advance(1);
+
+      const fileCount = Object.keys(manifest.files).length;
+      this.logger.info('full backup done');
+      this.logger.info(`${fileCount} files written`);
+      return { filesWritten: fileCount };
+    } finally {
+      this.progress?.end();
     }
-
-    // --- Steps 2-7: crash-safe commit protocol ---
-    await this.commitSnapshot({
-      manifest,
-      fileBytes: fileData,
-      parallelism,
-      queueCursorAdvanceTo: manifest.created_at,
-    });
-
-    const fileCount = Object.keys(manifest.files).length;
-    this.logger.info('full backup done');
-    this.logger.info(`${fileCount} files written`);
-    return { filesWritten: fileCount };
   }
 
   /**
@@ -288,98 +310,117 @@ export class BackupService {
     // We have actual work — announce the start. (Late on purpose: a no-op
     // tick stays silent except for the single "Inc backup: no changes" line.)
     this.logger.info('Starting inc backup');
+    this.progress?.start({ kind: 'inc' });
 
-    // --- Pre-upload conflict check (first of two — ROB-001) ---
-    await this.coordinator.verifyNoConflict();
+    try {
+      // --- Pre-upload conflict check (first of two — ROB-001) ---
+      await this.coordinator.verifyNoConflict();
 
-    const deviceId = await this.coordinator.getOrCreateDeviceId();
-    const createdAt = this.now();
+      const deviceId = await this.coordinator.getOrCreateDeviceId();
+      const createdAt = this.now();
 
-    // --- Read + hash changed files (only those that still exist on disk) ---
-    const existingPaths = changesPaths.filter((p) =>
-      this.vault.getFiles().some((f) => f.path === p),
-    );
-    const fileData = await this.readAndHashFiles(existingPaths, parallelism);
-
-    // --- Filter: skip files whose hash is unchanged vs index ---
-    const changes = buildChanges(fileData, changesPaths, index);
-
-    // No-op inc short-circuit: queue had events but after hashing every
-    // file's content matched the index — nothing actually changed. This
-    // happens with formatters / linters / "save on focus loss" plugins
-    // that rewrite a file with identical content. Advance the queue
-    // cursor so we don't re-evaluate the same no-op events on every
-    // tick, then skip the commit chain entirely (no manifest, no HEAD
-    // bump, no Dropbox round-trip).
-    if (changes.length === 0 && deleted.length === 0 && renames.length === 0) {
-      const maxObservedAt = queue.entries.reduce(
-        (max, e) => (e.observed_at > max ? e.observed_at : max),
-        queue.entries[0]?.observed_at ?? this.now(),
+      // --- Read + hash changed files (only those that still exist on disk) ---
+      const existingPaths = changesPaths.filter((p) =>
+        this.vault.getFiles().some((f) => f.path === p),
       );
-      await this.eventQueue.commitWindow(maxObservedAt);
-      this.logger.info('Inc backup: no actual changes');
-      return { filesWritten: 0 };
+      this.progress?.setPhase('reading', existingPaths.length);
+      const fileData = await this.readAndHashFiles(
+        existingPaths,
+        parallelism,
+        (delta) => this.progress?.advance(delta),
+      );
+
+      // --- Filter: skip files whose hash is unchanged vs index ---
+      const changes = buildChanges(fileData, changesPaths, index);
+
+      // No-op inc short-circuit: queue had events but after hashing every
+      // file's content matched the index — nothing actually changed. This
+      // happens with formatters / linters / "save on focus loss" plugins
+      // that rewrite a file with identical content. Advance the queue
+      // cursor so we don't re-evaluate the same no-op events on every
+      // tick, then skip the commit chain entirely (no manifest, no HEAD
+      // bump, no Dropbox round-trip).
+      if (changes.length === 0 && deleted.length === 0 && renames.length === 0) {
+        const maxObservedAt = queue.entries.reduce(
+          (max, e) => (e.observed_at > max ? e.observed_at : max),
+          queue.entries[0]?.observed_at ?? this.now(),
+        );
+        await this.eventQueue.commitWindow(maxObservedAt);
+        this.logger.info('Inc backup: no actual changes');
+        return { filesWritten: 0 };
+      }
+
+      // --- Determine parent snapshot ---
+      // Same bootstrap fallback as the index-null case above: if the index
+      // exists but never recorded a successful commit, the chain has no head to
+      // diff against — run a FULL instead. runFull returns its own
+      // { filesWritten } so the caller's toast count stays accurate.
+      const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
+      if (parentId === null) {
+        return this.runFull(opts);
+      }
+
+      // --- Build Inc manifest ---
+      const vaultFiles = this.vault.getFiles();
+      const incChanges = changes.map((path) => {
+        const data = fileData.get(path)!;
+        const vf = vaultFiles.find((f) => f.path === path);
+        return { path, hash: data.hash, size: vf?.size ?? data.bytes.length, mtime: vf?.mtime ?? 0 };
+      });
+
+      const manifest = buildIncManifest({
+        parentId,
+        changes: incChanges,
+        deleted,
+        renames,
+        vaultName: this.vaultName,
+        vaultPrefix: this.vaultPrefix,
+        deviceId,
+        createdAt,
+        exclusionsApplied,
+      });
+
+      // Max observed_at across all consumed queue entries. Empty queue is only
+      // reachable via the reconcile path (offline changes only, no live events) —
+      // fall back to manifest.created_at so the cursor still advances past any
+      // events that arrive between the scan and the cursor write (those will
+      // have observed_at > createdAt and survive the filter).
+      const maxObservedAt =
+        queue.entries.length === 0
+          ? createdAt
+          : queue.entries.reduce(
+              (max, e) => (e.observed_at > max ? e.observed_at : max),
+              queue.entries[0].observed_at,
+            );
+
+      for (const path of Object.keys(manifest.files)) {
+        this.logger.debug('wrote', { path });
+      }
+
+      // --- Steps 2-7: crash-safe commit protocol ---
+      // Inc snapshots upload blobs INSIDE commitSnapshot (vs Full which
+      // pre-uploads), so the uploading phase total isn't known until we
+      // dedup. Set it here from the manifest's unique-hash count so the
+      // tooltip shows realistic numbers, then commitSnapshot advances per
+      // batch via the same callback.
+      this.progress?.setPhase('uploading', uniqueHashes(manifest).length);
+      await this.commitSnapshot({
+        manifest,
+        fileBytes: fileData,
+        parallelism,
+        queueCursorAdvanceTo: maxObservedAt,
+        onUploadBatchDone: (delta) => this.progress?.advance(delta),
+      });
+      this.progress?.setPhase('committing', 1);
+      this.progress?.advance(1);
+
+      const fileCount = Object.keys(manifest.files).length;
+      this.logger.info('inc backup done');
+      this.logger.info(`${fileCount} files written`);
+      return { filesWritten: fileCount };
+    } finally {
+      this.progress?.end();
     }
-
-    // --- Determine parent snapshot ---
-    // Same bootstrap fallback as the index-null case above: if the index
-    // exists but never recorded a successful commit, the chain has no head to
-    // diff against — run a FULL instead. runFull returns its own
-    // { filesWritten } so the caller's toast count stays accurate.
-    const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
-    if (parentId === null) {
-      return this.runFull(opts);
-    }
-
-    // --- Build Inc manifest ---
-    const vaultFiles = this.vault.getFiles();
-    const incChanges = changes.map((path) => {
-      const data = fileData.get(path)!;
-      const vf = vaultFiles.find((f) => f.path === path);
-      return { path, hash: data.hash, size: vf?.size ?? data.bytes.length, mtime: vf?.mtime ?? 0 };
-    });
-
-    const manifest = buildIncManifest({
-      parentId,
-      changes: incChanges,
-      deleted,
-      renames,
-      vaultName: this.vaultName,
-      vaultPrefix: this.vaultPrefix,
-      deviceId,
-      createdAt,
-      exclusionsApplied,
-    });
-
-    // Max observed_at across all consumed queue entries. Empty queue is only
-    // reachable via the reconcile path (offline changes only, no live events) —
-    // fall back to manifest.created_at so the cursor still advances past any
-    // events that arrive between the scan and the cursor write (those will
-    // have observed_at > createdAt and survive the filter).
-    const maxObservedAt =
-      queue.entries.length === 0
-        ? createdAt
-        : queue.entries.reduce(
-            (max, e) => (e.observed_at > max ? e.observed_at : max),
-            queue.entries[0].observed_at,
-          );
-
-    for (const path of Object.keys(manifest.files)) {
-      this.logger.debug('wrote', { path });
-    }
-
-    // --- Steps 2-7: crash-safe commit protocol ---
-    await this.commitSnapshot({
-      manifest,
-      fileBytes: fileData,
-      parallelism,
-      queueCursorAdvanceTo: maxObservedAt,
-    });
-
-    const fileCount = Object.keys(manifest.files).length;
-    this.logger.info('inc backup done');
-    this.logger.info(`${fileCount} files written`);
-    return { filesWritten: fileCount };
   }
 
   // ---------------------------------------------------------------------------
@@ -403,8 +444,10 @@ export class BackupService {
     fileBytes: Map<string, { hash: string; bytes: Uint8Array }>;
     parallelism: number;
     queueCursorAdvanceTo: string;
+    /** Optional per-batch progress callback for the inc upload step. */
+    onUploadBatchDone?: (delta: number) => void;
   }): Promise<void> {
-    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo } = args;
+    const { manifest, fileBytes, parallelism, queueCursorAdvanceTo, onUploadBatchDone } = args;
 
     // --- Step 1: Upload new content blobs ---
     // runFull pre-uploads blobs before calling commitSnapshot (so a crash between blob upload
@@ -412,7 +455,7 @@ export class BackupService {
     // runIncremental delegates blob upload here so the full protocol is centralized.
     if (manifest.type === 'inc') {
       const newBlobs = this.collectNewBlobs(fileBytes);
-      await this.uploadBlobs(newBlobs, parallelism);
+      await this.uploadBlobs(newBlobs, parallelism, onUploadBatchDone);
     }
 
     // --- Step 2: Second conflict check BEFORE manifest write (ROB-001) ---
@@ -462,6 +505,7 @@ export class BackupService {
   private async readAndHashFiles(
     paths: string[],
     parallelism: number,
+    onBatchDone?: (delta: number) => void,
   ): Promise<Map<string, { hash: string; bytes: Uint8Array }>> {
     const map = new Map<string, { hash: string; bytes: Uint8Array }>();
     for (let i = 0; i < paths.length; i += parallelism) {
@@ -472,6 +516,7 @@ export class BackupService {
         return { path: p, bytes, hash };
       }));
       for (const r of results) map.set(r.path, { hash: r.hash, bytes: r.bytes });
+      onBatchDone?.(batch.length);
     }
     return map;
   }
@@ -497,6 +542,7 @@ export class BackupService {
   private async uploadBlobs(
     blobs: Map<string, Uint8Array>,
     parallelism: number,
+    onBatchDone?: (delta: number) => void,
   ): Promise<void> {
     const entries = Array.from(blobs.entries());
     for (let i = 0; i < entries.length; i += parallelism) {
@@ -504,6 +550,7 @@ export class BackupService {
       await Promise.all(
         batch.map(([hash, bytes]) => this.uploadBlob(hash, bytes)),
       );
+      onBatchDone?.(batch.length);
     }
   }
 

@@ -7,6 +7,7 @@ import { VaultAdapter } from './infra/VaultAdapter';
 import { EventQueue } from './infra/EventQueue';
 import { ChangeDetector } from './services/ChangeDetector';
 import { BackupService } from './services/BackupService';
+import { createBackupProgressTracker } from './services/BackupProgress';
 import { DeviceCoordinator } from './services/DeviceCoordinator';
 import { SnapshotIndexStore } from './services/SnapshotIndexStore';
 import { RetentionService } from './services/RetentionService';
@@ -233,6 +234,12 @@ export default class ArchivistPlugin extends Plugin {
       logger: this.logger,
     });
 
+    // Live progress tracker — written by BackupService at phase boundaries
+    // and per-batch advances; read by getTooltipInput so the status-bar
+    // tooltip shows "Archivist — uploading 432/5988". The status bar
+    // subscribes below to refresh on each (throttled) change.
+    const progressTracker = createBackupProgressTracker();
+
     const backupService = new BackupService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       vault: vaultAdapter,
@@ -243,6 +250,7 @@ export default class ArchivistPlugin extends Plugin {
       eventQueue,
       changeDetector,
       logger: this.logger,
+      progress: progressTracker,
       vaultPrefix,
       vaultName,
     });
@@ -545,6 +553,7 @@ export default class ArchivistPlugin extends Plugin {
       nextScheduledFullAt: fsm.getNextScheduledFullAt(),
       queueSize: eventQueue.peekSince(eventQueue.committedThrough()).length,
       now: Date.now(),
+      progress: progressTracker.getSnapshot(),
     });
 
     this.ribbon = new RibbonIcon({
@@ -611,6 +620,13 @@ export default class ArchivistPlugin extends Plugin {
       this.ribbon?.refresh();
       statusBar.refresh();
     };
+
+    // Backup progress drives the same refresh path: each (throttled)
+    // setPhase / advance / end firing repaints both the status-bar and
+    // ribbon tooltips so the user sees live "uploading 432/5988" counts.
+    // Tracker throttles to ~4 updates/sec so the upload phase doesn't burn
+    // CPU on tooltip repaints.
+    this.register(progressTracker.subscribe(refreshTooltips));
 
     // ---------------------------------------------------------------------------
     // Step 13: ChangeDetector — register live vault-event handlers
