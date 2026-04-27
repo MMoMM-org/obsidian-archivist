@@ -14,13 +14,15 @@
 //   - Keyboard nav: column wrappers have tabindex="0"; row items use
 //     tabindex="-1" with aria-selected so AT can track selection.
 
-import { ItemView, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
+import { ItemView, Menu, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
 import { renderPreview, maybeShowPreviewAdvisory } from './PreviewPane';
 import type { PreviewAdvisoryNoticeCenter, AppWithPluginRegistry } from './PreviewPane';
 import type { PersistentBanner } from './NoticeCenter';
+import { ConfirmRestoreModal } from './ConfirmRestoreModal';
+import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { S } from './strings';
 
 // ---------------------------------------------------------------------------
@@ -39,6 +41,11 @@ export interface RestoreServiceSubset {
 export interface RestoreOperationsSubset {
   restoreInPlace(path: string, snapshotId: string): Promise<unknown>;
   restoreAsCopy(path: string, snapshotId: string): Promise<unknown>;
+  restoreDirectory(
+    dirPrefix: string,
+    snapshotId: string,
+    mode: 'in_place' | 'as_copy',
+  ): Promise<{ ok: number; failed: Array<{ path: string; error: string }> }>;
 }
 
 export interface NoticeCenterSubset extends PreviewAdvisoryNoticeCenter {
@@ -58,6 +65,13 @@ export interface BackupBrowserDeps {
   };
   /** Returns true when the given vault-relative path exists in the live vault. */
   vaultHasPath: (path: string) => boolean;
+  /**
+   * Open the per-file FileVersionsView in a new tab. Wired in main.ts;
+   * tests inject a stub. Receives the vault-relative file path.
+   */
+  openFileVersions: (path: string) => void;
+  /** Toast / notice surface — used to report directory-restore results. */
+  notify?: (message: string) => void;
   /** Inject app for tests (ItemView sets this.app from the leaf in production). */
   app?: App;
   /** Injectable clock for date grouping tests. */
@@ -177,8 +191,10 @@ function snapTierLabel(tier: SnapshotTier | null | undefined): string | null {
 
 /**
  * Convert a flat vault-state map (path → FileEntry) into a nested tree.
- * Folders sort before files at each level. Nodes use the original full path
- * for leaf nodes so callers can pass it to fetchContent.
+ * Folders sort before files at each level. Leaf nodes carry the original
+ * vault path so callers can pass it to fetchContent. Directory nodes carry
+ * their own joined prefix path (e.g. `notes/sub`) so callers can pass it to
+ * `restoreDirectory`.
  */
 export function buildFileTree(state: Record<string, FileEntry>): FileTreeNode {
   const root: FileTreeNode = { name: '', fullPath: '', isDir: true, children: [] };
@@ -188,14 +204,19 @@ export function buildFileTree(state: Record<string, FileEntry>): FileTreeNode {
     // so Windows-style paths and double-slash artifacts are handled correctly.
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     if (parts.length === 0) continue;
-    insertIntoTree(root, parts, path);
+    insertIntoTree(root, parts, path, []);
   }
 
   sortTree(root);
   return root;
 }
 
-function insertIntoTree(node: FileTreeNode, parts: string[], fullPath: string): void {
+function insertIntoTree(
+  node: FileTreeNode,
+  parts: string[],
+  fullPath: string,
+  ancestors: string[],
+): void {
   if (parts.length === 1) {
     node.children.push({ name: parts[0], fullPath, isDir: false, children: [] });
     return;
@@ -203,10 +224,16 @@ function insertIntoTree(node: FileTreeNode, parts: string[], fullPath: string): 
   const [head, ...tail] = parts;
   let dir = node.children.find((c) => c.name === head && c.isDir);
   if (!dir) {
-    dir = { name: head, fullPath: '', isDir: true, children: [] };
+    const dirAncestors = [...ancestors, head];
+    dir = {
+      name: head,
+      fullPath: dirAncestors.join('/'),
+      isDir: true,
+      children: [],
+    };
     node.children.push(dir);
   }
-  insertIntoTree(dir, tail, fullPath);
+  insertIntoTree(dir, tail, fullPath, [...ancestors, head]);
 }
 
 function sortTree(node: FileTreeNode): void {
@@ -330,20 +357,27 @@ function wireArrowNav<T>(
 // renderFilesColumn — pure render function
 // ---------------------------------------------------------------------------
 
+interface FilesColumnHandlers {
+  onSelectFile: (path: string) => void;
+  onSelectDir: (prefix: string) => void;
+  onContextMenuFile?: (path: string, evt: MouseEvent) => void;
+}
+
 function renderFilesColumn(
   container: HTMLElement,
   tree: FileTreeNode,
   selectedPath: string | null,
-  onSelect: (path: string) => void,
+  selectedDir: string | null,
+  handlers: FilesColumnHandlers,
 ): void {
   container.empty();
   const allFileRows: HTMLElement[] = [];
   const allFilePaths: string[] = [];
-  renderFileTreeNode(container, tree, selectedPath, onSelect, allFileRows, allFilePaths);
+  renderFileTreeNode(container, tree, selectedPath, selectedDir, handlers, allFileRows, allFilePaths);
 
   // Fix 5: wire ArrowUp/ArrowDown navigation across all file rows.
   wireArrowNav(allFileRows, (row, path) => {
-    onSelect(path);
+    handlers.onSelectFile(path);
     row.focus();
   }, allFilePaths);
 }
@@ -352,7 +386,8 @@ function renderFileTreeNode(
   container: HTMLElement,
   node: FileTreeNode,
   selectedPath: string | null,
-  onSelect: (path: string) => void,
+  selectedDir: string | null,
+  handlers: FilesColumnHandlers,
   allFileRows: HTMLElement[],
   allFilePaths: string[],
 ): void {
@@ -360,13 +395,39 @@ function renderFileTreeNode(
     if (child.isDir) {
       const dirEl = container.createEl('div', { cls: 'archivist-file-dir' });
       const dirHeader = dirEl.createEl('div', { cls: 'archivist-dir-header' });
+      dirHeader.setAttribute('tabindex', '-1');
+      dirHeader.setAttribute('role', 'option');
+      dirHeader.setAttribute(
+        'aria-selected',
+        child.fullPath === selectedDir ? 'true' : 'false',
+      );
       // Lucide folder icon — visual cue separating directories from files
       // without relying on extension-text-only inspection.
       const dirIconEl = dirHeader.createEl('span', { cls: 'archivist-dir-icon' });
       setIcon(dirIconEl, 'folder');
       dirHeader.createEl('span', { text: child.name, cls: 'archivist-dir-name' });
+      // Click on the header itself selects the directory; clicks on the
+      // children container fall through to file rows below.
+      dirHeader.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handlers.onSelectDir(child.fullPath);
+      });
+      dirHeader.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handlers.onSelectDir(child.fullPath);
+        }
+      });
       const childContainer = dirEl.createEl('div', { cls: 'archivist-dir-children' });
-      renderFileTreeNode(childContainer, child, selectedPath, onSelect, allFileRows, allFilePaths);
+      renderFileTreeNode(
+        childContainer,
+        child,
+        selectedPath,
+        selectedDir,
+        handlers,
+        allFileRows,
+        allFilePaths,
+      );
     } else {
       const fileEl = container.createEl('div', { cls: 'archivist-file-row' });
       fileEl.setAttribute('tabindex', '-1');
@@ -379,16 +440,65 @@ function renderFileTreeNode(
       const fileIconEl = fileEl.createEl('span', { cls: 'archivist-file-icon' });
       setIcon(fileIconEl, 'file-text');
       fileEl.createEl('span', { text: child.name, cls: 'archivist-file-name' });
-      fileEl.addEventListener('click', () => onSelect(child.fullPath));
+      fileEl.addEventListener('click', () => handlers.onSelectFile(child.fullPath));
       fileEl.addEventListener('keydown', (e: KeyboardEvent) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onSelect(child.fullPath);
+          handlers.onSelectFile(child.fullPath);
         }
       });
+      if (handlers.onContextMenuFile) {
+        fileEl.addEventListener('contextmenu', (evt: MouseEvent) => {
+          evt.preventDefault();
+          handlers.onContextMenuFile?.(child.fullPath, evt);
+        });
+      }
       allFileRows.push(fileEl);
       allFilePaths.push(child.fullPath);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Directory preview helpers — pure, exported for tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect every vault path under a directory prefix from a flat snapshot
+ * state map. Mirrors the filter used by `RestoreOperations.restoreDirectory`
+ * so the count shown in the confirm dialog matches what will actually be
+ * restored. Returns paths sorted alphabetically for stable display.
+ */
+export function collectDirMatches(
+  state: Record<string, FileEntry>,
+  rawPrefix: string,
+): string[] {
+  const normalized = rawPrefix.replace(/\/+$/, '');
+  if (normalized === '') return [];
+  const prefixWithSlash = normalized + '/';
+  return Object.keys(state)
+    .filter((p) => p === normalized || p.startsWith(prefixWithSlash))
+    .sort();
+}
+
+/**
+ * Render the preview-column header for a selected directory: name + file
+ * count tag. Mirrors `renderPreviewHeader` shape so the header strip looks
+ * consistent between file- and dir-selection.
+ */
+function renderDirPreviewHeader(
+  container: HTMLElement,
+  prefix: string,
+  fileCount: number,
+): void {
+  const slash = prefix.lastIndexOf('/');
+  const basename = slash >= 0 ? prefix.slice(slash + 1) : prefix;
+  container.createEl('h3', {
+    text: `${basename} — ${S.BROWSER_DIR_FILE_COUNT(fileCount)}`,
+    cls: 'archivist-preview-filename',
+  });
+  if (slash >= 0) {
+    container.createEl('p', { text: prefix, cls: 'archivist-preview-path' });
   }
 }
 
@@ -461,10 +571,14 @@ export class BackupBrowserView extends ItemView {
   private snapshots: SnapshotIndexEntry[] = [];
   private selectedSnapshot: SnapshotIndexEntry | null = null;
   private selectedPath: string | null = null;
+  private selectedDir: string | null = null;
   private fileState: Record<string, FileEntry> = {};
 
   // Fix 3: closed flag — continuations bail if view was closed during an await.
   private _closed = false;
+  // Gates the dir-restore confirm flow client-side so a second click while
+  // the loop is still running cannot launch a parallel batch.
+  private _dirRestoreInFlight = false;
 
   // Cleanup hook for NoticeCenter subscription
   private unsubBanners: (() => void) | null = null;
@@ -597,6 +711,7 @@ export class BackupBrowserView extends ItemView {
     const capturedSnap = snap;
     this.selectedSnapshot = snap;
     this.selectedPath = null;
+    this.selectedDir = null;
 
     // Re-render the snapshots column so aria-selected (and the highlighted
     // row styling that hangs off it) reflects the new selection. Without
@@ -650,16 +765,197 @@ export class BackupBrowserView extends ItemView {
 
     this.fileState = state;
     const tree = buildFileTree(state);
+    this._renderFilesColumn(tree);
+  }
+
+  private _renderFilesColumn(tree: FileTreeNode): void {
     renderFilesColumn(
       this.filesListEl,
       tree,
       this.selectedPath,
-      (path) => { void this._selectFile(path); },
+      this.selectedDir,
+      {
+        onSelectFile: (path) => { void this._selectFile(path); },
+        onSelectDir: (prefix) => { void this._selectDir(prefix); },
+        onContextMenuFile: (path, evt) => this._showFileContextMenu(path, evt),
+      },
     );
+  }
+
+  private _showFileContextMenu(path: string, evt: MouseEvent): void {
+    // Selection follows the right-click target so the user has visual
+    // feedback for which file the menu refers to. A real Obsidian Menu is
+    // built; tests that don't run inside Obsidian stub the API or skip.
+    void this._selectFile(path);
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(S.BROWSER_CONTEXT_RESTORE_DOTS)
+        .setIcon('archive-restore')
+        .onClick(() => this.deps.openFileVersions(path)),
+    );
+    menu.showAtMouseEvent(evt);
+  }
+
+  async _selectDir(prefix: string): Promise<void> {
+    this.selectedDir = prefix;
+    this.selectedPath = null;
+    const capturedSnap = this.selectedSnapshot;
+    if (!capturedSnap) return;
+
+    // Re-render the files column so the clicked dir-header picks up
+    // aria-selected. Mirror of the file-row pattern in _selectFile.
+    if (this.fileState) {
+      const tree = buildFileTree(this.fileState);
+      this._renderFilesColumn(tree);
+    }
+
+    // Compute the matching files from the already-materialized snapshot
+    // state — no second materialize call needed; we have it in fileState.
+    const matches = collectDirMatches(this.fileState, prefix);
+
+    this.previewColEl.empty();
+    renderDirPreviewHeader(this.previewColEl, prefix, matches.length);
+
+    if (matches.length === 0) {
+      this.previewColEl.createEl('p', {
+        text: S.BROWSER_DIR_NO_FILES_AT_SNAPSHOT,
+        cls: 'archivist-dir-empty',
+      });
+      this._renderDirActions(prefix, matches, capturedSnap.id, true);
+      return;
+    }
+
+    const listEl = this.previewColEl.createEl('div', { cls: 'archivist-dir-file-list' });
+    for (const path of matches) {
+      const entry = this.fileState[path];
+      const row = listEl.createEl('div', { cls: 'archivist-dir-file-row' });
+      row.createEl('span', { text: path, cls: 'archivist-dir-file-name' });
+      row.createEl('span', {
+        text: entry ? new Date(entry.mtime).toISOString() : '',
+        cls: 'archivist-dir-file-meta',
+      });
+      row.createEl('span', {
+        text: entry ? formatBytes(entry.size) : '',
+        cls: 'archivist-dir-file-meta',
+      });
+    }
+
+    this._renderDirActions(prefix, matches, capturedSnap.id, false);
+  }
+
+  private _renderDirActions(
+    prefix: string,
+    matches: string[],
+    snapshotId: string,
+    disabled: boolean,
+  ): void {
+    const actionsEl = this.previewColEl.createEl('div', { cls: 'archivist-dir-actions' });
+    const inPlaceBtn = actionsEl.createEl('button', {
+      text: S.BROWSER_DIR_RESTORE_IN_PLACE,
+    });
+    const asCopyBtn = actionsEl.createEl('button', {
+      text: S.BROWSER_DIR_RESTORE_AS_COPY,
+    });
+    if (disabled) {
+      inPlaceBtn.setAttribute('aria-disabled', 'true');
+      inPlaceBtn.setAttribute('disabled', '');
+      asCopyBtn.setAttribute('aria-disabled', 'true');
+      asCopyBtn.setAttribute('disabled', '');
+      return;
+    }
+    inPlaceBtn.addEventListener('click', () =>
+      this._confirmDirectoryRestore(prefix, matches, snapshotId, 'in_place'),
+    );
+    asCopyBtn.addEventListener('click', () =>
+      this._confirmDirectoryRestore(prefix, matches, snapshotId, 'as_copy'),
+    );
+  }
+
+  private _confirmDirectoryRestore(
+    prefix: string,
+    matches: string[],
+    snapshotId: string,
+    mode: 'in_place' | 'as_copy',
+  ): void {
+    if (this._dirRestoreInFlight) return;
+
+    // Union of missing parent directories across every file in the batch.
+    // Only relevant for in-place; as-copy restores into the original
+    // ancestors too, but mkdirParents handles that idempotently.
+    const missingDirsSet = new Set<string>();
+    for (const path of matches) {
+      for (const dir of computeMissingDirs(path, this.deps.vaultHasPath)) {
+        missingDirsSet.add(dir);
+      }
+    }
+    const missingDirs = [...missingDirsSet].sort();
+
+    const fileCount = S.BROWSER_DIR_FILE_COUNT(matches.length);
+    const modeLabel =
+      mode === 'in_place'
+        ? S.CONFIRM_DIR_RESTORE_MODE_IN_PLACE
+        : S.CONFIRM_DIR_RESTORE_MODE_AS_COPY;
+    const timestamp = this.selectedSnapshot
+      ? new Date(this.selectedSnapshot.created_at).toISOString()
+      : snapshotId;
+    const body = S.CONFIRM_DIR_RESTORE_BODY(prefix, timestamp, fileCount, modeLabel);
+
+    new ConfirmRestoreModal(this.app, {
+      filePath: prefix,
+      timestamp,
+      size: fileCount,
+      // Hand the body line via missingDirs so the dialog uses the
+      // creates-dir variant whose body line is overridable per addLine —
+      // we pre-pend a custom body line then list any actual missing dirs.
+      missingDirs: missingDirs.length > 0 ? missingDirs : [body],
+      onConfirm: () => {
+        void this._runDirectoryRestore(prefix, snapshotId, mode);
+      },
+      onCancel: () => {},
+    }).open();
+  }
+
+  private async _runDirectoryRestore(
+    prefix: string,
+    snapshotId: string,
+    mode: 'in_place' | 'as_copy',
+  ): Promise<void> {
+    this._dirRestoreInFlight = true;
+    try {
+      const result = await this.deps.restoreOperations.restoreDirectory(
+        prefix,
+        snapshotId,
+        mode,
+      );
+      const notify = this.deps.notify;
+      if (result.failed.length === 0) {
+        notify?.(S.TOAST_DIR_RESTORE_OK(result.ok));
+      } else {
+        notify?.(S.TOAST_DIR_RESTORE_PARTIAL(result.ok, result.failed.length));
+        // Emit a persistent banner so the user can inspect which files
+        // failed without re-triggering the operation.
+        const summary = result.failed
+          .slice(0, 5)
+          .map((f) => `${f.path}: ${f.error}`)
+          .join('\n');
+        this.deps.noticeCenter.showPersistent?.(
+          'DIR_RESTORE_PARTIAL_FAILURE',
+          summary,
+          {},
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.deps.notify?.(msg);
+    } finally {
+      this._dirRestoreInFlight = false;
+    }
   }
 
   async _selectFile(path: string): Promise<void> {
     this.selectedPath = path;
+    this.selectedDir = null;
     // Fix 1: capture snapshot BEFORE the first await.
     const capturedSnap = this.selectedSnapshot;
     if (!capturedSnap) return;
@@ -671,12 +967,7 @@ export class BackupBrowserView extends ItemView {
     // selection visually.
     if (this.fileState) {
       const tree = buildFileTree(this.fileState);
-      renderFilesColumn(
-        this.filesListEl,
-        tree,
-        path,
-        (p) => { void this._selectFile(p); },
-      );
+      this._renderFilesColumn(tree);
     }
 
     // Show loading in preview — header swaps from generic "Preview" to the

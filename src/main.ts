@@ -29,6 +29,7 @@ import {
 import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView } from './ui/BackupBrowserView';
 import { FileHistoryModal } from './ui/FileHistoryModal';
+import { FileVersionsView, FILE_VERSIONS_VIEW_TYPE } from './ui/FileVersionsView';
 import { sha256hex } from './infra/Hasher';
 import { slugifyVaultName } from './util/paths';
 import { epochMsFromSnapshotId } from './util/time';
@@ -455,6 +456,37 @@ export default class ArchivistPlugin extends Plugin {
       }
     };
 
+    // Open or focus the per-file FileVersionsView, scoped to a vault path.
+    // Right-click on a file in BackupBrowserView routes here. Always opens
+    // a new tab — multiple files can be inspected side by side.
+    const openFileVersions = (path: string): void => {
+      const workspace = this.app.workspace as unknown as {
+        getLeavesOfType: (type: string) => Array<{
+          getViewState: () => { state?: { path?: string } };
+          setViewState: (s: unknown) => Promise<void> | void;
+        }>;
+        revealLeaf: (leaf: unknown) => void;
+        getLeaf: (newLeaf: boolean) => {
+          setViewState: (s: unknown) => Promise<void> | void;
+        } | null;
+      };
+      const existing = workspace.getLeavesOfType(FILE_VERSIONS_VIEW_TYPE);
+      const sameLeaf = existing.find((l) => l.getViewState?.().state?.path === path);
+      if (sameLeaf) {
+        workspace.revealLeaf(sameLeaf);
+        return;
+      }
+      const leaf = workspace.getLeaf(true);
+      if (leaf) {
+        void leaf.setViewState({
+          type: FILE_VERSIONS_VIEW_TYPE,
+          active: true,
+          state: { path },
+        });
+        workspace.revealLeaf(leaf);
+      }
+    };
+
     const ribbonHost: RibbonHost = {
       create: ({ icon, title, onClick }) => {
         const el = this.addRibbonIcon(icon, title, onClick as (evt: MouseEvent) => unknown);
@@ -763,6 +795,23 @@ export default class ArchivistPlugin extends Plugin {
           },
         },
         vaultHasPath: (path) => vaultAdapter.getFiles().some((f) => f.path === path),
+        openFileVersions,
+        notify,
+        app: this.app,
+      });
+    });
+
+    this.registerView(FILE_VERSIONS_VIEW_TYPE, (leaf) => {
+      return new FileVersionsView(leaf, {
+        restoreService,
+        manifestCache,
+        restoreOperations,
+        noticeCenter: {
+          showPersistent: (code, message, opts) =>
+            noticeCenter.showPersistent(code, message, opts),
+        },
+        vaultHasPath: (path) => vaultAdapter.getFiles().some((f) => f.path === path),
+        notify,
         app: this.app,
       });
     });

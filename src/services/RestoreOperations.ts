@@ -45,6 +45,11 @@ export interface RestoreResult {
   bytesWritten: number;
 }
 
+export interface RestoreDirectoryResult {
+  ok: number;
+  failed: Array<{ path: string; error: string }>;
+}
+
 // ---------------------------------------------------------------------------
 // Binary detection (for copyToClipboard gate)
 // ---------------------------------------------------------------------------
@@ -96,6 +101,88 @@ export class RestoreOperations {
     // Mutex keyed on the ORIGINAL path — prevents two copies racing if the
     // user clicks restore-as-copy twice quickly. Copy paths themselves carry
     // a timestamp so they won't collide.
+    return this.runWithMutex(path, () => this.writeRestore(path, snapshotId, copyPath));
+  }
+
+  /**
+   * Restore every file under a directory prefix from a snapshot.
+   *
+   * Sequential per-file restore via the same hash-verified pipeline as
+   * single-file restores — no all-or-nothing atomicity. Failed files are
+   * collected and reported; the loop continues past a failure so the user
+   * gets a partial result instead of a half-done restore aborting mid-way.
+   *
+   * For `as_copy` mode a single timestamp is computed once at the start of
+   * the batch and shared across every per-file copy path. This guarantees
+   * unique sibling names for batches of more than one file even when
+   * `Date.now()` would otherwise return the same millisecond for all of
+   * them.
+   */
+  async restoreDirectory(
+    dirPrefix: string,
+    snapshotId: string,
+    mode: 'in_place' | 'as_copy',
+  ): Promise<RestoreDirectoryResult> {
+    const normalized = dirPrefix.replace(/\/+$/, '');
+    if (normalized === '') {
+      throw new PathError(
+        'INVALID_DIR_PREFIX',
+        'Directory prefix must not be empty (root-level restore is not supported)',
+        false,
+      );
+    }
+
+    const state = await this.deps.restoreService.materializeVaultStateAt(snapshotId);
+    const prefix = normalized + '/';
+    const matches = Object.keys(state)
+      .filter((p) => p === normalized || p.startsWith(prefix))
+      .sort();
+
+    this.deps.logger.info('dir_restore_started', {
+      dir: normalized,
+      snapshotId,
+      mode,
+      count: matches.length,
+    });
+
+    const sharedTs = mode === 'as_copy' ? this.now() : 0;
+    let ok = 0;
+    const failed: Array<{ path: string; error: string }> = [];
+
+    for (const path of matches) {
+      try {
+        if (mode === 'in_place') {
+          await this.restoreInPlace(path, snapshotId);
+        } else {
+          await this.restoreAsCopyAt(path, snapshotId, sharedTs);
+        }
+        ok++;
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        failed.push({ path, error });
+      }
+    }
+
+    this.deps.logger.info('dir_restore_done', {
+      dir: normalized,
+      ok,
+      failed: failed.length,
+    });
+
+    return { ok, failed };
+  }
+
+  /**
+   * Restore a single file as a copy using a caller-supplied timestamp.
+   * Used by `restoreDirectory` so every file in a batch shares the same
+   * `<basename>.restored-<ts>.<ext>` suffix.
+   */
+  private async restoreAsCopyAt(
+    path: string,
+    snapshotId: string,
+    sharedTs: number,
+  ): Promise<RestoreResult> {
+    const copyPath = this.buildCopyPath(path, sharedTs);
     return this.runWithMutex(path, () => this.writeRestore(path, snapshotId, copyPath));
   }
 
@@ -193,8 +280,8 @@ export class RestoreOperations {
     }
   }
 
-  private buildCopyPath(original: string): string {
-    const ts = new Date(this.now()).toISOString().replace(/[:.]/g, '-');
+  private buildCopyPath(original: string, sharedTs?: number): string {
+    const ts = new Date(sharedTs ?? this.now()).toISOString().replace(/[:.]/g, '-');
     const dot = original.lastIndexOf('.');
     if (dot === -1 || dot < original.lastIndexOf('/')) {
       return `${original}.restored-${ts}`;

@@ -458,6 +458,174 @@
 	margin: 0;
 }
 
+/* ─── Directory header selection state + dir-restore preview ─────── */
+
+.archivist-dir-header {
+	cursor: pointer;
+	border-radius: 4px;
+}
+
+.archivist-dir-header:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.archivist-dir-header[aria-selected="true"] {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.archivist-dir-header[aria-selected="true"] .archivist-dir-name,
+.archivist-dir-header[aria-selected="true"] .archivist-dir-icon {
+	color: var(--text-accent);
+}
+
+.archivist-dir-file-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px 0;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	max-height: 70vh;
+	overflow-y: auto;
+}
+
+.archivist-dir-file-row {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	gap: 12px;
+	padding: 2px 8px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.archivist-dir-file-row > .archivist-dir-file-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.archivist-dir-file-row > .archivist-dir-file-meta {
+	color: var(--text-muted);
+}
+
+.archivist-dir-empty {
+	color: var(--text-muted);
+	font-style: italic;
+	padding: 12px 8px;
+}
+
+.archivist-dir-actions {
+	display: flex;
+	gap: 8px;
+	padding: 12px 0 8px 0;
+}
+
+.archivist-dir-actions button[aria-disabled="true"] {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* ─── File Versions view ─────────────────────────────────────────── */
+
+.archivist-fv {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+.archivist-fv-columns {
+	display: grid;
+	grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.4fr) minmax(320px, 2fr);
+	gap: 12px;
+	padding: 12px;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.archivist-fv-file,
+.archivist-fv-snapshots,
+.archivist-fv-preview {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 8px 12px;
+	overflow: hidden;
+}
+
+.archivist-fv-file > h3,
+.archivist-fv-snapshots > h3,
+.archivist-fv-preview > h3 {
+	margin: 0 0 8px 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-weight: var(--font-semibold);
+}
+
+.archivist-fv-snapshots-list {
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.archivist-fv-snapshot-row {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+}
+
+.archivist-fv-snapshot-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.archivist-fv-snapshot-row[aria-selected="true"] {
+	background-color: var(--background-modifier-active-hover);
+}
+
+.archivist-fv-snapshot-meta {
+	color: var(--text-muted);
+}
+
+.archivist-fv-snapshot-tier,
+.archivist-fv-snapshot-renamed {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.archivist-fv-file-basename {
+	margin: 0 0 4px 0;
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	word-break: break-all;
+}
+
+.archivist-fv-file-path {
+	margin: 0 0 8px 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	word-break: break-all;
+}
+
+.archivist-fv-file-live {
+	margin: 4px 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.archivist-fv-preview-actions {
+	display: flex;
+	gap: 8px;
+	padding-top: 8px;
+}
+
 /* ─── Setting-row description override (legacy class kept harmless) ─ */
 
 .my-plugin-settings .setting-item-description {

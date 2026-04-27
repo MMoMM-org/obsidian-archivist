@@ -602,6 +602,62 @@ export class Modal {
 }
 
 // ---------------------------------------------------------------------------
+// Menu — minimal mock for context-menu testing
+// ---------------------------------------------------------------------------
+// Captures addItem callbacks and the showAtMouseEvent call. Tests poke
+// `_lastMenu` to assert items were registered and to fire onClicks.
+
+export interface MenuItemMock {
+  title: string;
+  icon: string;
+  onClickCallbacks: Array<() => void>;
+  setTitle(title: string): MenuItemMock;
+  setIcon(icon: string): MenuItemMock;
+  onClick(cb: () => void): MenuItemMock;
+}
+
+export class Menu {
+  items: MenuItemMock[] = [];
+  shown = false;
+  shownAt: unknown = null;
+
+  /** Test introspection: most recently constructed Menu instance. */
+  static _last: Menu | null = null;
+
+  constructor() {
+    Menu._last = this;
+  }
+
+  addItem(builder: (item: MenuItemMock) => void): this {
+    const item: MenuItemMock = {
+      title: '',
+      icon: '',
+      onClickCallbacks: [],
+      setTitle(title) {
+        item.title = title;
+        return item;
+      },
+      setIcon(icon) {
+        item.icon = icon;
+        return item;
+      },
+      onClick(cb) {
+        item.onClickCallbacks.push(cb);
+        return item;
+      },
+    };
+    builder(item);
+    this.items.push(item);
+    return this;
+  }
+
+  showAtMouseEvent(evt: unknown): void {
+    this.shown = true;
+    this.shownAt = evt;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceLeaf + ItemView — Phase 9 addition (T9.1)
 // ---------------------------------------------------------------------------
 // Minimal stubs matching the Obsidian API surface used by BackupBrowserView.
@@ -730,5 +786,17 @@ export class MarkdownRenderer {
       content,
     );
     el.createEl('div', { text: sanitized });
+  }
+}
+
+// MarkdownRenderChild — minimal stub used by views that own a Component
+// scope for renderPreview. The real implementation extends Component and
+// is constructed with a host element; the mock only needs to be newable
+// and to satisfy the Component contract (load/unload no-ops).
+export class MarkdownRenderChild extends Component {
+  containerEl: MockEl;
+  constructor(containerEl: MockEl) {
+    super();
+    this.containerEl = containerEl;
   }
 }

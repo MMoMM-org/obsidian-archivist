@@ -163,6 +163,37 @@ export const S = {
   BROWSER_TIER_MONTHLY: '[monthly]',
   BROWSER_TIER_NEVER_PRUNE: '[14-day never-prune]',
 
+  // ─── Backup Browser directory restore ───────────────────────────────
+  BROWSER_DIR_FILE_COUNT: (n: number): string => `${n} file${n === 1 ? '' : 's'}`,
+  BROWSER_DIR_NO_FILES_AT_SNAPSHOT:
+    'No files in this directory at this snapshot.',
+  BROWSER_DIR_RESTORE_IN_PLACE: 'Restore directory in place',
+  BROWSER_DIR_RESTORE_AS_COPY: 'Restore directory as copies…',
+  BROWSER_CONTEXT_RESTORE_DOTS: 'Restore…',
+  CONFIRM_DIR_RESTORE_BODY: (
+    dirPath: string,
+    timestamp: string,
+    fileCount: string,
+    mode: string,
+  ): string =>
+    `Restore ${fileCount} from "${dirPath}" (snapshot ${timestamp}, ${mode}). This cannot be undone.`,
+  CONFIRM_DIR_RESTORE_MODE_IN_PLACE: 'overwriting existing files',
+  CONFIRM_DIR_RESTORE_MODE_AS_COPY: 'as side-by-side copies',
+  TOAST_DIR_RESTORE_OK: (n: number): string =>
+    `${n} file${n === 1 ? '' : 's'} restored.`,
+  TOAST_DIR_RESTORE_PARTIAL: (ok: number, failed: number): string =>
+    `${ok} restored, ${failed} failed. See details in notice center.`,
+
+  // ─── File Versions view (per-file snapshots browser) ─────────────────
+  FILE_VERSIONS_TAB_TITLE: 'File Versions',
+  FILE_VERSIONS_COL_FILE: 'File',
+  FILE_VERSIONS_COL_SNAPSHOTS: 'Versions',
+  FILE_VERSIONS_COL_PREVIEW: 'Preview',
+  FILE_VERSIONS_EMPTY: 'No backed-up versions found for this file.',
+  FILE_VERSIONS_NO_SELECTION: 'Select a version to preview.',
+  FILE_VERSIONS_LIVE_LABEL: 'Live vault',
+  FILE_VERSIONS_LIVE_MISSING: 'Not in live vault',
+
   // ─── Multi-device coordination (F5) ──────────────────────────────
   DEVICE_NOT_DESIGNATED_TITLE: 'This device is not the designated backup device.',
   DEVICE_NOT_DESIGNATED_BODY:

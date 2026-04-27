@@ -19,6 +19,27 @@
 //  12. Unload: onClose clears the container without throwing
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+// Stub ConfirmRestoreModal so the dir-restore tests can fire button clicks
+// without the real modal's onOpen() reaching for `activeDocument` (which is
+// only available inside Obsidian's Electron environment, not in vitest).
+// Tests that need to verify the modal's confirm-flow do so by capturing the
+// onConfirm callback from the constructor args.
+vi.mock('../../src/ui/ConfirmRestoreModal', () => ({
+  ConfirmRestoreModal: class {
+    static _last: { opts: { onConfirm: () => void; onCancel: () => void } } | null = null;
+    private opts: { onConfirm: () => void; onCancel: () => void };
+    constructor(_app: unknown, opts: { onConfirm: () => void; onCancel: () => void }) {
+      this.opts = opts;
+      (this.constructor as unknown as { _last: unknown })._last = { opts };
+    }
+    open(): void {
+      // Production code calls .open(); we no-op so the test can synchronously
+      // invoke `this.opts.onConfirm()` if it wants to walk the confirm path.
+    }
+  },
+}));
+
 import {
   groupSnapshotsByDate,
   buildFileTree,
@@ -104,6 +125,7 @@ function makeDeps(overrides?: Partial<BackupBrowserDeps>): BackupBrowserDeps {
   const defaultRestoreOperations = {
     restoreInPlace: vi.fn().mockResolvedValue({ ok: true, path: '', snapshotId: '', bytesWritten: 0 }),
     restoreAsCopy: vi.fn().mockResolvedValue({ ok: true, path: '', snapshotId: '', bytesWritten: 0 }),
+    restoreDirectory: vi.fn().mockResolvedValue({ ok: 0, failed: [] }),
   };
   const defaultNoticeCenter = {
     showPersistent: vi.fn(),
@@ -120,6 +142,8 @@ function makeDeps(overrides?: Partial<BackupBrowserDeps>): BackupBrowserDeps {
       saveDismissed: vi.fn().mockResolvedValue(undefined),
     },
     vaultHasPath: vi.fn().mockReturnValue(true),
+    openFileVersions: vi.fn(),
+    notify: vi.fn(),
     app: makeApp(),
     ...overrides,
   };
@@ -1063,5 +1087,205 @@ describe('buildFileTree path normalization', () => {
     expect(folderNode).toBeDefined();
     const noteNode = folderNode?.children.find((c) => c.name === 'note.md');
     expect(noteNode).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 21: Directory selection populates fullPath + supports nested prefixes
+// ---------------------------------------------------------------------------
+
+describe('buildFileTree directory fullPath', () => {
+  it('top-level directory gets its own name as fullPath', () => {
+    const state = makeVaultState(['foo/a.md', 'foo/b.md']);
+    const tree = buildFileTree(state);
+    const foo = tree.children.find((c) => c.name === 'foo' && c.isDir);
+    expect(foo?.fullPath).toBe('foo');
+  });
+
+  it('nested directory fullPath reflects the joined ancestor chain', () => {
+    const state = makeVaultState(['foo/sub/c.md']);
+    const tree = buildFileTree(state);
+    const foo = tree.children.find((c) => c.name === 'foo' && c.isDir);
+    const sub = foo?.children.find((c) => c.name === 'sub' && c.isDir);
+    expect(sub?.fullPath).toBe('foo/sub');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 22: Directory selection + restore flow
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView directory selection', () => {
+  it('selecting a directory blanks selectedPath and renders the dir filelist', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md', 'notes/b.md', 'other/c.md']);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectDir('notes');
+
+    // Internal state: dir selected, file deselected.
+    expect((view as unknown as { selectedDir: string }).selectedDir).toBe('notes');
+    expect((view as unknown as { selectedPath: string | null }).selectedPath).toBeNull();
+
+    // Preview column rendered the file list with both notes/* paths.
+    const previewCol = (view as unknown as { previewColEl: MockEl }).previewColEl;
+    const list = findByClass(previewCol, 'archivist-dir-file-list');
+    expect(list).toBeDefined();
+    const text = collectText(list!);
+    expect(text).toContain('notes/a.md');
+    expect(text).toContain('notes/b.md');
+    expect(text).not.toContain('other/c.md');
+  });
+
+  it('renders a placeholder + disabled buttons when prefix matches no files', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    // Materialized state has no files under "empty/" — common when the dir
+    // existed at one snapshot but its contents were all deleted by the next.
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['kept/a.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectDir('empty');
+
+    const previewCol = (view as unknown as { previewColEl: MockEl }).previewColEl;
+    const placeholder = findByClass(previewCol, 'archivist-dir-empty');
+    expect(placeholder).toBeDefined();
+    expect(placeholder?.textContent).toContain('No files in this directory');
+
+    const buttons = findAllByClass(previewCol, '');
+    const actions = findByClass(previewCol, 'archivist-dir-actions');
+    expect(actions).toBeDefined();
+    const actionButtons = actions!.children.filter((c) => c.tagName === 'button');
+    expect(actionButtons.length).toBe(2);
+    for (const btn of actionButtons) {
+      expect(btn.attrs['aria-disabled']).toBe('true');
+      expect(btn.attrs['disabled']).toBe('');
+    }
+    expect(buttons.length).toBeGreaterThan(0);
+  });
+
+  it('Restore-in-place button on a non-empty dir opens the confirm modal', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md', 'notes/b.md']);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectDir('notes');
+
+    const previewCol = (view as unknown as { previewColEl: MockEl }).previewColEl;
+    const actions = findByClass(previewCol, 'archivist-dir-actions');
+    expect(actions).toBeDefined();
+    const inPlaceBtn = actions!.children.find((c) => c.tagName === 'button');
+    expect(inPlaceBtn).toBeDefined();
+    // Triggering the click should not throw and should not call restore yet
+    // (modal must confirm first).
+    inPlaceBtn!.dispatchEvent({ type: 'click', key: '', preventDefault: () => {} });
+    const restoreOps = deps.restoreOperations as unknown as {
+      restoreDirectory: ReturnType<typeof vi.fn>;
+    };
+    expect(restoreOps.restoreDirectory).not.toHaveBeenCalled();
+  });
+
+  it('_dirRestoreInFlight gate prevents a second restore while one is running', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md']);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    // Manually flip the gate and call the private confirm method via cast.
+    const internal = view as unknown as {
+      _dirRestoreInFlight: boolean;
+      _confirmDirectoryRestore: (
+        prefix: string,
+        matches: string[],
+        snapshotId: string,
+        mode: 'in_place' | 'as_copy',
+      ) => void;
+    };
+    internal._dirRestoreInFlight = true;
+    internal._confirmDirectoryRestore('notes', ['notes/a.md'], snap.id, 'in_place');
+
+    const restoreOps = deps.restoreOperations as unknown as {
+      restoreDirectory: ReturnType<typeof vi.fn>;
+    };
+    expect(restoreOps.restoreDirectory).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 23: Right-click context menu on file rows
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView file-row context menu', () => {
+  it('contextmenu event on a file row calls deps.openFileVersions(path)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const state = makeVaultState(['notes/a.md']);
+    const openFileVersions = vi.fn();
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+      openFileVersions,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    // Locate the file row and dispatch a contextmenu event on it.
+    const filesList = (view as unknown as { filesListEl: MockEl }).filesListEl;
+    const fileRows = findAllByClass(filesList, 'archivist-file-row');
+    expect(fileRows.length).toBe(1);
+    fileRows[0].dispatchEvent({
+      type: 'contextmenu',
+      key: '',
+      preventDefault: () => {},
+    });
+
+    // The handler builds an Obsidian Menu, registers the Restore item, and
+    // shows it. Firing the item's onClick must dispatch to openFileVersions.
+    // Import is via the module alias; access the captured Menu via the mock's
+    // static handle on require, so it works without import-binding into this
+    // file.
+    const obsidianMock = await import('../fixtures/obsidian-mock');
+    const menu = obsidianMock.Menu._last;
+    expect(menu).not.toBeNull();
+    expect(menu!.items.length).toBe(1);
+    expect(menu!.items[0].title).toContain('Restore');
+    expect(menu!.shown).toBe(true);
+
+    // Activate the menu item — should call openFileVersions with the path.
+    for (const cb of menu!.items[0].onClickCallbacks) cb();
+    expect(openFileVersions).toHaveBeenCalledWith('notes/a.md');
   });
 });
