@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/Obsidian-Archivist-Logo.png" alt="Obsidian Archivist" width="320">
+</p>
+
 # Archivist
 
 Your vault's quiet historian. Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.

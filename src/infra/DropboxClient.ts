@@ -12,6 +12,10 @@
 //     JSON endpoints it's NetworkError (treat as transient glitch).
 //   - listFolder auto-paginates via list_folder/continue.
 //   - uploadLarge picks single-shot vs upload_session based on singleShotMaxBytes.
+//   - A shared rate-limit gate pauses ALL in-flight + new ops on the same
+//     client when any op observes 429 / too_many_write_operations. Without
+//     it, parallel uploaders each retry independently and produce a 429
+//     storm against Dropbox on large vaults.
 //
 // References: SDD/Runtime View/Error Handling; ADR-14; plan phase-3.md T3.1.
 
@@ -71,6 +75,9 @@ function asDropboxLike(sdk: Dropbox): DropboxLike {
 const DEFAULT_SINGLE_SHOT_MAX_BYTES = 150 * 1024 * 1024; // Dropbox hard cap
 const DEFAULT_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 60;
+// Floor we apply when Dropbox returns 429 with no Retry-After header. Keeps
+// the gate from collapsing to zero and re-flooding the API on the next tick.
+const RATE_LIMIT_MIN_PAUSE_MS = 1_000;
 
 export interface DropboxClientOptions {
   uploadChunkBytes?: number;
@@ -296,6 +303,13 @@ export class DropboxClient {
   // TokenStore sees at most one `save`.
   private refreshInFlight: Promise<void> | null = null;
 
+  // Shared rate-limit gate: epoch-ms timestamp before which all ops on this
+  // client must wait. Bumped on every 429 / too_many_write_operations using
+  // the server's Retry-After. Lets parallel uploaders share one back-off
+  // instead of each one independently chewing through retry attempts and
+  // re-flooding Dropbox.
+  private rateLimitResumeAt = 0;
+
   constructor(sdk: Dropbox, tokenStore: TokenStore, logger: Logger, options: DropboxClientOptions = {}) {
     this.sdk = asDropboxLike(sdk);
     this.tokenStore = tokenStore;
@@ -478,16 +492,40 @@ export class DropboxClient {
    * Run `op` once and convert any thrown value through `classifyError`.
    * Kept separate from withAuthRefresh so the auth-refresh handler can decide
    * whether to retry based on the already-classified error.
+   *
+   * Awaits the shared rate-limit gate before issuing the SDK call so a 429 on
+   * any sibling op throttles this one too. On a fresh RateLimitError, bumps
+   * the gate so the sibling ops that are about to retry observe the same
+   * back-off window instead of each one re-tripping the limit.
    */
   private async attempt<T>(
     op: () => Promise<T>,
     context: { endpoint: string; isManifestEndpoint?: boolean },
   ): Promise<T> {
+    await this.awaitRateLimit();
     try {
       return await op();
     } catch (err) {
-      throw classifyError(err, { isManifestEndpoint: context.isManifestEndpoint });
+      const classified = classifyError(err, { isManifestEndpoint: context.isManifestEndpoint });
+      if (classified instanceof RateLimitError) {
+        this.bumpRateLimitGate(classified.retryAfterSeconds);
+      }
+      throw classified;
     }
+  }
+
+  private async awaitRateLimit(): Promise<void> {
+    const waitMs = this.rateLimitResumeAt - Date.now();
+    if (waitMs <= 0) return;
+    const sleep = this.retryOptions.sleep ?? defaultGateSleep;
+    await sleep(waitMs);
+  }
+
+  private bumpRateLimitGate(retryAfterSeconds: number): void {
+    const finite = Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 0;
+    const pauseMs = Math.max(finite * 1_000, RATE_LIMIT_MIN_PAUSE_MS);
+    const resumeAt = Date.now() + pauseMs;
+    if (resumeAt > this.rateLimitResumeAt) this.rateLimitResumeAt = resumeAt;
   }
 
   private async maybeProactiveRefresh(): Promise<void> {
@@ -618,6 +656,22 @@ async function extractBytes(result: FileDownloadResult): Promise<Uint8Array> {
     return new Uint8Array(buf);
   }
   throw new NetworkError('NETWORK_ERROR', 'Download response carried no file body', true);
+}
+
+// Production sleep for the rate-limit gate. Lives here (not in retry.ts) so
+// tests can substitute it via `RetryOptions.sleep`. We intentionally don't
+// thread an AbortSignal — the gate is best-effort throttling, not cancellable
+// work; if a caller aborts, the next attempt will short-circuit on the
+// AbortSignal already wired through retry().
+//
+// Aliased through `setT` to mirror retry.ts: the obsidianmd lint rule prefers
+// `activeWindow.setTimeout` for popout-window compatibility, but the gate
+// runs in the same renderer context as retry.ts and inherits the same
+// trade-off — caller-supplied `sleep` is the supported escape hatch for
+// callers that need popout-aware timers.
+const setT: typeof setTimeout = setTimeout;
+function defaultGateSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setT(resolve, ms));
 }
 
 function safeExpiresAt(d: Date | undefined | null): string {

@@ -777,4 +777,42 @@ describe('DropboxClient', () => {
     await client.downloadJson('/Apps/Archivist/test-vault/HEAD.json');
     expect(observed).toBe('/Apps/Archivist/test-vault/HEAD.json');
   });
+
+  it('429_arms_shared_gate_so_subsequent_ops_back_off_without_a_second_429', async () => {
+    // Without the gate, large-vault backups hammered Dropbox: each parallel
+    // op retried independently and re-tripped the rate limit. After the fix,
+    // the FIRST 429 arms a shared resume-at; every later op (same client)
+    // waits past that timestamp before issuing its own SDK call, so we don't
+    // need a second 429 to discover that we're still throttled.
+    let deleteCalls = 0;
+    const { client, retry, sdk } = buildClient({
+      filesDeleteV2: () => {
+        deleteCalls += 1;
+        // Only the very first call returns 429. Everything after succeeds —
+        // proving the back-off comes from the gate, not from a fresh 429.
+        if (deleteCalls === 1) {
+          throw sdkError(429, { error: { '.tag': 'too_many_requests' } }, { 'retry-after': '3' });
+        }
+        return sdkResponse({ metadata: {} });
+      },
+    });
+
+    // Op A — hits 429, bumps the gate, retry succeeds on attempt 2.
+    await client.deleteV2('/a.bin');
+    // Op B — SDK would succeed instantly. The fake sleep doesn't advance
+    // real time, so the gate is still in its window when B fires.
+    await client.deleteV2('/b.bin');
+
+    // 1 SDK call from A's first attempt (429), 1 from A's retry (200), 1
+    // from B's first attempt (200). B never produced a second 429.
+    expect(deleteCalls).toBe(3);
+    expect(sdk.filesDeleteV2).toHaveBeenCalledTimes(3);
+
+    // Final recorded sleep MUST be the gate wait — B did not classify as
+    // RateLimitError, so retry.ts never sleeps for it. The only path that
+    // sleeps on B's behalf is the shared gate.
+    const lastDelay = retry.delays[retry.delays.length - 1] ?? 0;
+    expect(lastDelay).toBeGreaterThan(0);
+    expect(lastDelay).toBeLessThanOrEqual(3_000);
+  });
 });
