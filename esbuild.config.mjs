@@ -7,7 +7,7 @@ const banner = `/* Archivist — versioned Obsidian vault backups to Dropbox. MI
 
 const isDev = process.argv.includes("--dev");
 const TEST_VAULT_DIR = "test/Archivist/.obsidian/plugins/obsidian-archivist";
-const outdir = isDev ? TEST_VAULT_DIR : ".";
+const outdir = isDev ? TEST_VAULT_DIR : "build";
 
 /**
  * Write a manifest.json to `targetDir` with a dev-suffixed version so
@@ -50,7 +50,7 @@ const copyAssets = {
 
 			if (!isDev && existsSync("test/Archivist/.obsidian/plugins")) {
 				mkdirSync(TEST_VAULT_DIR, { recursive: true });
-				copyFileSync("main.js", `${TEST_VAULT_DIR}/main.js`);
+				copyFileSync(`${outdir}/main.js`, `${TEST_VAULT_DIR}/main.js`);
 				// Test-vault manifest gets the dev suffix so Obsidian's plugin
 				// loader treats every rebuild as a new version (defeats any
 				// stale-module caching). Repo-level manifest.json is left alone.
