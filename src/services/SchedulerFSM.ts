@@ -81,6 +81,14 @@ export interface SchedulerFSMDeps {
   getQueueSize: () => number;
   getLastIncCommitAt: () => number | null;
   getLastFullCommitAt: () => number | null;
+  /**
+   * Epoch-ms of the earliest still-uncommitted vault event in the queue, or
+   * null when the queue has nothing pending. Anchors the inc batch window:
+   * the inc fires inc_interval_minutes after the FIRST pending edit, so
+   * subsequent edits within the window get batched into a single snapshot
+   * instead of firing their own incs back-to-back.
+   */
+  getEarliestPendingObservedAt: () => number | null;
   preflightHost: PreflightHost;
   logger: Logger;
   /** Injectable for tests — defaults to Date.now(). */
@@ -167,17 +175,15 @@ export class SchedulerFSM {
   }
 
   /**
-   * Epoch-ms when the next inc backup becomes interval-eligible. Anchors
-   * on the most recent commit of any type (full or inc) — same logic as
-   * incIntervalElapsed so the tooltip and the tick stay consistent.
-   * Returns null when no backup has ever run (immediately eligible).
+   * Epoch-ms when the next inc backup becomes interval-eligible — same
+   * logic as incIntervalElapsed (batch window from the earliest pending
+   * edit), so the tooltip countdown matches when the tick will actually
+   * fire. Returns null when the queue is empty (no batch in progress).
    */
   getNextIncEligibleAt(): number | null {
-    const lastInc = this.deps.getLastIncCommitAt();
-    const lastFull = this.deps.getLastFullCommitAt();
-    const last = Math.max(lastInc ?? 0, lastFull ?? 0);
-    if (last === 0) return null;
-    return last + this.deps.schedule.inc_interval_minutes * 60 * 1000;
+    const earliest = this.deps.getEarliestPendingObservedAt();
+    if (earliest === null) return null;
+    return earliest + this.deps.schedule.inc_interval_minutes * 60 * 1000;
   }
 
   // ---------------------------------------------------------------------------
@@ -435,17 +441,18 @@ export class SchedulerFSM {
   }
 
   private incIntervalElapsed(): boolean {
-    // The interval applies between ANY commit and the next inc — full or
-    // incremental. Originally only checked last_inc_commit_at, which made
-    // an inc fire ~60s after every full (full clears last_inc to null,
-    // null is treated as "first ever, run now"). For the user that read
-    // as "two backups back-to-back". Now we anchor on the most recent
-    // commit of any type.
-    const lastInc = this.deps.getLastIncCommitAt();
-    const lastFull = this.deps.getLastFullCommitAt();
-    const last = Math.max(lastInc ?? 0, lastFull ?? 0);
-    if (last === 0) return true; // bootstrap — no backup has ever run
-    const elapsed = this.now() - last;
+    // Batch window: the inc fires inc_interval_minutes after the EARLIEST
+    // still-uncommitted edit, not inc_interval_minutes after the last
+    // commit. Difference matters when the user goes idle for a while —
+    // the first edit after a long idle anchors a fresh batch window so
+    // subsequent edits within that window get batched instead of each
+    // tick firing its own near-immediate inc. Returns false when the
+    // queue is empty (nothing to batch); the queue-size check upstream
+    // in tick() also gates this, but the null-guard keeps the function
+    // independently safe.
+    const earliest = this.deps.getEarliestPendingObservedAt();
+    if (earliest === null) return false;
+    const elapsed = this.now() - earliest;
     return elapsed >= this.deps.schedule.inc_interval_minutes * 60 * 1000;
   }
 

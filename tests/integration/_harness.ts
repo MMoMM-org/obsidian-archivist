@@ -399,6 +399,16 @@ export async function createArchivistFixture(config: FixtureConfig = {}): Promis
     getQueueSize: () => pluginStore.queue.entries.length,
     getLastIncCommitAt: () => lastCommit.inc,
     getLastFullCommitAt: () => lastCommit.full,
+    getEarliestPendingObservedAt: () => {
+      const entries = pluginStore.queue.entries;
+      if (entries.length === 0) return null;
+      let min = Number.POSITIVE_INFINITY;
+      for (const e of entries) {
+        const ms = Date.parse(e.observed_at);
+        if (Number.isFinite(ms) && ms < min) min = ms;
+      }
+      return min === Number.POSITIVE_INFINITY ? null : min;
+    },
     preflightHost: noticeCenter,
     logger,
   });

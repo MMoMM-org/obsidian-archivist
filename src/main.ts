@@ -347,6 +347,19 @@ export default class ArchivistPlugin extends Plugin {
       getQueueSize: () => eventQueue.peekSince(eventQueue.committedThrough()).length,
       getLastIncCommitAt: () => lastCommitRef.inc,
       getLastFullCommitAt: () => lastCommitRef.full,
+      // Anchor for the inc batch window: epoch-ms of the earliest pending
+      // (post-cursor) event. Inc fires inc_interval_minutes after this, so
+      // a burst of edits gets batched into one snapshot.
+      getEarliestPendingObservedAt: () => {
+        const pending = eventQueue.peekSince(eventQueue.committedThrough());
+        if (pending.length === 0) return null;
+        let earliestMs = Number.POSITIVE_INFINITY;
+        for (const e of pending) {
+          const ms = Date.parse(e.observed_at);
+          if (Number.isFinite(ms) && ms < earliestMs) earliestMs = ms;
+        }
+        return earliestMs === Number.POSITIVE_INFINITY ? null : earliestMs;
+      },
       preflightHost: noticeCenter,
       logger: this.logger,
     });

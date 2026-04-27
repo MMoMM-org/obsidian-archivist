@@ -48,6 +48,7 @@ interface Harness {
   queueSize: { value: number };
   lastIncCommitAt: { value: number | null };
   lastFullCommitAt: { value: number | null };
+  earliestPendingObservedAt: { value: number | null };
   nowRef: { value: number };
 }
 
@@ -57,6 +58,7 @@ function makeHarness(nowMs: number): Harness {
   const queueSize = { value: 0 };
   const lastIncCommitAt: { value: number | null } = { value: null };
   const lastFullCommitAt: { value: number | null } = { value: null };
+  const earliestPendingObservedAt: { value: number | null } = { value: null };
   const settings: PluginSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   // Shrink grace + quiet for the integration test (we're not re-testing T7.1
   // timer semantics here — we're verifying cross-module wiring).
@@ -87,6 +89,7 @@ function makeHarness(nowMs: number): Harness {
     getQueueSize: () => queueSize.value,
     getLastIncCommitAt: () => lastIncCommitAt.value,
     getLastFullCommitAt: () => lastFullCommitAt.value,
+    getEarliestPendingObservedAt: () => earliestPendingObservedAt.value,
     preflightHost: noticeCenter,
     logger: makeLogger(),
     now: () => nowRef.value,
@@ -166,6 +169,7 @@ function makeHarness(nowMs: number): Harness {
     queueSize,
     lastIncCommitAt,
     lastFullCommitAt,
+    earliestPendingObservedAt,
     nowRef,
   };
 }
@@ -327,10 +331,11 @@ describe('Phase 7 integration', () => {
     h.fsm.onBackupSuccess();
     expect(h.fsm.getState()).toBe('READY');
 
-    // Vault edit → queue grows
+    // Vault edit → queue grows + batch window starts now
     h.queueSize.value = 3;
+    h.earliestPendingObservedAt.value = h.nowRef.value;
 
-    // 17 min later — inc interval elapsed → inc fires
+    // 17 min later — batch window (15 min) has elapsed → inc fires
     h.nowRef.value += 17 * 60 * 1000;
     h.fsm.tick();
     expect(h.fsm.getPendingBackup()).toEqual({ type: 'inc' });

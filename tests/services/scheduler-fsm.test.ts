@@ -53,6 +53,12 @@ interface HarnessOpts {
   queueSize?: number;
   lastIncCommitAt?: number | null;
   lastFullCommitAt?: number | null;
+  /** Earliest still-uncommitted vault event timestamp. Defaults to 0 (epoch
+   *  start) so any non-empty queue + a positive inc_interval reads as
+   *  "interval already elapsed" — matches the pre-batch-window default that
+   *  most tests want. Tests exercising the "interval NOT elapsed" path set
+   *  this explicitly to a recent timestamp. */
+  earliestPendingObservedAt?: number | null;
   schedule?: Partial<ScheduleSettings>;
   now?: () => number;
   preflightHost?: PreflightHost;
@@ -65,6 +71,7 @@ function makeFSM(opts: HarnessOpts = {}): {
   setQueueSize: (n: number) => void;
   setLastIncCommitAt: (ms: number | null) => void;
   setLastFullCommitAt: (ms: number | null) => void;
+  setEarliestPendingObservedAt: (ms: number | null) => void;
   logger: Logger;
   preflightHost: PreflightHost & { shown: PreflightActions[] };
 } {
@@ -72,6 +79,7 @@ function makeFSM(opts: HarnessOpts = {}): {
   let queueSize = opts.queueSize ?? 0;
   let lastIncCommitAt: number | null = opts.lastIncCommitAt ?? null;
   let lastFullCommitAt: number | null = opts.lastFullCommitAt ?? null;
+  let earliestPendingObservedAt: number | null = opts.earliestPendingObservedAt ?? 0;
   const logger = makeLogger();
   const preflightHost = (opts.preflightHost ?? makePreflightHost()) as PreflightHost & {
     shown: PreflightActions[];
@@ -83,6 +91,7 @@ function makeFSM(opts: HarnessOpts = {}): {
     getQueueSize: () => queueSize,
     getLastIncCommitAt: () => lastIncCommitAt,
     getLastFullCommitAt: () => lastFullCommitAt,
+    getEarliestPendingObservedAt: () => earliestPendingObservedAt,
     preflightHost,
     logger,
     now: opts.now,
@@ -102,6 +111,9 @@ function makeFSM(opts: HarnessOpts = {}): {
     },
     setLastFullCommitAt: (ms) => {
       lastFullCommitAt = ms;
+    },
+    setEarliestPendingObservedAt: (ms) => {
+      earliestPendingObservedAt = ms;
     },
     logger,
     preflightHost,
@@ -327,13 +339,15 @@ describe('SchedulerFSM — tick', () => {
     expect(fsm.getState()).toBe('READY');
   });
 
-  it('READY + tick + interval NOT elapsed → no transition', () => {
+  it('READY + tick + batch window NOT elapsed → no transition', () => {
     const now = Date.now();
-    const { fsm, setQueueSize, setLastIncCommitAt } = intoReady({
+    const { fsm, setQueueSize, setEarliestPendingObservedAt } = intoReady({
       now: () => now,
       schedule: { inc_interval_minutes: 15, startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
     });
-    setLastIncCommitAt(now - 5 * 60 * 1000); // only 5 min ago
+    // Earliest pending edit was only 5 min ago — 15-min batch window has not
+    // elapsed yet, so the inc must wait even though the queue is non-empty.
+    setEarliestPendingObservedAt(now - 5 * 60 * 1000);
     setQueueSize(3);
     fsm.tick();
     expect(fsm.getState()).toBe('READY');
@@ -400,9 +414,37 @@ describe('SchedulerFSM — tick', () => {
     expect(fsm.getState()).toBe('BACKUP_RUNNING');
   });
 
-  it('tick in READY with null last-inc-commit treats interval as elapsed', () => {
+  it('batch window anchors on earliest pending edit, not on last commit', () => {
+    // Regression guard for the "inc fires immediately after a long-idle
+    // edit" surprise: pre-change, the inc interval was measured from
+    // last_commit, so a fresh edit after a 1h idle would tick over within
+    // ~60s (interval already exhausted on idle time). Now the interval
+    // anchors on the earliest pending edit, giving the user a predictable
+    // batch window.
+    const now = Date.now();
+    const { fsm, setQueueSize, setLastIncCommitAt, setEarliestPendingObservedAt } = intoReady({
+      now: () => now,
+      schedule: { inc_interval_minutes: 15, startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+    });
+    // Last inc was 1h ago — under the OLD logic this alone would fire.
+    setLastIncCommitAt(now - 60 * 60 * 1000);
+    // But the earliest pending edit is only 5 min old → batch window NOT
+    // elapsed → no transition.
+    setEarliestPendingObservedAt(now - 5 * 60 * 1000);
+    setQueueSize(2);
+    fsm.tick();
+    expect(fsm.getState()).toBe('READY');
+
+    // Push the earliest pending edit past the 15-min window → fires.
+    setEarliestPendingObservedAt(now - 16 * 60 * 1000);
+    fsm.tick();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+  });
+
+  it('tick in READY with old earliest-pending treats batch window as elapsed', () => {
     const { fsm, setQueueSize } = intoReady();
-    // lastIncCommitAt defaults to null; queue non-empty → should fire
+    // earliestPendingObservedAt defaults to 0 (epoch start) — interval is
+    // trivially exceeded, so a non-empty queue fires immediately.
     setQueueSize(1);
     fsm.tick();
     expect(fsm.getState()).toBe('BACKUP_RUNNING');

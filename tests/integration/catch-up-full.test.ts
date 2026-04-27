@@ -69,6 +69,7 @@ describe('Integration — catch-up-full', () => {
       getQueueSize: () => 0,
       getLastIncCommitAt: () => null,
       getLastFullCommitAt: () => lastFullAt,
+      getEarliestPendingObservedAt: () => null,
       preflightHost: { showPreflight: () => {} },
       logger,
       now: () => now,

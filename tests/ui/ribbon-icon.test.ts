@@ -100,6 +100,7 @@ function makeFSM(opts: HarnessOpts = {}): SchedulerFSM {
     getQueueSize: () => 0,
     getLastIncCommitAt: () => null,
     getLastFullCommitAt: () => null,
+    getEarliestPendingObservedAt: () => null,
     preflightHost: { showPreflight: () => {} },
     logger: makeLogger(),
   };

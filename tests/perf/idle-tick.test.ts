@@ -56,6 +56,7 @@ describe('Perf — T10.7b idle-tick SLO', () => {
       getQueueSize: () => 0, // empty queue → idle tick
       getLastIncCommitAt: () => fixedNow - 1000,
       getLastFullCommitAt: () => fixedNow - 1000,
+      getEarliestPendingObservedAt: () => null,
       preflightHost: { showPreflight: () => {} },
       logger,
       now: () => fixedNow,
