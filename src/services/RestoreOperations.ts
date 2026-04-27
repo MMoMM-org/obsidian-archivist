@@ -142,6 +142,9 @@ export class RestoreOperations {
     snapshotId: string,
     writePath: string,
   ): Promise<RestoreResult> {
+    const operation = writePath === sourcePath ? 'in_place' : 'as_copy';
+    this.deps.logger.info(`Starting ${operation} restore`);
+
     // 1. Download + hash-verify (CONTENT_HASH_MISMATCH at this layer).
     const bytes = await this.deps.restoreService.fetchContent(snapshotId, sourcePath);
 
@@ -155,10 +158,11 @@ export class RestoreOperations {
     // 4. Atomic write — VaultAdapter.writeAtomic self-cleans tmp on failure.
     await this.deps.vault.writeAtomic(writePath, bytes);
 
-    this.deps.logger.info('restore_completed', {
-      snapshot_id: snapshotId,
-      operation: writePath === sourcePath ? 'in_place' : 'as_copy',
-    });
+    // Per-path debug line, gated by diagnostic_logging — same pattern as
+    // BackupService's "wrote" lines.
+    this.deps.logger.debug('wrote', { path: writePath });
+    this.deps.logger.info(`${operation} restore done`);
+    this.deps.logger.info('1 file restored');
 
     return { ok: true, path: writePath, snapshotId, bytesWritten: bytes.length };
   }

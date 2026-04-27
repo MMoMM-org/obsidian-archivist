@@ -159,13 +159,13 @@ describe('restoreInPlace — TEST-C1 assertion battery on RESTORE_HASH_MISMATCH'
     expect(mkdirCalls).toHaveLength(0);
   });
 
-  it('restore_completed log line is NOT emitted on RESTORE_HASH_MISMATCH', async () => {
+  it('restore-done log line is NOT emitted on RESTORE_HASH_MISMATCH', async () => {
     const h = makeHarness({ downloadHash: HASH_A, prewriteHash: HASH_B });
     await expect(h.ops.restoreInPlace('notes/a.md', '2026-04-20T03-00-full')).rejects.toBeInstanceOf(CorruptionError);
-    const restoreLogs = (h.logger.info as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (c) => c[0] === 'restore_completed',
+    const doneLogs = (h.logger.info as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => typeof c[0] === 'string' && c[0].endsWith('restore done'),
     );
-    expect(restoreLogs).toHaveLength(0);
+    expect(doneLogs).toHaveLength(0);
   });
 });
 
