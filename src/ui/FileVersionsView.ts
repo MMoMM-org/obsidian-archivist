@@ -174,17 +174,17 @@ export class FileVersionsView extends ItemView {
     contentEl.empty();
     contentEl.addClass('archivist-fv');
 
-    const columns = contentEl.createEl('div', { cls: 'archivist-fv-columns' });
+    const columns = contentEl.createDiv({ cls: 'archivist-fv-columns' });
 
-    this.fileColEl = columns.createEl('div', { cls: 'archivist-fv-file' });
+    this.fileColEl = columns.createDiv({ cls: 'archivist-fv-file' });
     this.fileColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_FILE });
 
-    const snapshotsCol = columns.createEl('div', { cls: 'archivist-fv-snapshots' });
+    const snapshotsCol = columns.createDiv({ cls: 'archivist-fv-snapshots' });
     snapshotsCol.createEl('h3', {
       text: S.FILE_VERSIONS_COL_SNAPSHOTS,
       attr: { id: 'archivist-fv-snapshots-label' },
     });
-    this.snapshotsListEl = snapshotsCol.createEl('div', {
+    this.snapshotsListEl = snapshotsCol.createDiv({
       cls: 'archivist-fv-snapshots-list',
       attr: {
         tabindex: '0',
@@ -210,7 +210,7 @@ export class FileVersionsView extends ItemView {
       target.focus();
     });
 
-    this.previewColEl = columns.createEl('div', {
+    this.previewColEl = columns.createDiv({
       cls: 'archivist-fv-preview',
       attr: { tabindex: '0' },
     });
@@ -352,7 +352,7 @@ export class FileVersionsView extends ItemView {
   }
 
   private _renderVersionRow(entry: VersionEntry): HTMLElement {
-    const row = this.snapshotsListEl.createEl('div', { cls: 'archivist-fv-snapshot-row' });
+    const row = this.snapshotsListEl.createDiv({ cls: 'archivist-fv-snapshot-row' });
     row.setAttribute('tabindex', '-1');
     row.setAttribute('role', 'option');
     row.setAttribute(
@@ -361,16 +361,16 @@ export class FileVersionsView extends ItemView {
     );
 
     const ts = fvFormatTimestamp(new Date(entry.created_at));
-    row.createEl('span', {
+    row.createSpan({
       text: `${ts} · ${formatBytes(entry.size)}`,
       cls: 'archivist-fv-snapshot-meta',
     });
     const tier = fvTierLabel(this.tierByID.get(entry.snapshot_id) ?? null);
     if (tier) {
-      row.createEl('span', { text: tier, cls: 'archivist-fv-snapshot-tier' });
+      row.createSpan({ text: tier, cls: 'archivist-fv-snapshot-tier' });
     }
     if (entry.priorPath && entry.renamedAt) {
-      row.createEl('span', {
+      row.createSpan({
         text: S.FILE_HISTORY_RENAMED_FROM(entry.priorPath, entry.renamedAt.slice(0, 10)),
         cls: 'archivist-fv-snapshot-renamed',
       });
@@ -433,7 +433,7 @@ export class FileVersionsView extends ItemView {
     // from the view; without this unload, every selection click leaks a
     // MarkdownRenderChild for the lifetime of the view.
     this._unloadActiveRenderChild();
-    const previewContent = this.previewColEl.createEl('div', { cls: 'archivist-preview-content' });
+    const previewContent = this.previewColEl.createDiv({ cls: 'archivist-preview-content' });
     const renderChild = new MarkdownRenderChild(previewContent);
     this.addChild(renderChild);
     this._activeRenderChild = renderChild;
@@ -470,7 +470,7 @@ export class FileVersionsView extends ItemView {
   }
 
   private _renderPreviewActions(entry: VersionEntry): void {
-    const actions = this.previewColEl.createEl('div', { cls: 'archivist-fv-preview-actions' });
+    const actions = this.previewColEl.createDiv({ cls: 'archivist-fv-preview-actions' });
     const targetPath = entry.currentPath;
     const targetBasename = basename(targetPath);
     const ts = fvFormatTimestamp(new Date(entry.created_at));

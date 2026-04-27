@@ -34,6 +34,9 @@ export interface PreviewContainerEl {
     tag: K,
     opts?: { text?: string; cls?: string; attr?: Record<string, string> },
   ): PreviewContainerEl;
+  createSpan(
+    opts?: { text?: string; cls?: string; attr?: Record<string, string> },
+  ): PreviewContainerEl;
 }
 
 // AppWithPluginRegistry is re-exported from PredecessorDetector — one definition.
@@ -120,7 +123,7 @@ export function renderPathSpan(
   containerEl: PreviewContainerEl,
   path: string,
 ): void {
-  containerEl.createEl('span', { text: path });
+  containerEl.createSpan({ text: path });
 }
 
 // ---------------------------------------------------------------------------
