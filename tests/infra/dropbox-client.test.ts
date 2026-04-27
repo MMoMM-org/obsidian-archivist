@@ -778,6 +778,59 @@ describe('DropboxClient', () => {
     expect(observed).toBe('/Apps/Archivist/test-vault/HEAD.json');
   });
 
+  it('token_bucket_throttles_after_burst_capacity_is_drained', async () => {
+    // Bucket sized to 3 req/s, burst 5. Six rapid sequential calls drain the
+    // burst; the sixth must wait for one token to refill (~334 ms at 3/sec).
+    // This is the proactive layer that keeps a 4-way parallel uploader from
+    // crossing Dropbox's `files/upload` budget — even before any 429 fires.
+    const sdk = makeFakeSdk({
+      filesDeleteV2: () => sdkResponse({ metadata: {} }),
+    });
+    const tokenStore = makeFakeTokenStore(SAMPLE_TOKENS);
+    const retry = fastRetry();
+    const client = new DropboxClient(
+      sdk as never,
+      tokenStore as unknown as TokenStore,
+      makeLogger(),
+      { retry, rateLimit: { requestsPerSecond: 3, burst: 5 } },
+    );
+
+    for (let i = 0; i < 6; i++) {
+      await client.deleteV2(`/file-${i}.bin`);
+    }
+
+    expect(sdk.filesDeleteV2).toHaveBeenCalledTimes(6);
+    // First 5 ops drain the burst with no wait; the 6th asks the bucket to
+    // refill, which records a single sleep. ceil(1000/3) = 334 ms.
+    expect(retry.delays.length).toBeGreaterThanOrEqual(1);
+    expect(retry.delays[retry.delays.length - 1]).toBeGreaterThanOrEqual(334);
+  });
+
+  it('rateLimit_enabled_false_disables_token_bucket_entirely', async () => {
+    // Escape hatch for callers that need to fire fast (tests, or future
+    // batch-import flows that already self-throttle). Verifies a tiny bucket
+    // (1 req/s) becomes a no-op when explicitly disabled — 10 sequential
+    // calls without a single recorded sleep.
+    const sdk = makeFakeSdk({
+      filesDeleteV2: () => sdkResponse({ metadata: {} }),
+    });
+    const tokenStore = makeFakeTokenStore(SAMPLE_TOKENS);
+    const retry = fastRetry();
+    const client = new DropboxClient(
+      sdk as never,
+      tokenStore as unknown as TokenStore,
+      makeLogger(),
+      { retry, rateLimit: { enabled: false, requestsPerSecond: 1, burst: 1 } },
+    );
+
+    for (let i = 0; i < 10; i++) {
+      await client.deleteV2(`/file-${i}.bin`);
+    }
+
+    expect(sdk.filesDeleteV2).toHaveBeenCalledTimes(10);
+    expect(retry.delays.length).toBe(0);
+  });
+
   it('429_arms_shared_gate_so_subsequent_ops_back_off_without_a_second_429', async () => {
     // Without the gate, large-vault backups hammered Dropbox: each parallel
     // op retried independently and re-tripped the rate limit. After the fix,
