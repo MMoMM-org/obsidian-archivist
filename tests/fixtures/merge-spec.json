@@ -1,0 +1,123 @@
+{
+  "_comment": "Shared fixture for CLI parity tests (T10.1 cli-parity). Consumed by tests/integration/cli-parity.test.ts and tests/services/restore-cli.test.ts. MUST contain: one pure rename, one delete, one rename-then-content-edit, one rename-to-collision (idempotent path).",
+  "vault_prefix": "merge-spec-vault",
+  "snapshots": [
+    {
+      "id": "2026-01-01T03-00-full",
+      "type": "full",
+      "parent_id": null,
+      "created_at": "2026-01-01T03:00:00.000Z",
+      "device_id": "d0",
+      "files": [
+        { "path": "notes/original.md", "content": "# Original v1" },
+        { "path": "drafts/to-rename.md", "content": "# Will be renamed" },
+        { "path": "drafts/to-delete.md", "content": "# Will be deleted" },
+        { "path": "drafts/rename-edit.md", "content": "# Will rename then edit" },
+        { "path": "collision-target.md", "content": "# Collision target" }
+      ]
+    },
+    {
+      "id": "2026-01-08T03-00-inc",
+      "type": "inc",
+      "parent_id": "2026-01-01T03-00-full",
+      "created_at": "2026-01-08T03:00:00.000Z",
+      "device_id": "d0",
+      "description": "Pure rename: drafts/to-rename.md → published/renamed.md",
+      "files": [],
+      "deleted": [],
+      "renames": [
+        { "from": "drafts/to-rename.md", "to": "published/renamed.md" }
+      ]
+    },
+    {
+      "id": "2026-01-15T03-00-inc",
+      "type": "inc",
+      "parent_id": "2026-01-08T03-00-inc",
+      "created_at": "2026-01-15T03:00:00.000Z",
+      "device_id": "d0",
+      "description": "Delete: drafts/to-delete.md removed",
+      "files": [],
+      "deleted": ["drafts/to-delete.md"],
+      "renames": []
+    },
+    {
+      "id": "2026-01-22T03-00-inc",
+      "type": "inc",
+      "parent_id": "2026-01-15T03-00-inc",
+      "created_at": "2026-01-22T03:00:00.000Z",
+      "device_id": "d0",
+      "description": "Rename-then-content-edit: drafts/rename-edit.md → archive/renamed-edited.md, then content changes",
+      "files": [
+        { "path": "archive/renamed-edited.md", "content": "# Renamed and edited v2" }
+      ],
+      "deleted": [],
+      "renames": [
+        { "from": "drafts/rename-edit.md", "to": "archive/renamed-edited.md" }
+      ]
+    },
+    {
+      "id": "2026-01-29T03-00-inc",
+      "type": "inc",
+      "parent_id": "2026-01-22T03-00-inc",
+      "created_at": "2026-01-29T03:00:00.000Z",
+      "device_id": "d0",
+      "description": "Rename-to-collision: published/renamed.md renamed to collision-target.md (idempotent — target already exists, rename just reassigns path)",
+      "files": [],
+      "deleted": [],
+      "renames": [
+        { "from": "published/renamed.md", "to": "collision-target.md" }
+      ]
+    }
+  ],
+  "expected_state_at_head": {
+    "_comment": "rename-to-collision is skipped by materializeVaultStateAt (target already exists → skip + warn). Both files remain.",
+    "notes/original.md": { "content": "# Original v1" },
+    "published/renamed.md": { "content": "# Will be renamed" },
+    "collision-target.md": { "content": "# Collision target" },
+    "archive/renamed-edited.md": { "content": "# Renamed and edited v2" }
+  },
+  "parity_assertions": [
+    {
+      "snapshot_id": "2026-01-08T03-00-inc",
+      "description": "after pure rename",
+      "expected": {
+        "notes/original.md": "# Original v1",
+        "published/renamed.md": "# Will be renamed",
+        "drafts/to-delete.md": "# Will be deleted",
+        "drafts/rename-edit.md": "# Will rename then edit",
+        "collision-target.md": "# Collision target"
+      }
+    },
+    {
+      "snapshot_id": "2026-01-15T03-00-inc",
+      "description": "after delete",
+      "expected": {
+        "notes/original.md": "# Original v1",
+        "published/renamed.md": "# Will be renamed",
+        "drafts/rename-edit.md": "# Will rename then edit",
+        "collision-target.md": "# Collision target"
+      }
+    },
+    {
+      "snapshot_id": "2026-01-22T03-00-inc",
+      "description": "after rename-then-content-edit",
+      "expected": {
+        "notes/original.md": "# Original v1",
+        "published/renamed.md": "# Will be renamed",
+        "archive/renamed-edited.md": "# Renamed and edited v2",
+        "collision-target.md": "# Collision target"
+      }
+    },
+    {
+      "snapshot_id": "2026-01-29T03-00-inc",
+      "description": "after rename-to-collision",
+      "_comment": "The rename published/renamed.md→collision-target.md is skipped (target exists). Both files remain with their original content.",
+      "expected": {
+        "notes/original.md": "# Original v1",
+        "published/renamed.md": "# Will be renamed",
+        "collision-target.md": "# Collision target",
+        "archive/renamed-edited.md": "# Renamed and edited v2"
+      }
+    }
+  ]
+}

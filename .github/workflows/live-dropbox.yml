@@ -1,0 +1,35 @@
+name: Live Dropbox Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [labeled]
+
+jobs:
+  live-dropbox:
+    # Run on main push OR when the 'live-test' label is added to a PR
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'live-test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run live Dropbox smoke tests
+        env:
+          DROPBOX_TEST_CLIENT_ID: ${{ secrets.DROPBOX_TEST_CLIENT_ID }}
+          DROPBOX_TEST_REFRESH_TOKEN: ${{ secrets.DROPBOX_TEST_REFRESH_TOKEN }}
+        run: npx vitest run --config vitest.live.config.ts

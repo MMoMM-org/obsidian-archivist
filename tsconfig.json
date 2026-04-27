@@ -1,20 +1,21 @@
 {
 	"compilerOptions": {
-		"baseUrl": "src",
-		"inlineSourceMap": true,
-		"inlineSources": true,
+		"target": "ES2020",
 		"module": "ESNext",
-		"target": "ES6",
-		"allowJs": true,
+		"moduleResolution": "bundler",
 		"strict": true,
-		"noImplicitReturns": true,
-		"moduleResolution": "node",
-		"importHelpers": true,
-		"noUncheckedIndexedAccess": true,
+		"strictNullChecks": true,
+		"noImplicitAny": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"lib": ["DOM", "ES2020"],
 		"isolatedModules": true,
-		"allowSyntheticDefaultImports": true,
-		"useUnknownInCatchVariables": true,
-		"lib": ["DOM", "ES5", "ES6", "ES7"]
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"declaration": false,
+		"resolveJsonModule": true
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/**/*"],
+	"exclude": ["node_modules", "dist", "test/Archivist"]
 }

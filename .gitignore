@@ -20,6 +20,10 @@ coverage/
 # Obsidian
 data.json
 
+# Local Obsidian test vault — the plugin is deployed here during development
+# via hot-reload. Not part of the release artefact. See docs/ai/memory/tools.md.
+test/Archivist/
+
 # macOS
 .DS_Store
 

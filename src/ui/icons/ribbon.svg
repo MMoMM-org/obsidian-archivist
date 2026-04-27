@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <!-- Archive box: a folder with a backward-arrow inside, communicating "version history of a vault." -->
+  <!-- Folder outline -->
+  <path d="M3 5.5 L3 16 a1 1 0 0 0 1 1 L16 17 a1 1 0 0 0 1 -1 L17 7 a1 1 0 0 0 -1 -1 L9 6 L7 4 L4 4 a1 1 0 0 0 -1 1 z" />
+  <!-- Backward arrow inside the folder -->
+  <path d="M12.5 11 L8.5 11" />
+  <path d="M10.5 9 L8.5 11 L10.5 13" />
+</svg>
