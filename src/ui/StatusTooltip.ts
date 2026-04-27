@@ -7,6 +7,7 @@
 // proves the queue grew.
 
 import type { FSMState } from '../services/SchedulerFSM';
+import type { BackupProgressSnapshot } from '../services/BackupProgress';
 
 export interface StatusTooltipInput {
   state: FSMState;
@@ -22,6 +23,11 @@ export interface StatusTooltipInput {
   queueSize: number;
   /** Current time, injectable for tests. */
   now: number;
+  /**
+   * Live backup progress (phase + counts). Only consulted when state is
+   * BACKUP_RUNNING; null at all other times. Tests omit it freely.
+   */
+  progress?: BackupProgressSnapshot | null;
 }
 
 /** Round up to whole minutes, with a 1-min floor so we never show "0 min". */
@@ -29,6 +35,17 @@ function minutesUntil(ts: number, now: number): number {
   const diff = ts - now;
   if (diff <= 0) return 0;
   return Math.max(1, Math.ceil(diff / 60_000));
+}
+
+function formatPhaseLabel(phase: BackupProgressSnapshot['phase']): string {
+  switch (phase) {
+    case 'reading':
+      return 'reading';
+    case 'uploading':
+      return 'uploading';
+    case 'committing':
+      return 'committing';
+  }
 }
 
 function formatHHmm(ts: number): string {
@@ -72,8 +89,16 @@ export function formatStatusTooltip(input: StatusTooltipInput): string {
       return `Archivist — next inc in ${m} min`;
     }
 
-    case 'BACKUP_RUNNING':
-      return 'Archivist — backing up…';
+    case 'BACKUP_RUNNING': {
+      const p = input.progress ?? null;
+      if (p === null) return 'Archivist — backing up…';
+      const phaseLabel = formatPhaseLabel(p.phase);
+      // total === 0 means "phase started but the count is trivially zero"
+      // (e.g. inc with deletes-only — no read/upload work). Show the phase
+      // verb without a misleading "0/0" suffix.
+      if (p.total <= 0) return `Archivist — ${phaseLabel}…`;
+      return `Archivist — ${phaseLabel} ${p.current}/${p.total}`;
+    }
 
     case 'PASSIVE':
       return 'Archivist — paused (another device backs up)';

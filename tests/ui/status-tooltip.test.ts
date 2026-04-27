@@ -126,4 +126,28 @@ describe('formatStatusTooltip', () => {
       'Archivist — last backup failed',
     );
   });
+
+  it('BACKUP_RUNNING with progress shows phase and counts', () => {
+    const t = formatStatusTooltip(input({
+      state: 'BACKUP_RUNNING',
+      progress: { kind: 'full', phase: 'uploading', current: 432, total: 5988, startedAtMs: NOW },
+    }));
+    expect(t).toBe('Archivist — uploading 432/5988');
+  });
+
+  it('BACKUP_RUNNING with progress total=0 shows phase verb only (no misleading 0/0)', () => {
+    const t = formatStatusTooltip(input({
+      state: 'BACKUP_RUNNING',
+      progress: { kind: 'inc', phase: 'committing', current: 0, total: 0, startedAtMs: NOW },
+    }));
+    expect(t).toBe('Archivist — committing…');
+  });
+
+  it('BACKUP_RUNNING falls back to generic copy when progress is null', () => {
+    const t = formatStatusTooltip(input({
+      state: 'BACKUP_RUNNING',
+      progress: null,
+    }));
+    expect(t).toBe('Archivist — backing up…');
+  });
 });

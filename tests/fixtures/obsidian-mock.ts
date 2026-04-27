@@ -293,6 +293,12 @@ export class Plugin {
   _registeredEvents: EventRef[] = [];
   _registeredIntervals: ReturnType<typeof setInterval>[] = [];
   /**
+   * Cleanup callbacks registered via Plugin.register(). Mirrors Obsidian's
+   * Component.register API which BackupProgress wiring (and any future
+   * subscriber-based glue) uses to release subscriptions in onunload.
+   */
+  _registeredCleanups: Array<() => void> = [];
+  /**
    * Phase 3 addition (T3.3): records handlers passed to
    * registerObsidianProtocolHandler so tests can drive OAuth callbacks.
    * Keyed by action string (e.g. 'archivist-oauth').
@@ -308,6 +314,10 @@ export class Plugin {
 
   registerEvent(ref: EventRef): void {
     this._registeredEvents.push(ref);
+  }
+
+  register(cb: () => void): void {
+    this._registeredCleanups.push(cb);
   }
 
   registerInterval(id: ReturnType<typeof setInterval>): ReturnType<typeof setInterval> {
@@ -376,6 +386,12 @@ export class Plugin {
       clearInterval(id);
     }
     this._registeredIntervals = [];
+
+    // Fire and clear all cleanup callbacks registered via register().
+    for (const cb of this._registeredCleanups) {
+      try { cb(); } catch { /* swallow — mirrors Obsidian's tolerant unload */ }
+    }
+    this._registeredCleanups = [];
   }
 }
 
