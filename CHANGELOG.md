@@ -1,3 +1,10 @@
+## [0.2.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.1...0.2.2) (2026-04-27)
+
+
+### Bug Fixes
+
+* **dropbox:** add proactive token bucket on top of reactive gate ([#10](https://github.com/MMoMM-org/obsidian-archivist/issues/10)) ([e59daba](https://github.com/MMoMM-org/obsidian-archivist/commit/e59daba63a74b86354f28b269e49a00fceceee0a))
+
 ## [0.2.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.0...0.2.1) (2026-04-27)
 
 
