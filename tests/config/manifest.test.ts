@@ -29,8 +29,15 @@ describe('manifest.json', () => {
     expect(manifest.id).toBe('obsidian-archivist');
   });
 
-  it("version equals '0.1.0'", () => {
-    expect(manifest.version).toBe('0.1.0');
+  it('version matches package.json (semantic-release single source of truth)', () => {
+    // Hard-coded version assertions break on every release because
+    // semantic-release bumps both files in lockstep — pin the cross-file
+    // consistency check instead so the test stays green across bumps but
+    // still catches the case where one file is updated without the other.
+    const pkg = readJson('package.json') as Record<string, unknown>;
+    expect(typeof pkg.version).toBe('string');
+    expect(manifest.version).toBe(pkg.version);
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it("minAppVersion equals '1.5.0'", () => {
