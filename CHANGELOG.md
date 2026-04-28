@@ -1,3 +1,10 @@
+## [0.7.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.1...0.7.2) (2026-04-28)
+
+
+### Bug Fixes
+
+* pre-release polish — banner copy, OAuth scope, command names ([#29](https://github.com/MMoMM-org/obsidian-archivist/issues/29)) ([14d5545](https://github.com/MMoMM-org/obsidian-archivist/commit/14d5545dd2a29d60e64539a6d6c1ff90ae5cef9f))
+
 ## [0.7.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.0...0.7.1) (2026-04-28)
 
 
