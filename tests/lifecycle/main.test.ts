@@ -12,7 +12,7 @@ describe('ArchivistPlugin lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     app = new App();
-    manifest = { id: 'obsidian-archivist', name: 'Archivist', version: '0.1.0' };
+    manifest = { id: 'archivist', name: 'Archivist', version: '0.1.0' };
     plugin = new ArchivistPlugin(app as any, manifest as any);
   });
 

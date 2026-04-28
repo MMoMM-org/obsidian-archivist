@@ -63,7 +63,7 @@ type FakePlugin = {
 
 function makePlugin(adapter: FakeAdapter): FakePlugin {
   return {
-    manifest: { id: 'obsidian-archivist', dir: '.obsidian/plugins/obsidian-archivist' },
+    manifest: { id: 'archivist', dir: '.obsidian/plugins/archivist' },
     app: { vault: { adapter, configDir: '.obsidian' } },
     _data: null,
     async loadData() {
@@ -91,7 +91,7 @@ function makeTestLogger(): TestLogger {
   };
 }
 
-const PLUGIN_DIR = '.obsidian/plugins/obsidian-archivist';
+const PLUGIN_DIR = '.obsidian/plugins/archivist';
 const INDEX_PATH = `${PLUGIN_DIR}/index.json`;
 const QUEUE_PATH = `${PLUGIN_DIR}/pending_changes.json`;
 
