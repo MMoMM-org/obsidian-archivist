@@ -1,3 +1,10 @@
+## [0.6.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.2...0.6.3) (2026-04-28)
+
+
+### Performance Improvements
+
+* **browser:** cache file tree, Set lookups, LRU manifest cache ([#22](https://github.com/MMoMM-org/obsidian-archivist/issues/22)) ([1554206](https://github.com/MMoMM-org/obsidian-archivist/commit/15542062c17ef940b2b22d4a2007ab5f4d2c88eb))
+
 ## [0.6.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.1...0.6.2) (2026-04-28)
 
 
