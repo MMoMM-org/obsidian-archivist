@@ -1,3 +1,10 @@
+## [0.6.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.0...0.6.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **repair:** parallel manifest downloads + register-repair-commands tests ([#20](https://github.com/MMoMM-org/obsidian-archivist/issues/20)) ([d0e1313](https://github.com/MMoMM-org/obsidian-archivist/commit/d0e1313a259e1746033b2b13ce09e5f675afacee)), closes [#14](https://github.com/MMoMM-org/obsidian-archivist/issues/14) [#15](https://github.com/MMoMM-org/obsidian-archivist/issues/15) [#16](https://github.com/MMoMM-org/obsidian-archivist/issues/16)
+
 # [0.6.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.5.0...0.6.0) (2026-04-28)
 
 
