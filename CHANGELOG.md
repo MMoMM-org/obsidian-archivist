@@ -1,3 +1,10 @@
+## [0.6.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.1...0.6.2) (2026-04-28)
+
+
+### Bug Fixes
+
+* **backup:** cap chain-walk at 100 + add reason metadata on broken result ([#21](https://github.com/MMoMM-org/obsidian-archivist/issues/21)) ([fda8568](https://github.com/MMoMM-org/obsidian-archivist/commit/fda856815c5a0496729d060c337873ef3937938e))
+
 ## [0.6.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.0...0.6.1) (2026-04-28)
 
 
