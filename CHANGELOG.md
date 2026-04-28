@@ -1,3 +1,10 @@
+# [0.7.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.5...0.7.0) (2026-04-28)
+
+
+### Features
+
+* **store:** split device-block into device.json sidecar ([#26](https://github.com/MMoMM-org/obsidian-archivist/issues/26)) ([7a61712](https://github.com/MMoMM-org/obsidian-archivist/commit/7a61712f9c369a628746ad3c0bc1dfe61d1ebb7d))
+
 ## [0.6.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.4...0.6.5) (2026-04-28)
 
 
