@@ -126,15 +126,20 @@ export class BackupService {
   private firstIncSinceLoad = true;
 
   /**
-   * One-shot flag for the Dropbox HEAD-existence check. We probe the remote
-   * HEAD on the first INC of the session: if it's gone (user nuked the
-   * Apps/Archivist/<prefix>/ folder, OAuth scope re-created it empty, etc.)
-   * the local index is out of sync with Dropbox and committing another INC
-   * just deepens the corruption. Falling back to FULL re-bootstraps the
-   * chain instead. Flips to false after the first probe so steady-state INCs
-   * don't pay the extra round-trip.
+   * One-shot flag for the Dropbox parent-manifest existence check. We probe
+   * the manifest of the snapshot we'd attach the next INC to (the
+   * last_inc_snapshot_id, or last_full if no inc yet) on the first INC of
+   * the session. If it's missing, the local chain is desynced from Dropbox
+   * (user nuked the folder, restored an old backup, GC ran wild, ...) and
+   * stacking another INC just deepens the orphan chain. Falling back to
+   * FULL re-bootstraps. Flips to true after the first probe so steady-state
+   * INCs don't pay the extra round-trip.
+   *
+   * Probes the *parent manifest*, not just HEAD.json — HEAD existing tells
+   * us nothing about whether the manifest IT points to (or our local index
+   * points to) is still on Dropbox.
    */
-  private dropboxHeadVerified = false;
+  private dropboxChainVerified = false;
 
   constructor(deps: BackupServiceDeps) {
     this.dropbox = deps.dropbox;
@@ -259,31 +264,43 @@ export class BackupService {
       return this.runFull(opts);
     }
 
-    // Once-per-session HEAD verification: if the local index claims a chain
-    // exists but Dropbox has no HEAD.json, the remote folder was nuked or
-    // re-created empty (BackupBrowser then shows "Path not found: path" on
-    // chain walk). Re-bootstrap with FULL instead of stacking another orphan
-    // INC. Any other error (auth, network, 5xx) propagates — it would have
-    // surfaced from the next downloadJson anyway, and treating it as a
-    // probe-only failure would let an AuthError silently turn into a wasted
-    // FULL attempt that re-trips the same auth wall.
-    if (!this.dropboxHeadVerified) {
-      try {
-        await this.dropbox.downloadJson<unknown>(headPath(this.vaultPrefix));
-        this.dropboxHeadVerified = true;
-      } catch (err) {
-        if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
-          this.dropboxHeadVerified = true;
-          this.logger.warn('dropbox_head_missing_falling_back_to_full', {
-            head_path: headPath(this.vaultPrefix),
-            local_last_full: index.last_full_snapshot_id,
-            local_last_inc: index.last_inc_snapshot_id,
-          });
-          return this.runFull(opts);
+    // Once-per-session parent-manifest verification: probe whether the
+    // snapshot we'd attach the next INC to actually exists on Dropbox.
+    // Catches three corruption shapes that all break the BackupBrowser's
+    // chain walk:
+    //   (a) HEAD.json + the entire vault folder gone (probe gets 409 too)
+    //   (b) HEAD.json present, our parent manifest gone (this commit's case)
+    //   (c) GC over-pruned and removed an inc whose parent_id our index
+    //       still references
+    // In all three, stacking another INC produces a snapshot whose parent_id
+    // points at a missing manifest — re-bootstrapping with FULL is the only
+    // safe answer. Auth/network/5xx errors propagate so the FSM still
+    // surfaces them; the verified flag stays false on those so the next inc
+    // re-probes.
+    if (!this.dropboxChainVerified) {
+      const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
+      if (parentId !== null) {
+        try {
+          await this.dropbox.downloadJson<unknown>(
+            snapshotPath({ vault_prefix: this.vaultPrefix, id: parentId }),
+          );
+          this.dropboxChainVerified = true;
+        } catch (err) {
+          if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
+            this.dropboxChainVerified = true;
+            this.logger.warn('dropbox_parent_missing_falling_back_to_full', {
+              missing_parent_id: parentId,
+              local_last_full: index.last_full_snapshot_id,
+              local_last_inc: index.last_inc_snapshot_id,
+            });
+            return this.runFull(opts);
+          }
+          throw err;
         }
-        // Leave dropboxHeadVerified=false so a transient failure (network
-        // blip, throttle) gets re-probed on the next inc attempt.
-        throw err;
+      } else {
+        // No parent_id in the local index — runFull will be reached anyway
+        // via the same fallback below; nothing to probe.
+        this.dropboxChainVerified = true;
       }
     }
 
