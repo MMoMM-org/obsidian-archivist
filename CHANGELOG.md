@@ -1,3 +1,10 @@
+## [0.6.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.3...0.6.4) (2026-04-28)
+
+
+### Bug Fixes
+
+* **store:** serialize data.json read-modify-write to prevent lost updates ([#23](https://github.com/MMoMM-org/obsidian-archivist/issues/23)) ([14d19b7](https://github.com/MMoMM-org/obsidian-archivist/commit/14d19b762ed97eea5c883ff90d67455121080421))
+
 ## [0.6.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.2...0.6.3) (2026-04-28)
 
 
