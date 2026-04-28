@@ -43,9 +43,9 @@ User-impact-now cluster. Two findings (banner aria-live, focus outline) affect s
 - **M8** `existingPaths` filter is O(n×m) on main thread → `BackupService.ts:484–486`. Same `Set` pattern.
 - **L4** `ManifestCache.manifestById` grows unbounded → `ManifestCache.ts:36`. Cap with LRU at ~50 entries.
 
-### Cluster E — Docs + copy (5 items + 1 Question) — branch `chore/docs-and-copy-polish`
+### Cluster E — Docs + copy (6 items) — branch `chore/docs-and-copy-polish`
 - **M1** Stale "not-yet-shipped" disclaimer in shipped doc → `docs/operations/connecting-existing-backup.md:15–21`. Delete the block.
-- **M2** ⚠️ **OPEN QUESTION** — Doc promises foreign-vault badge in browser, but `SnapshotManifest` has no `vault_id` field. Add field to schema OR correct the doc. See "Pending decisions" below.
+- **M2** ✅ **DECIDED → Path B** (2026-04-28) — Delete the foreign-vault-badge bullet from `connecting-existing-backup.md:169–171`. Plugin not yet publicly released; the per-snapshot badge would only catch historical cross-vault contamination from before `vault_meta.json` existed, and Marcus is the only consumer who could have produced that state. Future users get `vault_meta.json` from day one. No schema change.
 - **M16** `ADOPT_VAULT_BODY` is one 86-word paragraph for a permanent decision → `strings.ts:67`. Split into two paragraphs or `<ul>` (Adopt path / Cancel path).
 - **M17** Palette command labels use internals jargon ("Clear stale GC lock", "Garbage collect orphan content") → `strings.ts:45–46`. Rename labels (NOT command IDs — preserves hotkeys per COMPAT-003) to "Clear stuck garbage-collection lock" and "Remove unused backup blobs".
 - **L8** `[deleted in live vault]` marker hardcoded in TS → `BackupBrowserView.ts:603`. Move to `strings.ts` as `BROWSER_FILE_DELETED_MARKER`.
@@ -57,13 +57,9 @@ User-impact-now cluster. Two findings (banner aria-live, focus outline) affect s
 ### Cluster G — Chain-walk depth ceiling (1 item) — branch `fix/chain-walk-depth-ceiling`
 - **H3** `MAX_DEPTH=1000` → up to ~200s startup hang for retention-disabled users → `BackupService.ts:675`. Lower to ~100, distinct `broken` + `reason: 'depth_exceeded'`, warn at 50.
 
-### Pending decisions
+### Decisions log
 
-**M2 — Foreign-vault badge in Backup Browser** is the only blocking question. The doc `connecting-existing-backup.md:169–171` promises "snapshots whose manifest carries a different `vault_id` show a warning chip." But `SnapshotManifest` (`src/model/Manifest.ts:16–29`) has no `vault_id` field — vault identity lives only in `vault_meta.json`. Two paths:
-- **Path A** — Add `vault_id` to `SnapshotManifest`. New manifests carry it; old manifests parse without it (optional). Browser badges per-snapshot. Cost: schema change, parser update, ROB-002-adjacent test work, but enables real per-snapshot badging.
-- **Path B** — Remove the doc bullet. Cross-vault prevention works at the `vault_meta` level (already does); the per-snapshot badge was aspirational. Cheaper, ships now.
-
-Reviewer flagged this as the only doc-vs-impl mismatch worth surfacing. Defaulted to Cluster E pending your call.
+- **M2 → Path B** (2026-04-28). The foreign-vault-badge bullet at `connecting-existing-backup.md:169–171` will be deleted in Cluster E. Per-snapshot `vault_id` schema change rejected as YAGNI: plugin not publicly released, `vault_meta.json` already prevents future cross-vault writes, and no historical contamination exists to flag.
 
 ---
 
