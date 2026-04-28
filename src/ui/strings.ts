@@ -305,7 +305,7 @@ export const S = {
 
   // ─── Predecessor-plugin notice (F8) ──────────────────────────────
   PREDECESSOR_NOTICE:
-    'Disable the old plugin before enabling Archivist backups to avoid conflicting uploads.',
+    'Aut-O-Backups is also enabled. Disable it to avoid backing up your vault twice — both plugins back up to Dropbox in their own folder, so running both wastes CPU and bandwidth.',
   PREDECESSOR_NOTICE_DISMISS: 'Dismiss',
 
   // ─── Settings sections ───────────────────────────────────────────

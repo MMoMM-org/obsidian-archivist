@@ -264,7 +264,10 @@ class ObsidianSectionHost implements SectionHost {
   private renderBanner(spec: BannerSpec): void {
     const cls = `archivist-banner archivist-banner-${spec.severity}`;
     const el = this.container.createDiv({ cls }) as unknown as HTMLElement;
-    el.createEl('strong', { text: `[${spec.code}] ` });
+    // The internal `spec.code` (e.g. PREDECESSOR, CHAIN_RECOVERY) used to
+    // render as a `[CODE]` prefix in front of the banner message. Removed
+    // because it surfaces engineer-jargon to users; the message itself is
+    // self-describing and the code stays internal for dedup/clear calls.
     el.createSpan({ text: spec.message });
     if (spec.onDismiss) {
       const setting = new Setting(el);
