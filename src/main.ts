@@ -293,7 +293,10 @@ export default class ArchivistPlugin extends Plugin {
       snapshotIndexStore,
       logger: this.logger,
       vaultPrefix,
-      deviceId: 'loading',
+      // L2: lazy resolver — sweep() pulls the real DeviceCoordinator UUID
+      // when the lock is written, so the gc_lock's device_id field is the
+      // diagnostic identifier rather than the placeholder it used to be.
+      deviceId: () => deviceCoordinator.getOrCreateDeviceId(),
     });
 
     const retentionService = new RetentionService({
@@ -967,11 +970,36 @@ export default class ArchivistPlugin extends Plugin {
             new AdoptVaultModal(this.app, {
               remoteVaultName: result.remote.vault_name,
               remoteVaultId: result.remote.vault_id,
+              // M5: await the adoption write and surface failures via
+              // toast — the previous fire-and-forget swallowed
+              // saveVaultId errors silently, leaving the user clicking
+              // away on a modal that pretended to succeed while the
+              // local id never persisted.
               onAdopt: () => {
-                void vaultIdentity.adoptVaultId(result.remote.vault_id);
+                void (async (): Promise<void> => {
+                  try {
+                    await vaultIdentity.adoptVaultId(result.remote.vault_id);
+                    new Notice(S.ADOPT_VAULT_OK(result.remote.vault_name));
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    new Notice(S.ADOPT_VAULT_FAILED(msg), 0);
+                    this.logger.error('vault_id_adoption_failed', { error: msg });
+                  }
+                })();
               },
               onCancel: () => {},
             }).open();
+          } else if (result.kind === 'remote-corrupt') {
+            // M4: surface the corruption via a persistent banner so the
+            // user has a recovery path (delete vault_meta.json + reload)
+            // instead of seeing a generic "backups blocked" toast on the
+            // next scheduled tick. BackupService.assertVaultOwnership
+            // continues to block writes — this is just visibility.
+            noticeCenter.showPersistent(
+              'VAULT_META_CORRUPT',
+              S.VAULT_META_CORRUPT_BANNER,
+            );
+            this.logger.warn('vault_meta_corrupt_surfaced', { error: result.rawError });
           }
         } catch (err) {
           this.logger.debug('vault_identity_probe_skipped', {

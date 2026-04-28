@@ -183,6 +183,19 @@ export class BackupService {
    */
   private dropboxChainVerified = false;
 
+  /**
+   * Session cache for the vault-ownership check. Once we've confirmed
+   * 'ok' (or moved through 'fresh-folder' + a successful claim), the
+   * vault_meta on Dropbox cannot move out from under us within the
+   * single-process lifetime — so subsequent backup runs return the
+   * cached state without an extra `vault_meta.json` round-trip per run.
+   *
+   * Cleared by no public mechanism in V1 — adoption / repair currently
+   * require a plugin reload, which constructs a fresh BackupService.
+   * Mirrors `dropboxChainVerified` above.
+   */
+  private vaultOwnershipVerified: { freshFolder: boolean; localId: string | null } | null = null;
+
   constructor(deps: BackupServiceDeps) {
     this.dropbox = deps.dropbox;
     this.vault = deps.vault;
@@ -213,16 +226,27 @@ export class BackupService {
     if (!this.vaultIdentity) {
       return { freshFolder: false, localId: null };
     }
+    // Session cache (H1): once we've verified ownership ('ok' or
+    // post-claim), skip the per-backup vault_meta round-trip. Cleared
+    // only by plugin reload — adoption / repair flows construct a
+    // fresh BackupService.
+    if (this.vaultOwnershipVerified) {
+      return this.vaultOwnershipVerified;
+    }
     const result = await this.vaultIdentity.checkConsistency();
     switch (result.kind) {
       case 'ok':
-        return { freshFolder: false, localId: result.localId };
+        this.vaultOwnershipVerified = { freshFolder: false, localId: result.localId };
+        return this.vaultOwnershipVerified;
       case 'fresh-folder':
+        // Don't cache yet — runFull will trigger claimRemote which
+        // promotes us into the 'ok' state. The cache flips after the
+        // claim succeeds (see runFull below).
         return { freshFolder: true, localId: result.localId };
       case 'adopt-remote':
         throw new ConfigError(
           'VAULT_ID_NEEDS_ADOPTION',
-          `This Dropbox folder belongs to vault "${result.remote.vault_name}" (${result.remote.vault_id}). Open the Adoption modal from the Backup Browser to claim it for the current vault, or change vault_prefix to a different folder. See docs/operations/connecting-existing-backup.md.`,
+          `This Dropbox folder belongs to vault "${result.remote.vault_name}" (${result.remote.vault_id}). Reload Obsidian to re-open the Adopt dialog, or change Dropbox vault folder in Settings → Archivist → Dropbox to point at a different folder. See docs/operations/connecting-existing-backup.md.`,
           false,
         );
       case 'mismatch':
@@ -234,10 +258,19 @@ export class BackupService {
       case 'remote-corrupt':
         throw new ConfigError(
           'VAULT_META_CORRUPT',
-          `Dropbox vault_meta.json failed schema validation (${result.rawError}). Backup blocked. Use "Repair backup index" to inspect, or delete vault_meta.json manually to let the next backup recreate it.`,
+          `Dropbox vault_meta.json failed schema validation (${result.rawError}). Backup blocked. Delete vault_meta.json on Dropbox to let the next backup recreate it, or run "Verify backup ownership" from the command palette to inspect. See docs/troubleshooting/dropbox-corruption.md.`,
           false,
         );
     }
+  }
+
+  /**
+   * Internal helper: once a freshFolder claim succeeds, the next backup's
+   * consistency check would return 'ok' for the same IDs — pre-fill the
+   * cache so we skip the round-trip.
+   */
+  private markVaultOwnershipClaimed(localId: string): void {
+    this.vaultOwnershipVerified = { freshFolder: false, localId };
   }
 
   /**
@@ -318,6 +351,7 @@ export class BackupService {
       if (ownership.freshFolder && ownership.localId && this.vaultIdentity) {
         try {
           await this.vaultIdentity.claimRemote(ownership.localId);
+          this.markVaultOwnershipClaimed(ownership.localId);
         } catch (err) {
           this.logger.warn('vault_meta_claim_failed', {
             error: err instanceof Error ? err.message : String(err),

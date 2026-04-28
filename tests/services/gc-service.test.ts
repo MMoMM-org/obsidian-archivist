@@ -484,6 +484,75 @@ describe('GCService', () => {
     });
   });
 
+  describe('11. deviceId getter resolves at sweep time (L2)', () => {
+    it('lock carries the resolved device id even when deps.deviceId is a getter', async () => {
+      // Construct GCService directly so we can supply a getter that
+      // resolves AFTER construction — mirrors the production wiring
+      // where DeviceCoordinator.getOrCreateDeviceId is async and runs
+      // long after main.ts builds the service.
+      const nowDate = new Date('2026-04-24T12:00:00.000Z');
+      const dropbox = makeFakeDropbox({ contentEntries: [] });
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
+      const logger = makeFakeLogger();
+
+      let resolvedTimes = 0;
+      const deviceIdGetter = vi.fn(async (): Promise<string> => {
+        resolvedTimes += 1;
+        return 'real-device-uuid';
+      });
+
+      const service = new GCService({
+        dropbox: dropbox as never,
+        snapshotIndexStore: snapshotIndexStore as never,
+        logger,
+        vaultPrefix: VAULT_PREFIX,
+        deviceId: deviceIdGetter,
+        now: () => nowDate,
+      });
+
+      // Construction must not call the getter — it would burn a load
+      // before tokens are available.
+      expect(deviceIdGetter).not.toHaveBeenCalled();
+
+      await service.sweep();
+
+      expect(resolvedTimes).toBe(1);
+      // Lock must have been written with the resolved id, then deleted.
+      // We assert via the upload-call args because the deletion happens
+      // immediately after.
+      const uploadJsonCalls = (dropbox as unknown as {
+        uploadJson: { mock: { calls: Array<[string, unknown]> } };
+      }).uploadJson.mock.calls;
+      const lockUpload = uploadJsonCalls.find(([p]) => p.endsWith('/gc_lock'));
+      expect(lockUpload).toBeDefined();
+      expect(lockUpload![1]).toMatchObject({ device_id: 'real-device-uuid' });
+    });
+
+    it('still accepts a plain string for tests + back-compat', async () => {
+      const nowDate = new Date('2026-04-24T12:00:00.000Z');
+      const dropbox = makeFakeDropbox({ contentEntries: [] });
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
+      const logger = makeFakeLogger();
+
+      const service = new GCService({
+        dropbox: dropbox as never,
+        snapshotIndexStore: snapshotIndexStore as never,
+        logger,
+        vaultPrefix: VAULT_PREFIX,
+        deviceId: 'static-device',
+        now: () => nowDate,
+      });
+
+      await service.sweep();
+
+      const uploadJsonCalls = (dropbox as unknown as {
+        uploadJson: { mock: { calls: Array<[string, unknown]> } };
+      }).uploadJson.mock.calls;
+      const lockUpload = uploadJsonCalls.find(([p]) => p.endsWith('/gc_lock'));
+      expect(lockUpload![1]).toMatchObject({ device_id: 'static-device' });
+    });
+  });
+
   describe('10. delete failure mid-loop → loop continues', () => {
     it('continues deleting remaining orphans when one deleteV2 throws NetworkError', async () => {
       const nowDate = new Date('2026-04-24T12:00:00.000Z');

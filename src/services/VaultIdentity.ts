@@ -39,6 +39,7 @@ import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import {
   CURRENT_VAULT_META_SCHEMA,
+  isVaultId,
   parseVaultMeta,
   type VaultMeta,
 } from '../model/VaultMeta';
@@ -88,7 +89,7 @@ export class VaultIdentity {
     if (existing) return existing;
     const fresh = (this.deps.generateId ?? generateUuidV4)();
     await this.deps.pluginStore.saveVaultId(fresh);
-    this.deps.logger.info('vault_id_generated', { vault_id: fresh });
+    this.deps.logger.info('vault_id_generated', { vault_id: shortVaultId(fresh) });
     return fresh;
   }
 
@@ -102,8 +103,21 @@ export class VaultIdentity {
    * confirmed they want this vault to claim the existing Dropbox folder.
    */
   async adoptVaultId(vaultId: string): Promise<void> {
+    // Defense-in-depth: parseVaultMeta enforces UUID-v4 at the Dropbox
+    // boundary, but adoptVaultId is callable from any consumer (settings
+    // surface, tests, future code) — guard here so a non-UUID value never
+    // lands in data.json. A garbage local id would otherwise pin the
+    // backup pipeline at VAULT_ID_MISMATCH until the user manually edits
+    // data.json.
+    if (!isVaultId(vaultId)) {
+      throw new ConfigError(
+        'VAULT_ID_INVALID',
+        `Refusing to adopt non-UUID vault_id: ${String(vaultId)}`,
+        false,
+      );
+    }
     await this.deps.pluginStore.saveVaultId(vaultId);
-    this.deps.logger.info('vault_id_adopted', { vault_id: vaultId });
+    this.deps.logger.info('vault_id_adopted', { vault_id: shortVaultId(vaultId) });
   }
 
   /**
@@ -139,7 +153,7 @@ export class VaultIdentity {
       claimed_at: (this.deps.now ?? (() => new Date()))().toISOString(),
     };
     await this.deps.dropbox.uploadJson(vaultMetaPath(this.deps.vaultPrefix), meta);
-    this.deps.logger.info('vault_meta_claimed', { vault_id: localVaultId });
+    this.deps.logger.info('vault_meta_claimed', { vault_id: shortVaultId(localVaultId) });
   }
 
   /**
@@ -196,6 +210,19 @@ export class VaultIdentity {
 // for different concerns; keeping them independent avoids accidental
 // cross-coupling if one ever needs a different RNG strategy.
 // ---------------------------------------------------------------------------
+
+/**
+ * Truncate a vault_id to its first 8 hex characters + ellipsis for log
+ * payloads. The full UUID is not a secret in the strict sense (it lives
+ * in `data.json` and `vault_meta.json`), but it is the sole token
+ * protecting cross-vault isolation — leaking the exact match string in
+ * support pastes / bug reports lets a holder of the Dropbox token forge
+ * a `vault_meta.json` for an existing vault. 8 hex chars is enough for
+ * debugging without being copy-paste exploitable.
+ */
+function shortVaultId(vaultId: string): string {
+  return vaultId.length <= 8 ? vaultId : `${vaultId.slice(0, 8)}…`;
+}
 
 function generateUuidV4(): string {
   const bytes = new Uint8Array(16);

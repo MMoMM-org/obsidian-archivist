@@ -234,4 +234,69 @@ describe('VaultIdentity.adoptVaultId', () => {
     await identity.adoptVaultId(VALID_UUID_B);
     expect(store.currentVaultId).toBe(VALID_UUID_B);
   });
+
+  it('rejects a non-UUID vault_id without writing to data.json (M3)', async () => {
+    const { vi: identity, store } = makeVaultIdentity({
+      initialLocalId: VALID_UUID_A,
+    });
+    await expect(identity.adoptVaultId('not-a-uuid')).rejects.toMatchObject({
+      code: 'VAULT_ID_INVALID',
+    });
+    // Local id must be untouched — saveVaultId never called.
+    expect(store.saveVaultId).not.toHaveBeenCalled();
+    expect(store.currentVaultId).toBe(VALID_UUID_A);
+  });
+
+  it('rejects an empty string', async () => {
+    const { vi: identity, store } = makeVaultIdentity({ initialLocalId: null });
+    await expect(identity.adoptVaultId('')).rejects.toMatchObject({
+      code: 'VAULT_ID_INVALID',
+    });
+    expect(store.saveVaultId).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// L1: vault_id is truncated in log payloads
+// ---------------------------------------------------------------------------
+
+describe('VaultIdentity log redaction', () => {
+  it('vault_id_generated logs a truncated id (first 8 chars + ellipsis)', async () => {
+    const { vi: identity } = makeVaultIdentity({
+      initialLocalId: null,
+      generateId: () => VALID_UUID_A,
+    });
+    const logger = (
+      identity as unknown as { deps: { logger: ReturnType<typeof makeLogger> } }
+    ).deps.logger;
+    await identity.ensureLocalVaultId();
+    expect(logger.info).toHaveBeenCalledWith(
+      'vault_id_generated',
+      { vault_id: '3f2a8c1e…' },
+    );
+  });
+
+  it('vault_id_adopted logs a truncated id', async () => {
+    const { vi: identity } = makeVaultIdentity({ initialLocalId: null });
+    const logger = (
+      identity as unknown as { deps: { logger: ReturnType<typeof makeLogger> } }
+    ).deps.logger;
+    await identity.adoptVaultId(VALID_UUID_B);
+    expect(logger.info).toHaveBeenCalledWith(
+      'vault_id_adopted',
+      { vault_id: '7c1e9b22…' },
+    );
+  });
+
+  it('vault_meta_claimed logs a truncated id', async () => {
+    const { vi: identity } = makeVaultIdentity({ initialLocalId: VALID_UUID_A });
+    const logger = (
+      identity as unknown as { deps: { logger: ReturnType<typeof makeLogger> } }
+    ).deps.logger;
+    await identity.claimRemote(VALID_UUID_A);
+    expect(logger.info).toHaveBeenCalledWith(
+      'vault_meta_claimed',
+      { vault_id: '3f2a8c1e…' },
+    );
+  });
 });
