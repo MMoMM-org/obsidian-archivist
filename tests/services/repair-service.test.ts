@@ -19,7 +19,7 @@ import { RepairService } from '../../src/services/RepairService';
 import type { SnapshotIndex } from '../../src/model/SnapshotIndex';
 import type { SnapshotManifest } from '../../src/model/Manifest';
 import { CorruptionError, NetworkError, PathError } from '../../src/model/Errors';
-import { snapshotsDir, snapshotPath, snapshotIndexPath } from '../../src/util/paths';
+import { gcLockPath, snapshotsDir, snapshotPath, snapshotIndexPath } from '../../src/util/paths';
 
 const VAULT_PREFIX = 'test-vault';
 const SNAPSHOTS_DIR = snapshotsDir(VAULT_PREFIX);
@@ -98,6 +98,11 @@ function makeFakeDropbox(): {
       return entries;
     }),
     deleteV2: vi.fn(async (path: string) => {
+      // Mirror Dropbox's behavior: deleting a non-existent path raises
+      // PATH_NOT_FOUND. Tests rely on this for clearGcLock idempotency.
+      if (!store.has(path)) {
+        throw new PathError('PATH_NOT_FOUND', `not found: ${path}`, false);
+      }
       store.delete(path);
     }),
   };
@@ -384,5 +389,57 @@ describe('RepairService.gcOrphanContent', () => {
     const r1 = await repair.gcOrphanContent();
     expect(r1.state).toBe('skipped_locked');
     expect(r1.blocking_lock?.age_ms).toBe(12 * 60 * 1000);
+  });
+});
+
+describe('RepairService.rebuildSnapshotIndex — cache invalidation', () => {
+  it('calls invalidateManifestCache after a successful rebuild', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    seedManifest(fakeDropbox.store, makeManifest('2026-04-26T21-48-full'));
+    const indexStore = makeFakeSnapshotIndexStore(makeIndex(['2026-04-26T21-48-full']));
+    const invalidate = vi.fn();
+
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: indexStore as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+      invalidateManifestCache: invalidate,
+    });
+
+    await repair.rebuildSnapshotIndex();
+    expect(invalidate).toHaveBeenCalledOnce();
+  });
+});
+
+describe('RepairService.clearGcLock', () => {
+  it('deletes the gc_lock file when present and returns true', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    fakeDropbox.store.set(gcLockPath(VAULT_PREFIX), { schema_version: '1.0', started_at: 'x' });
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: makeFakeSnapshotIndexStore(null) as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+
+    const cleared = await repair.clearGcLock();
+    expect(cleared).toBe(true);
+    expect(fakeDropbox.store.has(gcLockPath(VAULT_PREFIX))).toBe(false);
+  });
+
+  it('returns false when no lock is present (idempotent)', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: makeFakeSnapshotIndexStore(null) as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+    const cleared = await repair.clearGcLock();
+    expect(cleared).toBe(false);
   });
 });

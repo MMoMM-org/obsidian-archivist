@@ -312,13 +312,19 @@ export default class ArchivistPlugin extends Plugin {
     });
 
     // RepairService — user-triggerable recovery (rebuild snapshot_index +
-    // manual GC). See `docs/troubleshooting/dropbox-corruption.md`.
+    // manual GC + clear stale gc_lock). See
+    // `docs/troubleshooting/dropbox-corruption.md`. The cache invalidator
+    // is wired below where ManifestCache is constructed; it's set as a
+    // mutable field so the construction order doesn't force a circular
+    // dep (RepairService is built before ManifestCache).
+    const repairCacheInvalidator: { invalidate: (() => void) | null } = { invalidate: null };
     const repairService = new RepairService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       snapshotIndexStore,
       gcService,
       vaultPrefix,
       logger: this.logger,
+      invalidateManifestCache: () => repairCacheInvalidator.invalidate?.(),
     });
 
     const maintenanceScheduler = new MaintenanceScheduler({
@@ -352,6 +358,11 @@ export default class ArchivistPlugin extends Plugin {
       logger: this.logger,
     });
     this._manifestCache = manifestCache;
+    // Late-bind the manifest-cache invalidator into the RepairService so
+    // a Repair-Index command flushes the in-process cache; without this,
+    // the Backup Browser would keep showing the phantom row until the
+    // next plugin reload despite the on-Dropbox index being correct.
+    repairCacheInvalidator.invalidate = (): void => manifestCache.invalidate();
 
     const restoreService = new RestoreService({
       loader: manifestCache,

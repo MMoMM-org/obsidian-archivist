@@ -116,13 +116,14 @@ export function registerShowHistoryCommand(deps: ShowHistoryCommandDeps): void {
 
 export interface RepairCommandsDeps {
   plugin: Pick<Plugin, 'addCommand'>;
-  repair: Pick<RepairService, 'rebuildSnapshotIndex' | 'gcOrphanContent'>;
+  repair: Pick<RepairService, 'rebuildSnapshotIndex' | 'gcOrphanContent' | 'clearGcLock'>;
   notify: NotifyFn;
   logger: Logger;
 }
 
 const REPAIR_INDEX_COMMAND_ID = 'archivist-repair-backup-index';
 const GC_ORPHAN_CONTENT_COMMAND_ID = 'archivist-gc-orphan-content';
+const CLEAR_GC_LOCK_COMMAND_ID = 'archivist-clear-gc-lock';
 
 export function registerRepairCommands(deps: RepairCommandsDeps): void {
   deps.plugin.addCommand({
@@ -134,6 +135,11 @@ export function registerRepairCommands(deps: RepairCommandsDeps): void {
     id: GC_ORPHAN_CONTENT_COMMAND_ID,
     name: S.CMD_GC_ORPHAN_CONTENT,
     callback: () => { void runGcOrphanContent(deps); },
+  });
+  deps.plugin.addCommand({
+    id: CLEAR_GC_LOCK_COMMAND_ID,
+    name: S.CMD_CLEAR_GC_LOCK,
+    callback: () => { void runClearGcLock(deps); },
   });
 }
 
@@ -158,6 +164,18 @@ async function runRepairIndex(deps: RepairCommandsDeps): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     deps.notify(S.REPAIR_INDEX_FAILED(msg), { timeout: 10_000 });
     deps.logger.warn('repair_index_command_failed', { error: msg });
+  }
+}
+
+async function runClearGcLock(deps: RepairCommandsDeps): Promise<void> {
+  try {
+    const cleared = await deps.repair.clearGcLock();
+    deps.notify(cleared ? S.GC_LOCK_CLEARED : S.GC_LOCK_CLEAR_NONE, { timeout: 6_000 });
+    deps.logger.info('clear_gc_lock_command_done', { cleared });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.GC_LOCK_CLEAR_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('clear_gc_lock_command_failed', { error: msg });
   }
 }
 
