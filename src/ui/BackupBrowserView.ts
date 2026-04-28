@@ -14,7 +14,7 @@
 //   - Keyboard nav: column wrappers have tabindex="0"; row items use
 //     tabindex="-1" with aria-selected so AT can track selection.
 
-import { ItemView, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
+import { ItemView, prepareFuzzySearch, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
@@ -240,6 +240,75 @@ function sortTree(node: FileTreeNode): void {
   for (const child of node.children) {
     if (child.isDir) sortTree(child);
   }
+}
+
+// ---------------------------------------------------------------------------
+// filterFileTree — pure, exported for tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Matcher fn — same shape as Obsidian's `prepareFuzzySearch(query)` return:
+ * given a candidate string, returns a `{ score }` if it matches, else `null`.
+ * Tests inject a substring matcher; production passes `prepareFuzzySearch(q)`.
+ */
+export type FileTreeMatcher = (text: string) => { score: number } | null;
+
+/**
+ * Prune `tree` to the subtree visible under `match`. Returns a new tree —
+ * the input is not mutated.
+ *
+ * Semantics (mirrors how Marcus described the desired behaviour):
+ *
+ *   - File matches  → file is kept; its ancestor folders are kept so the
+ *                     hierarchy stays visible (`/Atlas/Notes/Hizyx.md`).
+ *   - Folder matches → ALL descendants of that folder are kept, even ones
+ *                     whose own path doesn't match — so typing `900 Support`
+ *                     surfaces the whole folder ready to browse + restore.
+ *   - No match anywhere on a branch → branch is dropped.
+ *
+ * `match === null` means "no filter" — returns the original tree (not a
+ * clone, since the caller treats it as read-only either way).
+ */
+export function filterFileTree(
+  tree: FileTreeNode,
+  match: FileTreeMatcher | null,
+): FileTreeNode {
+  if (match === null) return tree;
+  const root: FileTreeNode = { name: '', fullPath: '', isDir: true, children: [] };
+  for (const child of tree.children) {
+    const kept = pruneNode(child, match);
+    if (kept) root.children.push(kept);
+  }
+  return root;
+}
+
+function pruneNode(node: FileTreeNode, match: FileTreeMatcher): FileTreeNode | null {
+  if (!node.isDir) {
+    return match(node.fullPath) ? cloneNode(node) : null;
+  }
+  // Folder: a self-match keeps the entire subtree intact so the user can
+  // browse + bulk-restore the folder they just searched for. Without this
+  // short-circuit, a folder match would only keep child files that ALSO
+  // happen to match — which surprises the user expecting a folder view.
+  if (match(node.fullPath)) {
+    return cloneNode(node);
+  }
+  const children: FileTreeNode[] = [];
+  for (const child of node.children) {
+    const kept = pruneNode(child, match);
+    if (kept) children.push(kept);
+  }
+  if (children.length === 0) return null;
+  return { name: node.name, fullPath: node.fullPath, isDir: true, children };
+}
+
+function cloneNode(node: FileTreeNode): FileTreeNode {
+  return {
+    name: node.name,
+    fullPath: node.fullPath,
+    isDir: node.isDir,
+    children: node.children.map(cloneNode),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -586,6 +655,11 @@ export class BackupBrowserView extends ItemView {
   private selectedPath: string | null = null;
   private selectedDir: string | null = null;
   private fileState: Record<string, FileEntry> = {};
+  // Files-column search state. Persists across snapshot changes — searching
+  // for the same file across snapshots is the obvious use case, and clearing
+  // the query on every snapshot click would frustrate that workflow.
+  private searchQuery: string = '';
+  private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Fix 3: closed flag — continuations bail if view was closed during an await.
   private _closed = false;
@@ -646,6 +720,7 @@ export class BackupBrowserView extends ItemView {
     // -- Files column --
     const filesColEl = columnsEl.createDiv({ cls: 'archivist-files' });
     this.filesColHeaderEl = filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
+    this._renderFilesSearchBar(filesColEl);
     this.filesListEl = filesColEl.createDiv({
       cls: 'archivist-files-list',
       attr: { tabindex: '0', role: 'listbox' },
@@ -687,6 +762,10 @@ export class BackupBrowserView extends ItemView {
     this._closed = true;
     this.unsubBanners?.();
     this.unsubBanners = null;
+    if (this.searchDebounceTimer !== null) {
+      activeWindow.clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
     this.contentEl.empty();
   }
 
@@ -782,9 +861,40 @@ export class BackupBrowserView extends ItemView {
   }
 
   private _renderFilesColumn(tree: FileTreeNode): void {
+    const query = this.searchQuery.trim();
+    if (query === '') {
+      renderFilesColumn(
+        this.filesListEl,
+        tree,
+        this.selectedPath,
+        this.selectedDir,
+        {
+          onSelectFile: (path) => { void this._selectFile(path); },
+          onSelectDir: (prefix) => { void this._selectDir(prefix); },
+        },
+      );
+      return;
+    }
+
+    // prepareFuzzySearch is documented as performance-sensitive past a few
+    // thousand calls; with 6k+ files we are at the edge but the 150 ms
+    // debounce keeps re-renders to one per typing pause.
+    const fuzzy = prepareFuzzySearch(query);
+    const matcher: FileTreeMatcher = (text) => fuzzy(text);
+    const pruned = filterFileTree(tree, matcher);
+
+    if (pruned.children.length === 0) {
+      this.filesListEl.empty();
+      this.filesListEl.createEl('p', {
+        text: S.BROWSER_FILES_SEARCH_NO_MATCHES(query),
+        cls: 'archivist-files-no-matches',
+      });
+      return;
+    }
+
     renderFilesColumn(
       this.filesListEl,
-      tree,
+      pruned,
       this.selectedPath,
       this.selectedDir,
       {
@@ -792,6 +902,50 @@ export class BackupBrowserView extends ItemView {
         onSelectDir: (prefix) => { void this._selectDir(prefix); },
       },
     );
+  }
+
+  /**
+   * Render the search input above the files list. Debounced 150 ms so that
+   * pruning 6k nodes per keystroke stays out of the typing hot path.
+   * Selection state is kept across query changes — a file selected before a
+   * search is still selected after, even if it's not currently visible in
+   * the pruned view, so clearing the query restores it.
+   */
+  private _renderFilesSearchBar(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: 'archivist-files-search' });
+    const input = wrap.createEl('input', {
+      attr: {
+        type: 'search',
+        placeholder: S.BROWSER_FILES_SEARCH_PLACEHOLDER,
+        'aria-label': S.BROWSER_FILES_SEARCH_PLACEHOLDER,
+      },
+      cls: 'archivist-files-search-input',
+    });
+    input.value = this.searchQuery;
+    input.addEventListener('input', () => {
+      const next = input.value;
+      if (this.searchDebounceTimer !== null) {
+        activeWindow.clearTimeout(this.searchDebounceTimer);
+      }
+      this.searchDebounceTimer = activeWindow.setTimeout(() => {
+        this.searchDebounceTimer = null;
+        this._applySearchQuery(next);
+      }, 150);
+    });
+  }
+
+  /**
+   * Set the active search query and re-render the files column.
+   * Exposed via internal field so tests can drive it without simulating a
+   * debounced input event.
+   */
+  private _applySearchQuery(query: string): void {
+    if (this._closed) return;
+    this.searchQuery = query;
+    if (this.selectedSnapshot) {
+      const tree = buildFileTree(this.fileState);
+      this._renderFilesColumn(tree);
+    }
   }
 
   async _selectDir(prefix: string): Promise<void> {

@@ -43,8 +43,10 @@ vi.mock('../../src/ui/ConfirmRestoreModal', () => ({
 import {
   groupSnapshotsByDate,
   buildFileTree,
+  filterFileTree,
   BackupBrowserView,
   type BackupBrowserDeps,
+  type FileTreeMatcher,
 } from '../../src/ui/BackupBrowserView';
 import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
@@ -241,6 +243,117 @@ describe('buildFileTree', () => {
     const folderIdx = names.indexOf('a-folder');
     const fileIdx = names.indexOf('z-note.md');
     expect(folderIdx).toBeLessThan(fileIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 2b: filterFileTree — fuzzy-prune semantics
+// ---------------------------------------------------------------------------
+//
+// These tests inject a substring matcher rather than relying on the real
+// Obsidian fuzzy implementation. The prune algorithm is what's under test;
+// the matcher is its strategy boundary.
+
+/** Build a substring matcher (case-insensitive, score = -index). */
+function substringMatcher(query: string): FileTreeMatcher {
+  const q = query.toLowerCase();
+  return (text) => {
+    if (q === '') return { score: 0 };
+    const i = text.toLowerCase().indexOf(q);
+    return i < 0 ? null : { score: -i };
+  };
+}
+
+/** Collect all file `fullPath` values in a (possibly pruned) tree. */
+function collectFilePaths(node: { children: Array<{ fullPath: string; isDir: boolean; children: unknown[] }>; }): string[] {
+  const out: string[] = [];
+  const walk = (n: { children: Array<{ fullPath: string; isDir: boolean; children: unknown[] }>; }): void => {
+    for (const c of n.children) {
+      if (!c.isDir) out.push(c.fullPath);
+      else walk(c as unknown as typeof n);
+    }
+  };
+  walk(node);
+  return out.sort();
+}
+
+describe('filterFileTree', () => {
+  it('returns the original tree when matcher is null (no filter)', () => {
+    const tree = buildFileTree(makeVaultState(['a.md', 'b/c.md']));
+    const result = filterFileTree(tree, null);
+    expect(result).toBe(tree);
+  });
+
+  it('keeps a file matched by basename and prunes the rest', () => {
+    const tree = buildFileTree(makeVaultState([
+      'Atlas/Notes/Hizyx.md',
+      'Atlas/Notes/Other.md',
+      'Calendar/today.md',
+    ]));
+    const result = filterFileTree(tree, substringMatcher('hizyx'));
+    expect(collectFilePaths(result)).toEqual(['Atlas/Notes/Hizyx.md']);
+  });
+
+  it('keeps ancestor folders for matched files so hierarchy stays visible', () => {
+    const tree = buildFileTree(makeVaultState(['Atlas/Notes/Hizyx.md']));
+    const result = filterFileTree(tree, substringMatcher('hizyx'));
+    // Walk down: root → Atlas (dir) → Notes (dir) → Hizyx.md
+    expect(result.children).toHaveLength(1);
+    const atlas = result.children[0];
+    expect(atlas).toMatchObject({ name: 'Atlas', isDir: true });
+    expect(atlas.children).toHaveLength(1);
+    const notes = atlas.children[0];
+    expect(notes).toMatchObject({ name: 'Notes', isDir: true });
+    expect(notes.children).toHaveLength(1);
+    expect(notes.children[0]).toMatchObject({ name: 'Hizyx.md', isDir: false });
+  });
+
+  it('matching a folder path keeps ALL its descendants (the "900 Support" case)', () => {
+    const tree = buildFileTree(makeVaultState([
+      'X/900 Support/notes.md',
+      'X/900 Support/sub/deep.md',
+      'X/900 Support/todos.md',
+      'X/Other/unrelated.md',
+    ]));
+    const result = filterFileTree(tree, substringMatcher('900 Support'));
+    const paths = collectFilePaths(result);
+    expect(paths).toEqual([
+      'X/900 Support/notes.md',
+      'X/900 Support/sub/deep.md',
+      'X/900 Support/todos.md',
+    ]);
+  });
+
+  it('drops a branch with no descendants matching the query', () => {
+    const tree = buildFileTree(makeVaultState([
+      'foo/a.md',
+      'bar/b.md',
+    ]));
+    const result = filterFileTree(tree, substringMatcher('nope'));
+    expect(result.children).toHaveLength(0);
+  });
+
+  it('case-insensitive matching delegated entirely to the injected matcher', () => {
+    const tree = buildFileTree(makeVaultState(['Atlas/HIZYX.md']));
+    const result = filterFileTree(tree, substringMatcher('hizyx'));
+    expect(collectFilePaths(result)).toEqual(['Atlas/HIZYX.md']);
+  });
+
+  it('does not mutate the input tree', () => {
+    const tree = buildFileTree(makeVaultState([
+      'foo/a.md',
+      'bar/b.md',
+    ]));
+    const beforePaths = collectFilePaths(tree);
+    filterFileTree(tree, substringMatcher('foo'));
+    expect(collectFilePaths(tree)).toEqual(beforePaths);
+  });
+
+  it('returns a new root with empty children when filter excludes everything', () => {
+    const tree = buildFileTree(makeVaultState(['x.md', 'y.md']));
+    const result = filterFileTree(tree, substringMatcher('nothing'));
+    expect(result).not.toBe(tree);
+    expect(result.children).toHaveLength(0);
   });
 });
 
@@ -1360,6 +1473,130 @@ describe('BackupBrowserView directory selection', () => {
       {},
     );
     expect(internal._dirRestoreInFlight).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section: BackupBrowserView — files-column fuzzy search
+// ---------------------------------------------------------------------------
+//
+// View-level tests for the search bar wired in onOpen: applying a query
+// prunes the rendered tree, an unmatched query shows the "no matches"
+// placeholder, and clearing the query restores the full list. These tests
+// drive `_applySearchQuery` directly to bypass the 150ms debounce — the
+// debounce is plain `setTimeout` plumbing and not what's under test.
+
+describe('BackupBrowserView fuzzy search', () => {
+  it('renders a search input above the files list', async () => {
+    const deps = makeDeps();
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    const searchEl = findByClass(view.contentEl, 'archivist-files-search');
+    expect(searchEl).toBeDefined();
+    const input = findByClass(searchEl!, 'archivist-files-search-input');
+    expect(input).toBeDefined();
+    expect(input!.attrs['placeholder']).toBe(S.BROWSER_FILES_SEARCH_PLACEHOLDER);
+  });
+
+  it('prunes the file list to matches when a query is applied', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState([
+          'Atlas/Notes/Hizyx.md',
+          'Atlas/Notes/Other.md',
+          'Calendar/today.md',
+        ])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery('hizyx');
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list');
+    const text = collectText(filesList!);
+    expect(text).toContain('Hizyx.md');
+    expect(text).not.toContain('Other.md');
+    expect(text).not.toContain('today.md');
+  });
+
+  it('a folder-path match keeps the entire folder visible (the "900 Support" case)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState([
+          'X/900 Support/notes.md',
+          'X/900 Support/todos.md',
+          'X/Other/unrelated.md',
+        ])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery('900 Support');
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list');
+    const text = collectText(filesList!);
+    expect(text).toContain('notes.md');
+    expect(text).toContain('todos.md');
+    expect(text).not.toContain('unrelated.md');
+  });
+
+  it('shows the no-matches placeholder when the query excludes everything', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['a.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery('zzz-no-match');
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list');
+    const text = collectText(filesList!);
+    expect(text).toContain(S.BROWSER_FILES_SEARCH_NO_MATCHES('zzz-no-match'));
+  });
+
+  it('clearing the query restores the full file list', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState([
+          'a.md',
+          'b.md',
+        ])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const apply = (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery.bind(view);
+    apply('a.md');
+    let filesList = findByClass(view.contentEl, 'archivist-files-list')!;
+    expect(collectText(filesList)).toContain('a.md');
+    expect(collectText(filesList)).not.toContain('b.md');
+
+    apply('');
+    filesList = findByClass(view.contentEl, 'archivist-files-list')!;
+    const text = collectText(filesList);
+    expect(text).toContain('a.md');
+    expect(text).toContain('b.md');
   });
 });
 

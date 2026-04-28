@@ -244,6 +244,37 @@
 	padding: 6px;
 }
 
+/* Files-column fuzzy search bar — sits between the column header and the
+   file list, so the input does not scroll away with the list contents. */
+.archivist-files-search {
+	flex: 0 0 auto;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background-color: var(--background-primary);
+}
+
+.archivist-files-search-input {
+	width: 100%;
+	padding: 4px 8px;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+}
+
+.archivist-files-search-input:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
+.archivist-files-no-matches {
+	padding: 12px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	text-align: center;
+}
+
 /* Date-grouping h4 in the snapshots column ("Today", "Yesterday", …) */
 .archivist-snapshot-group {
 	margin: 8px 6px 4px 6px;
