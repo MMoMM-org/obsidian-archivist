@@ -239,24 +239,44 @@ function makeHarness(
   const pluginStore = makeFakePluginStore(opts.initialIndex, opts.settingsOverrides, opts.initialQueue);
   const snapshotIndexStore = opts.snapshotIndexStore ?? makeFakeSnapshotIndexStore(dropbox);
 
-  // When the test provides an initialIndex (claiming a chain exists), seed a
-  // matching HEAD on Dropbox unless the test already supplied one. Mirrors
-  // the production invariant: a non-null local index always has a HEAD on
-  // Dropbox. Without this, the runIncremental HEAD-existence check (added
+  // When the test provides an initialIndex (claiming a chain exists), seed
+  // both HEAD.json and the parent manifest on Dropbox unless the test
+  // already supplied them. Mirrors the production invariant: a non-null
+  // local index always has a HEAD on Dropbox AND its referenced parent
+  // manifest. Without this, the runIncremental parent-manifest probe (added
   // for corrupt-state recovery) trips on every reconcile / inc-after-priming
   // test and falls back to FULL.
-  if (opts.initialIndex && !dropbox.store.has(HEAD_PATH)) {
+  if (opts.initialIndex) {
     const lastId =
       opts.initialIndex.last_inc_snapshot_id ??
       opts.initialIndex.last_full_snapshot_id ??
-      'seeded-head';
-    dropbox.store.set(HEAD_PATH, {
-      schema_version: '1.0',
-      snapshot_id: lastId,
-      snapshot_type: opts.initialIndex.last_inc_snapshot_id ? 'inc' : 'full',
-      device_id: DEVICE_ID,
-      committed_at: opts.now?.() ?? '2026-04-24T10:00:00.000Z',
-    });
+      null;
+    if (lastId !== null) {
+      if (!dropbox.store.has(HEAD_PATH)) {
+        dropbox.store.set(HEAD_PATH, {
+          schema_version: '1.0',
+          snapshot_id: lastId,
+          snapshot_type: opts.initialIndex.last_inc_snapshot_id ? 'inc' : 'full',
+          device_id: DEVICE_ID,
+          committed_at: opts.now?.() ?? '2026-04-24T10:00:00.000Z',
+        });
+      }
+      // Parent manifest probe target — only seed if id matches the
+      // production-required regex; tests that fabricate non-conforming ids
+      // (e.g. 'seeded-head') skip the seed and accept the fallback-to-full.
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-(full|inc)$/.test(lastId)) {
+        const parentManifestPath = `${VAULT_PREFIX}/snapshots/${lastId}.json`;
+        if (!dropbox.store.has(parentManifestPath)) {
+          dropbox.store.set(parentManifestPath, {
+            schema_version: '1.0',
+            id: lastId,
+            type: lastId.endsWith('-full') ? 'full' : 'inc',
+            vault_prefix: VAULT_PREFIX,
+            files: opts.initialIndex.files ?? {},
+          });
+        }
+      }
+    }
   }
 
   const deps: BackupServiceDeps = {
