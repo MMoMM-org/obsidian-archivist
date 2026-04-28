@@ -9,7 +9,15 @@ export const DROPBOX_REVOKE_URL = 'https://api.dropboxapi.com/2/auth/token/revok
 export const DROPBOX_USERS_GET_CURRENT_ACCOUNT_URL =
   'https://api.dropboxapi.com/2/users/get_current_account';
 export const OAUTH_REDIRECT_URI = 'obsidian://archivist-oauth';
-// Dropbox expects space-separated scopes as a single string. Covers upload,
-// download, list, and account_info (needed for dropbox_account_email later).
+// Dropbox expects space-separated scopes as a single string. Four scopes:
+//   files.content.write — uploadBlob / uploadJson / uploadLarge / deleteV2
+//   files.content.read  — downloadBytes / downloadJson
+//   files.metadata.read — listFolder (orphan-blob detection in GC)
+//   account_info.read   — fetch dropbox_account_email for the Settings UI
+//
+// `files.metadata.write` is NOT requested — we never call filesMove,
+// filesCopyV2, or filesCreateFolderV2. Keeping the scope list to the
+// minimum surface narrows the OAuth consent screen ("view information
+// about" instead of "view AND edit information about").
 export const OAUTH_SCOPE =
-  'files.content.write files.content.read files.metadata.read files.metadata.write account_info.read';
+  'files.content.write files.content.read files.metadata.read account_info.read';

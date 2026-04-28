@@ -31,23 +31,27 @@ export const S = {
   RIBBON_ARIA_AUTH_LOST: 'Archivist, Dropbox disconnected, reconnect in settings',
 
   // ─── Commands ────────────────────────────────────────────────────
-  CMD_BACKUP_NOW: 'Archivist: Back up now',
-  CMD_FULL_BACKUP_NOW: 'Archivist: Force full backup now',
+  // Command palette display names. Obsidian automatically prefixes every
+  // command with the plugin name (`manifest.json` → "name": "Archivist"),
+  // so leaving "Archivist: " in here would render as "Archivist: Archivist: …"
+  // in the palette once the plugin is installed from the community store.
+  CMD_BACKUP_NOW: 'Back up now',
+  CMD_FULL_BACKUP_NOW: 'Force full backup now',
 
   // ─── Recovery banner ─────────────────────────────────────────────
   CHAIN_RECOVERY_BANNER:
     'Backup chain incomplete on Dropbox. Running a fresh full backup to recover — this may take several minutes.',
-  CMD_RESTORE_FILE: 'Archivist: Restore a version of the current file…',
-  CMD_OPEN_BACKUP_BROWSER: 'Archivist: Open Backup Browser',
-  CMD_OPEN_SETTINGS: 'Archivist: Open settings',
-  CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
-  CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
+  CMD_RESTORE_FILE: 'Restore a version of the current file…',
+  CMD_OPEN_BACKUP_BROWSER: 'Open Backup Browser',
+  CMD_OPEN_SETTINGS: 'Open settings',
+  CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Show history of current file',
+  CMD_REPAIR_INDEX: 'Repair backup index (rebuild from Dropbox manifests)',
   // M17: user-facing labels avoid "GC" / "garbage collect" / "orphan
   // content" jargon. Command IDs are unchanged so saved hotkeys keep
   // working (see COMPAT-003 in the post-V1 review).
-  CMD_GC_ORPHAN_CONTENT: 'Archivist: Remove unused backup blobs',
-  CMD_CLEAR_GC_LOCK: 'Archivist: Clear stuck garbage-collection lock',
-  CMD_VERIFY_VAULT_OWNERSHIP: 'Archivist: Verify backup ownership',
+  CMD_GC_ORPHAN_CONTENT: 'Remove unused backup blobs',
+  CMD_CLEAR_GC_LOCK: 'Clear stuck garbage-collection lock',
+  CMD_VERIFY_VAULT_OWNERSHIP: 'Verify backup ownership',
 
   // ─── Verify-vault-ownership notifications ────────────────────────
   VERIFY_OWNERSHIP_RUNNING: 'Archivist: checking Dropbox vault ownership…',
@@ -305,7 +309,7 @@ export const S = {
 
   // ─── Predecessor-plugin notice (F8) ──────────────────────────────
   PREDECESSOR_NOTICE:
-    'Disable the old plugin before enabling Archivist backups to avoid conflicting uploads.',
+    'Aut-O-Backups is also enabled. Disable it to avoid backing up your vault twice — both plugins back up to Dropbox in their own folder, so running both wastes CPU and bandwidth.',
   PREDECESSOR_NOTICE_DISMISS: 'Dismiss',
 
   // ─── Settings sections ───────────────────────────────────────────

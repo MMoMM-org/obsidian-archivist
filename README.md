@@ -111,11 +111,30 @@ This is a deliberate trade-off. Obsidian's plugin API does not expose a system-k
 - **If you suspect a token leak**, click *Disconnect Dropbox* in Settings (this revokes the token server-side) and reconnect. You can also revoke from <https://www.dropbox.com/account/connected_apps>.
 - **If you sync the `Apps/Archivist/` folder locally** (e.g. via the Dropbox Desktop app's selective-sync) consider excluding it if disk space is tight — the backup data has nothing useful for live work, only for the standalone CLI's break-glass recovery.
 
-## Migrating from `obsidian-dropbox-backups`
+## Already using Aut-O-Backups?
 
-If you previously used [obsidian-dropbox-backups](https://github.com/AvianFlu/obsidian-dropbox-backups) (the predecessor plugin), pick one and stick with it — running both in the same vault doesn't lose data (each is a separate Dropbox app talking to its own folder), but it eats CPU + bandwidth backing up the same vault twice. Archivist will show a one-time advisory if it detects the predecessor enabled in Obsidian on first load, suggesting you disable it.
+There's another Obsidian community plugin that also backs up to Dropbox: [Aut-O-Backups](https://github.com/ryanpcmcquen/obsidian-dropbox-backups) by ryanpcmcquen (plugin id `obsidian-dropbox-backups`). The two are independent — they're separate Dropbox apps, talking to separate folders, with no shared state. So **running both isn't dangerous**, but it backs up the same vault twice and burns double the CPU + bandwidth for no benefit. Archivist will show a one-time advisory if it detects Aut-O-Backups enabled, suggesting you pick one.
 
-Archivist uses a different storage layout (content-addressed blobs + manifests) than the predecessor's "copy of every file" approach, so old backups are not migrated automatically — they remain in their original Dropbox path until you decide to clean them up.
+If you decide to switch from Aut-O-Backups to Archivist:
+
+1. **Disable Aut-O-Backups** in Settings → Community plugins.
+2. **Set up Archivist** (see *Setup* above).
+3. Once you've verified Archivist is backing up reliably, **uninstall Aut-O-Backups** and **delete its old backup folder on Dropbox** (it's not migrated — the storage layouts are incompatible).
+
+### Differences worth knowing about
+
+| | Aut-O-Backups | Archivist |
+|---|---|---|
+| **Storage layout** | One copy of every vault file written into Dropbox at every backup | Content-addressed blobs (SHA-256) + per-snapshot manifests |
+| **Deduplication** | None — every backup uploads everything again | Identical files uploaded once across all snapshots |
+| **Renames** | Treated as new file (re-upload at the new path) | Tracked as a manifest entry, no new bytes |
+| **Retention** | Manual (you delete old backups yourself) | Hierarchical 3-tier (never-prune window + daily + monthly) with garbage collection |
+| **Per-file restore** | Manual: copy a file out of the latest backup folder | Backup Browser tab + *Show history of current file* command |
+| **Recovery without the plugin** | Files are plain copies on Dropbox — open the folder | Standalone Node CLI (`scripts/restore.mjs`) reconstructs any snapshot from a local Dropbox-mirrored folder. See [docs/restore-guide.md](docs/restore-guide.md) |
+| **Storage growth** | Grows linearly with backup count × vault size | Grows with unique-content additions, capped by retention |
+| **Failure mode if left unattended** | Storage fills the Dropbox account | 3-tier retention prunes old data automatically; backups pause if a hard storage cap is reached |
+
+Whichever plugin you pick, **never trust a backup you haven't restored** — try a recovery on both before deciding.
 
 ## Troubleshooting
 
