@@ -42,8 +42,11 @@ export const S = {
   CMD_OPEN_SETTINGS: 'Archivist: Open settings',
   CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
   CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
-  CMD_GC_ORPHAN_CONTENT: 'Archivist: Garbage collect orphan content',
-  CMD_CLEAR_GC_LOCK: 'Archivist: Clear stale GC lock',
+  // M17: user-facing labels avoid "GC" / "garbage collect" / "orphan
+  // content" jargon. Command IDs are unchanged so saved hotkeys keep
+  // working (see COMPAT-003 in the post-V1 review).
+  CMD_GC_ORPHAN_CONTENT: 'Archivist: Remove unused backup blobs',
+  CMD_CLEAR_GC_LOCK: 'Archivist: Clear stuck garbage-collection lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Archivist: Verify backup ownership',
 
   // ─── Verify-vault-ownership notifications ────────────────────────
@@ -53,7 +56,7 @@ export const S = {
   VERIFY_OWNERSHIP_FRESH_FOLDER:
     'Archivist: Dropbox folder is empty. The next full backup will claim it for this vault.',
   VERIFY_OWNERSHIP_ADOPT_NEEDED: (remoteName: string): string =>
-    `Archivist: this folder belongs to vault "${remoteName}". Adopt or change Dropbox vault folder. Reload Obsidian to see the Adopt dialog.`,
+    `Archivist: this folder belongs to vault "${remoteName}". Connect Dropbox in Settings (if not already), then reload Obsidian to see the Adopt dialog.`,
   VERIFY_OWNERSHIP_MISMATCH: (remoteName: string): string =>
     `Archivist: vault id mismatch — this folder belongs to "${remoteName}". Backups are blocked. See docs/troubleshooting/dropbox-corruption.md.`,
   VERIFY_OWNERSHIP_REMOTE_CORRUPT:
@@ -63,8 +66,15 @@ export const S = {
 
   // ─── Adopt Vault modal (vault-id fingerprint adoption flow) ──────
   ADOPT_VAULT_TITLE: 'Adopt existing Dropbox backup?',
+  // M16: split into a one-sentence lead + two outcome-focused paragraphs
+  // (Adopt path / Cancel path). The previous single 86-word block buried
+  // the consequence of a permanent decision mid-paragraph.
   ADOPT_VAULT_BODY: (remoteName: string, remoteId: string): string =>
-    `This Dropbox folder belongs to vault "${remoteName}" (id: ${remoteId}). The vault on this device does not yet have an ID. Adopt to claim this backup for the current vault — backups will resume where the previous installation left off. Cancel to keep this device unclaimed; you can change the Dropbox vault folder in Settings instead.`,
+    `This Dropbox folder belongs to vault "${remoteName}" (id: ${remoteId}), but the vault on this device does not yet have an ID.`,
+  ADOPT_VAULT_BODY_ADOPT:
+    'Adopt: claim this backup for the current vault. Backups will resume where the previous installation left off.',
+  ADOPT_VAULT_BODY_CANCEL:
+    'Cancel: keep this device unclaimed. You can change the Dropbox vault folder in Settings instead.',
   ADOPT_VAULT_HINT:
     'See docs/operations/connecting-existing-backup.md for when adoption is the right choice.',
   ADOPT_VAULT_ADOPT: 'Adopt',
@@ -87,7 +97,7 @@ export const S = {
       : '';
     return `Archivist: backup index rebuilt — ${parts.join(', ')}.${trailer}`;
   },
-  GC_LOCK_CLEARED: 'Archivist: GC lock cleared. Run "Garbage collect orphan content" again.',
+  GC_LOCK_CLEARED: 'Archivist: stuck lock cleared. Run "Remove unused backup blobs" again.',
   GC_LOCK_CLEAR_NONE: 'Archivist: no GC lock present — nothing to clear.',
   GC_LOCK_CLEAR_FAILED: (msg: string): string =>
     `Archivist: clearing GC lock failed — ${msg}`,
@@ -227,6 +237,11 @@ export const S = {
     'A backup history chain has a missing ancestor. Some snapshots may not be restorable.',
 
   // ─── Backup Browser files-column search (fuzzy filter over full path) ─
+  // L8: marker shown next to the preview header when a snapshot's copy
+  // exists but the file is absent from the live vault (deletion). Lives
+  // in strings.ts rather than inline so future i18n / wording changes
+  // are localized.
+  BROWSER_FILE_DELETED_MARKER: '[deleted in live vault]',
   BROWSER_FILES_SEARCH_PLACEHOLDER: 'Search files…',
   BROWSER_FILES_SEARCH_NO_MATCHES: (query: string): string =>
     `No files match "${query}".`,

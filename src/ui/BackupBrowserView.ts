@@ -610,7 +610,7 @@ async function renderPreviewColumn(
   // absent from the live vault (SPEC minor). Restore actions remain enabled.
   if (isDeleted) {
     container.createEl('p', {
-      text: '[deleted in live vault]',
+      text: S.BROWSER_FILE_DELETED_MARKER,
       cls: 'archivist-preview-deleted-marker',
     });
   }

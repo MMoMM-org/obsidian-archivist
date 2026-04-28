@@ -12,14 +12,6 @@ model field names match the runtime behavior.
 
 ## How vault identity works
 
-> The mechanism described in this section is part of the vault-isolation
-> work tracked in `fix/vault-isolation`. Until that lands in main, only
-> the `vault_prefix` part of this story applies — the `vault_id` field
-> and the `vault_meta.json` adoption flow are intended behavior, not
-> current behavior. The doc reads as if everything is shipped because
-> the same content needs to move with the feature; once the feature
-> merges, this disclaimer will be deleted in the same commit.
-
 Each vault has two identifiers Archivist cares about:
 
 | Identifier | Where it lives | Purpose |
@@ -164,11 +156,6 @@ this order:
    Dropbox. Mismatch aborts the backup with a clear error and a link
    to this document. This catches the case where the prefix was
    changed via a settings sync but the runtime hadn't reloaded.
-3. **Foreign-vault badge in the Backup Browser.** Snapshots whose
-   manifest carries a different `vault_id` show a warning chip. They
-   are still browseable for restore (so you can recover from
-   accidentally-mixed history) but their files won't be auto-mistaken
-   for the current vault's content.
 
 If you saw the symptom that motivated this guide — Privat-Test files
 showing up in a Test-Vault Backup Browser — see
