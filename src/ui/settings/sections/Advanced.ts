@@ -7,7 +7,7 @@
 //   - Vault-prefix text (regex /^[a-z0-9][a-z0-9_-]{1,63}$/; change opens
 //     confirm modal — migration warning)
 //   - Diagnostic-logging toggle (OFF default — path redaction gate)
-//   - Upload-parallelism slider (1–8, default 4)
+//   - Upload-parallelism slider (1–8, default 2)
 //   - Chunk-size slider (4–64 MB, default 8)
 
 import type { SectionHost } from '../SectionHost';
@@ -120,6 +120,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   host.field({
     kind: 'slider',
     label: S.SETTINGS_UPLOAD_PARALLELISM,
+    description: S.SETTINGS_UPLOAD_PARALLELISM_HELP,
     value: a.upload_parallelism,
     min: 1,
     max: 8,
@@ -133,6 +134,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   host.field({
     kind: 'slider',
     label: S.SETTINGS_CHUNK_SIZE,
+    description: S.SETTINGS_CHUNK_SIZE_HELP,
     value: a.chunk_size_mb,
     min: 4,
     max: 64,

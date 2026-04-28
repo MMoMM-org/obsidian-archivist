@@ -13,7 +13,7 @@
 //   - No retry/backoff here — DropboxClient owns that.
 //   - Exclusions are passed in by the caller (default null for T5.3).
 //   - No MaintenanceScheduler wiring — that belongs in Phase 7 scheduler integration.
-//   - Parallelism capped by settings.advanced.upload_parallelism (default 4).
+//   - Parallelism capped by settings.advanced.upload_parallelism (default 2).
 //   - Adaptive chunk size: 8 MB for files < 50 MB, 150 MB for files >= 50 MB (PERF-M2).
 
 import { buildFullManifest, buildIncManifest } from './ManifestBuilder';
@@ -39,7 +39,12 @@ import { contentPath, headPath, snapshotPath } from '../util/paths';
 const SMALL_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024;    // 50 MB
 const SMALL_FILE_CHUNK_BYTES = 8 * 1024 * 1024;         // 8 MB
 const LARGE_FILE_CHUNK_BYTES = 150 * 1024 * 1024;       // 150 MB
-const DEFAULT_UPLOAD_PARALLELISM = 4;
+// Conservative default — real-world FULL backups of large vaults at
+// parallelism=4 saturated Dropbox's per-app `files/upload` budget on Plus-tier
+// accounts and produced sustained 429 / Retry-After cycles. 2 keeps modest
+// throughput while staying inside the budget for typical accounts.
+// User-configurable up to 8 via Advanced settings for higher-tier accounts.
+const DEFAULT_UPLOAD_PARALLELISM = 2;
 
 /**
  * Hard ceiling on the once-per-session chain-integrity walk. Each step

@@ -78,15 +78,23 @@ function asDropboxLike(sdk: Dropbox): DropboxLike {
 const DEFAULT_SINGLE_SHOT_MAX_BYTES = 150 * 1024 * 1024; // Dropbox hard cap
 const DEFAULT_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 60;
+// Defaults are intentionally conservative: real-world FULL backups of large
+// vaults (~6k files) consistently tripped 429s at the previous 8 req/s × burst
+// 15 setting on Plus-tier accounts. Reducing to 5 req/s × burst 8 keeps
+// per-app `files/upload` headroom for parallel uploaders + commit-time writes
+// without saturating Dropbox's per-app budget. Power users can still raise via
+// `rateLimit.requestsPerSecond` / `rateLimit.burst` constructor options.
+//
 // Floor we apply when Dropbox returns 429 with no Retry-After header. Keeps
 // the gate from collapsing to zero and re-flooding the API on the next tick.
 const RATE_LIMIT_MIN_PAUSE_MS = 1_000;
 // Token-bucket defaults — sized below Dropbox's documented per-app per-second
-// budget for files/upload so a 4-way parallel backup of a 5k-file vault never
-// crosses the line. Burst lets short flurries (manifest+HEAD+index writes at
-// commit time) go through without artificial delay.
-const DEFAULT_RATE_LIMIT_REQUESTS_PER_SECOND = 8;
-const DEFAULT_RATE_LIMIT_BURST = 15;
+// budget for files/upload so a 2-way parallel backup of a 6k-file vault stays
+// inside Dropbox's per-app `files/upload` budget on Plus-tier accounts. Burst
+// lets short flurries (manifest+HEAD+index writes at commit time) go through
+// without artificial delay.
+const DEFAULT_RATE_LIMIT_REQUESTS_PER_SECOND = 5;
+const DEFAULT_RATE_LIMIT_BURST = 8;
 
 export interface DropboxClientOptions {
   uploadChunkBytes?: number;
@@ -330,9 +338,9 @@ export class DropboxClient {
   // re-flooding Dropbox.
   private rateLimitResumeAt = 0;
 
-  // Proactive token bucket. Sized so a 4-way parallel upload of a 5k-file
+  // Proactive token bucket. Sized so a 2-way parallel upload of a 6k-file
   // vault stays under Dropbox's per-app `files/upload` budget by smoothing
-  // the burst from 80 req/s (4 ops × ~20/s each) to a steady ~8 req/s. Null
+  // the burst from ~40 req/s (2 ops × ~20/s each) to a steady ~5 req/s. Null
   // when explicitly disabled via options.rateLimit.enabled = false.
   private readonly bucket: TokenBucket | null;
 

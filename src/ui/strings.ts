@@ -343,7 +343,11 @@ export const S = {
   SETTINGS_VAULT_PREFIX_HELP:
     'Folder name under Apps/Archivist/. Lowercase letters, numbers, hyphens, underscores. Changing this requires restarting Obsidian; if the new folder already has backups from another vault, the next launch shows the Adopt dialog. See docs/operations/connecting-existing-backup.md.',
   SETTINGS_UPLOAD_PARALLELISM: 'Concurrent uploads',
+  SETTINGS_UPLOAD_PARALLELISM_HELP:
+    'Range: 1–8 · Default: 2. Higher values speed up backups on accounts with generous Dropbox API budgets but risk rate-limit (429) cycles on Plus-tier accounts.',
   SETTINGS_CHUNK_SIZE: 'Upload chunk size (MB)',
+  SETTINGS_CHUNK_SIZE_HELP:
+    'Range: 4–64 MB · Default: 8. Smaller chunks reduce memory use; larger chunks reduce round-trips on big files.',
   SETTINGS_TOAST_AFTER_INC: 'Show toast after incremental backup',
   SETTINGS_TOAST_AFTER_FULL: 'Show toast after full backup',
   SETTINGS_TOAST_ON_ERROR: 'Show toast on error',
