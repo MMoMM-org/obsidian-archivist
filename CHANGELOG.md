@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.5.0...0.6.0) (2026-04-28)
+
+
+### Features
+
+* **vault-identity:** cache ownership + UUID guard + surface remote-corrupt ([#19](https://github.com/MMoMM-org/obsidian-archivist/issues/19)) ([4722d00](https://github.com/MMoMM-org/obsidian-archivist/commit/4722d00e89a4512459376c2e178f6de23ba32c3f))
+
 # [0.5.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.4.1...0.5.0) (2026-04-28)
 
 
