@@ -114,14 +114,18 @@ plugin disabled mid-sweep) or if `gc_lock` is stuck, blobs can pile up.
 ## Stale GC lock
 
 A previous sweep crashed without removing `<prefix>/gc_lock`. New sweeps
-refuse to run until the lock is cleared.
+refuse to run until the lock is cleared. The age-gate auto-recovers
+after 65 minutes; this section is for the impatient case.
 
-**Repair.** Delete `Apps/Archivist/<your-vault-prefix>/gc_lock` from
-Dropbox, then run **Archivist: Garbage collect orphan content** again.
+**Repair.** Run **Archivist: Clear stale GC lock** from the command
+palette. The notice will tell you whether a lock was actually deleted
+or there was nothing to clear. After clearing, run
+**Archivist: Garbage collect orphan content** again.
 
-The lock is intentionally checked-then-written; deleting it manually is
-safe as long as you're certain no other Archivist instance is mid-sweep
-on this vault.
+The lock is intentionally checked-then-written; clearing it is safe as
+long as you're certain no other Archivist instance is mid-sweep on this
+vault. If you'd rather edit Dropbox directly instead, deleting
+`Apps/Archivist/<your-vault-prefix>/gc_lock` does the same thing.
 
 ## Manual Dropbox surgery (last resort)
 

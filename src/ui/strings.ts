@@ -32,7 +32,7 @@ export const S = {
 
   // ─── Commands ────────────────────────────────────────────────────
   CMD_BACKUP_NOW: 'Archivist: Back up now',
-  CMD_FULL_BACKUP_NOW: 'Archivist: Run full backup now (recover from corrupt Dropbox state)',
+  CMD_FULL_BACKUP_NOW: 'Archivist: Force full backup now',
 
   // ─── Recovery banner ─────────────────────────────────────────────
   CHAIN_RECOVERY_BANNER:
@@ -43,6 +43,7 @@ export const S = {
   CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
   CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
   CMD_GC_ORPHAN_CONTENT: 'Archivist: Garbage collect orphan content',
+  CMD_CLEAR_GC_LOCK: 'Archivist: Clear stale GC lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Archivist: Verify backup ownership',
 
   // ─── Verify-vault-ownership notifications ────────────────────────
@@ -75,8 +76,15 @@ export const S = {
     const parts = [`kept ${kept}`];
     if (removed > 0) parts.push(`removed ${removed} phantom${removed === 1 ? '' : 's'}`);
     if (invalid > 0) parts.push(`skipped ${invalid} invalid manifest${invalid === 1 ? '' : 's'}`);
-    return `Archivist: backup index rebuilt — ${parts.join(', ')}.`;
+    const trailer = removed > 0
+      ? ' Reload the Backup Browser tab to see the updated list.'
+      : '';
+    return `Archivist: backup index rebuilt — ${parts.join(', ')}.${trailer}`;
   },
+  GC_LOCK_CLEARED: 'Archivist: GC lock cleared. Run "Garbage collect orphan content" again.',
+  GC_LOCK_CLEAR_NONE: 'Archivist: no GC lock present — nothing to clear.',
+  GC_LOCK_CLEAR_FAILED: (msg: string): string =>
+    `Archivist: clearing GC lock failed — ${msg}`,
   REPAIR_INDEX_FAILED: (msg: string): string =>
     `Archivist: backup index rebuild failed — ${msg}`,
   GC_RUNNING: 'Archivist: garbage-collecting orphan content blobs…',
