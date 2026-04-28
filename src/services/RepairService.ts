@@ -24,7 +24,7 @@ import type { DropboxClient } from '../infra/DropboxClient';
 import type { Logger } from '../infra/Logger';
 import type { SnapshotManifest } from '../model/Manifest';
 import { isSnapshotManifest } from '../model/Manifest';
-import { snapshotsDir } from '../util/paths';
+import { gcLockPath, snapshotsDir } from '../util/paths';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import type { GCService, GCResult } from './GCService';
 
@@ -38,6 +38,13 @@ export interface RepairServiceDeps {
   gcService: GCService;
   vaultPrefix: string;
   logger: Logger;
+  /**
+   * Optional manifest-cache invalidator. The cache is process-local;
+   * after rebuilding the index on Dropbox, callers (e.g. the Backup
+   * Browser) would otherwise still see the stale list until plugin
+   * reload. A repair always invalidates downstream caches.
+   */
+  invalidateManifestCache?: () => void;
 }
 
 export interface RebuildResult {
@@ -79,6 +86,7 @@ export class RepairService {
     const kept = [...existing].filter((id) => validIds.has(id));
 
     await snapshotIndexStore.rebuild(manifests);
+    this.deps.invalidateManifestCache?.();
 
     logger.info('repair_index_rebuilt', {
       kept_count: kept.length,
@@ -87,6 +95,31 @@ export class RepairService {
     });
 
     return { phantomsRemoved, kept, invalidManifests };
+  }
+
+  /**
+   * Force-clear `<prefix>/gc_lock`. Use only when a previous sweep
+   * crashed and left the lock behind — the GC age-gate normally
+   * auto-recovers from stale locks but only after 65 minutes. This is
+   * the manual escape hatch for users who don't want to wait.
+   *
+   * Safe to call when the lock doesn't exist (logs and returns false).
+   * Returns true when a lock was actually deleted.
+   */
+  async clearGcLock(): Promise<boolean> {
+    const { dropbox, vaultPrefix, logger } = this.deps;
+    const path = gcLockPath(vaultPrefix);
+    try {
+      await dropbox.deleteV2(path);
+      logger.info('gc_lock_cleared', { path });
+      return true;
+    } catch (err) {
+      if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
+        logger.info('gc_lock_clear_no_lock', {});
+        return false;
+      }
+      throw err;
+    }
   }
 
   /**
