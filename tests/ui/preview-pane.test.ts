@@ -107,17 +107,29 @@ describe('renderPreview — XSS payloads are neutralized', () => {
     expect(text.length).toBeGreaterThan(0);
   });
 
-  it('javascript: URL in content is not injected as href', async () => {
-    const el = makeEl();
-    const content = encodeText('[click me](javascript:alert(1))');
-    await renderPreview(makeApp(), el, content, 'note.md', makeComponent());
-    // Confirm no child has an href attr with javascript:
-    function hasJsHref(e: MockEl): boolean {
-      if (e.attrs['href'] && e.attrs['href'].toLowerCase().startsWith('javascript:')) return true;
-      return e.children.some(hasJsHref);
+  // Every dangerous URL scheme browsers treat as code-executing must be
+  // blocked from being injected as href. CodeQL flagged a previous
+  // single-scheme check (js/incomplete-url-scheme-check) — exhaustive
+  // coverage now.
+  const DANGEROUS_URL_SCHEMES = ['javascript:', 'data:', 'vbscript:'];
+  function hasDangerousHref(e: MockEl): boolean {
+    const href = e.attrs['href'];
+    if (typeof href === 'string') {
+      const lower = href.toLowerCase();
+      if (DANGEROUS_URL_SCHEMES.some((scheme) => lower.startsWith(scheme))) return true;
     }
-    expect(hasJsHref(el)).toBe(false);
-  });
+    return e.children.some(hasDangerousHref);
+  }
+
+  it.each(DANGEROUS_URL_SCHEMES)(
+    'a %s URL in content is not injected as href',
+    async (scheme) => {
+      const el = makeEl();
+      const content = encodeText(`[click me](${scheme}alert(1))`);
+      await renderPreview(makeApp(), el, content, 'note.md', makeComponent());
+      expect(hasDangerousHref(el)).toBe(false);
+    },
+  );
 
   it('onerror= attribute in content is not injected as DOM attribute', async () => {
     const el = makeEl();

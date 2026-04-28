@@ -42,7 +42,6 @@ describe('Integration — retention-35d soak', () => {
 
     for (let day = 0; day < 35; day++) {
       const ts = new Date(base + day * DAY_MS);
-      const id = ts.toISOString().replace(/:/g, '-').replace('T', 'T').slice(0, 16).replace(':', '-') + '-full';
       // Build id in the format YYYY-MM-DDTHH-MM-full
       const dateStr = ts.toISOString().slice(0, 10); // YYYY-MM-DD
       const timeStr = ts.toISOString().slice(11, 16).replace(':', '-'); // HH-MM
