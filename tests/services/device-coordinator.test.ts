@@ -73,7 +73,7 @@ type FakePlugin = {
 
 function makePlugin(adapter: FakeAdapter): FakePlugin {
   return {
-    manifest: { id: 'obsidian-archivist', dir: '.obsidian/plugins/obsidian-archivist' },
+    manifest: { id: 'archivist', dir: '.obsidian/plugins/archivist' },
     app: { vault: { adapter, configDir: '.obsidian' } },
     _data: null,
     async loadData() {
@@ -158,7 +158,7 @@ function makeCoordinator(
 // device.json sidecar — DeviceCoordinator now persists per-device state
 // here (not data.json). Tests that previously inspected plugin._data.device
 // read this file instead.
-const DEVICE_JSON_PATH = '.obsidian/plugins/obsidian-archivist/device.json';
+const DEVICE_JSON_PATH = '.obsidian/plugins/archivist/device.json';
 
 function readDeviceSidecar(adapter: FakeAdapter): Record<string, unknown> {
   const raw = adapter.files.get(DEVICE_JSON_PATH);

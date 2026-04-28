@@ -25,8 +25,8 @@ describe('manifest.json', () => {
     }
   });
 
-  it("id equals 'obsidian-archivist'", () => {
-    expect(manifest.id).toBe('obsidian-archivist');
+  it("id equals 'archivist'", () => {
+    expect(manifest.id).toBe('archivist');
   });
 
   it('version matches package.json (semantic-release single source of truth)', () => {
@@ -48,15 +48,22 @@ describe('manifest.json', () => {
     expect(manifest.isDesktopOnly).toBe(true);
   });
 
-  it('has authorUrl pointing at MMoMM-org', () => {
+  it('has authorUrl pointing at the author homepage', () => {
     expect(typeof manifest.authorUrl).toBe('string');
-    expect(manifest.authorUrl as string).toContain('MMoMM-org');
+    // Obsidian community-plugin reviewers reject authorUrl values that
+    // point at the plugin's GitHub repository — the field must point
+    // somewhere about the author themselves (homepage, profile, etc).
+    expect(manifest.authorUrl as string).not.toContain('github.com/MMoMM-org/obsidian-archivist');
+    expect(manifest.authorUrl as string).toMatch(/^https?:\/\//);
   });
 
-  it('description mentions backup and Dropbox', () => {
-    const d = String(manifest.description ?? '').toLowerCase();
-    expect(d).toContain('backup');
-    expect(d).toContain('dropbox');
+  it('description mentions backup and Dropbox without "Obsidian"', () => {
+    // Obsidian reviewers reject descriptions that include "Obsidian" —
+    // the community-plugins context already implies it.
+    const d = String(manifest.description ?? '');
+    expect(d.toLowerCase()).toContain('backup');
+    expect(d.toLowerCase()).toContain('dropbox');
+    expect(d.toLowerCase()).not.toContain('obsidian');
   });
 });
 

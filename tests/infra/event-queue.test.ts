@@ -70,7 +70,7 @@ type FakePlugin = {
 
 function makePlugin(adapter: FakeAdapter): FakePlugin {
   return {
-    manifest: { id: 'obsidian-archivist', dir: '.obsidian/plugins/obsidian-archivist' },
+    manifest: { id: 'archivist', dir: '.obsidian/plugins/archivist' },
     app: { vault: { adapter, configDir: '.obsidian' } },
     _data: null,
     async loadData() {
@@ -101,7 +101,7 @@ function makeEventQueue(adapter: FakeAdapter): EventQueue {
   return new EventQueue(makePluginStore(adapter));
 }
 
-const QUEUE_PATH = '.obsidian/plugins/obsidian-archivist/pending_changes.json';
+const QUEUE_PATH = '.obsidian/plugins/archivist/pending_changes.json';
 
 function makeEntry(
   overrides: Partial<Omit<QueueEntry, 'id'>> & Pick<Omit<QueueEntry, 'id'>, 'type' | 'path'>,
