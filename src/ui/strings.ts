@@ -33,6 +33,10 @@ export const S = {
   // ─── Commands ────────────────────────────────────────────────────
   CMD_BACKUP_NOW: 'Archivist: Back up now',
   CMD_FULL_BACKUP_NOW: 'Archivist: Run full backup now (recover from corrupt Dropbox state)',
+
+  // ─── Recovery banner ─────────────────────────────────────────────
+  CHAIN_RECOVERY_BANNER:
+    'Backup chain incomplete on Dropbox. Running a fresh full backup to recover — this may take several minutes.',
   CMD_RESTORE_FILE: 'Archivist: Restore a version of the current file…',
   CMD_OPEN_BACKUP_BROWSER: 'Archivist: Open Backup Browser',
   CMD_OPEN_SETTINGS: 'Archivist: Open settings',

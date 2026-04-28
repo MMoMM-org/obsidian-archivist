@@ -94,6 +94,18 @@ export interface BackupServiceDeps {
    * service is a strict no-op for progress events.
    */
   progress?: BackupProgressReporter;
+  /**
+   * Optional callback fired when the chain-walk probe detects that the local
+   * chain references a manifest no longer on Dropbox. Triggers right before
+   * runIncremental falls back to runFull. main.ts wires this to a persistent
+   * banner so users see WHY a backup is suddenly running long. Tests omit it
+   * — the recovery still happens silently.
+   */
+  onChainCorruptionDetected?: (info: {
+    missingId: string | null;
+    referrerId: string;
+    walkedDepth: number;
+  }) => void;
   /** Injectable clock for deterministic tests. Defaults to new Date().toISOString(). */
   now?: () => string;
 }
@@ -115,6 +127,9 @@ export class BackupService {
   private readonly changeDetector: ChangeDetector | null;
   private readonly logger: Logger;
   private readonly progress: BackupProgressReporter | null;
+  private readonly onChainCorruptionDetected:
+    | ((info: { missingId: string | null; referrerId: string; walkedDepth: number }) => void)
+    | null;
   private readonly now: () => string;
 
   /**
@@ -154,6 +169,7 @@ export class BackupService {
     this.changeDetector = deps.changeDetector ?? null;
     this.logger = deps.logger ?? NOOP_LOGGER;
     this.progress = deps.progress ?? null;
+    this.onChainCorruptionDetected = deps.onChainCorruptionDetected ?? null;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
 
@@ -286,6 +302,11 @@ export class BackupService {
             walked_depth: result.walkedDepth,
             local_last_full: index.last_full_snapshot_id,
             local_last_inc: index.last_inc_snapshot_id,
+          });
+          this.onChainCorruptionDetected?.({
+            missingId: result.missingId,
+            referrerId: result.referrerId,
+            walkedDepth: result.walkedDepth,
           });
           return this.runFull(opts);
         }
