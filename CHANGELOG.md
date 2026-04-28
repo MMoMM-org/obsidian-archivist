@@ -1,3 +1,10 @@
+## [0.6.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.4...0.6.5) (2026-04-28)
+
+
+### Bug Fixes
+
+* **security:** close 9 GitHub code-scanning alerts ([#25](https://github.com/MMoMM-org/obsidian-archivist/issues/25)) ([4176a5b](https://github.com/MMoMM-org/obsidian-archivist/commit/4176a5bcda07189a5f2783f0056f919f1fe567ee))
+
 ## [0.6.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.3...0.6.4) (2026-04-28)
 
 
