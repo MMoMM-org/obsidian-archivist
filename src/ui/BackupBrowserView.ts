@@ -661,6 +661,15 @@ export class BackupBrowserView extends ItemView {
   private bannerRegionEl!: HTMLElement;
   private filesSearchLiveEl: HTMLElement | null = null;
 
+  /**
+   * H7: cached `buildFileTree(this.fileState)` result. Built once when
+   * fileState is assigned in `_selectSnapshot`, reused by every interaction
+   * that re-renders the files column (`_selectFile`, `_selectDir`,
+   * `_applySearchQuery`). Tree construction is O(files) — on a 10k-file
+   * snapshot this used to allocate a fresh tree per click + per keystroke.
+   */
+  private _cachedTree: FileTreeNode | null = null;
+
   // State
   private snapshots: SnapshotIndexEntry[] = [];
   private selectedSnapshot: SnapshotIndexEntry | null = null;
@@ -715,6 +724,9 @@ export class BackupBrowserView extends ItemView {
     // M11: reset stale search state — a query left over from a prior open
     // would render an empty tree against the not-yet-loaded fileState.
     this.searchQuery = '';
+    // H7: drop the prior tree so a re-open starts fresh once a snapshot
+    // is re-selected (fileState is also a stale leftover otherwise).
+    this._cachedTree = null;
 
     const { contentEl } = this;
     contentEl.empty();
@@ -792,6 +804,7 @@ export class BackupBrowserView extends ItemView {
     this.unsubBanners?.();
     this.unsubBanners = null;
     this.filesSearchLiveEl = null;
+    this._cachedTree = null;
     if (this.searchDebounceTimer !== null) {
       activeWindow.clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
@@ -888,9 +901,23 @@ export class BackupBrowserView extends ItemView {
     if (this._closed || this.selectedSnapshot !== capturedSnap) return;
 
     this.fileState = state;
-    const tree = buildFileTree(state);
-    this._renderFilesColumn(tree);
+    // H7: build the tree once per snapshot selection. Subsequent re-renders
+    // (file click / dir click / search debounce) read this.cachedTree
+    // instead of reconstructing.
+    this._cachedTree = buildFileTree(state);
+    this._renderFilesColumn(this._cachedTree);
     this.filesListEl.setAttribute('aria-busy', 'false');
+  }
+
+  /**
+   * Read the cached tree, or build-and-cache lazily when fileState is
+   * present but the cache hasn't been populated yet (e.g. test paths
+   * that mutate fileState directly without going through _selectSnapshot).
+   */
+  private _getTree(): FileTreeNode {
+    if (this._cachedTree) return this._cachedTree;
+    this._cachedTree = buildFileTree(this.fileState);
+    return this._cachedTree;
   }
 
   private _renderFilesColumn(tree: FileTreeNode): void {
@@ -1017,8 +1044,7 @@ export class BackupBrowserView extends ItemView {
     if (this._closed) return;
     this.searchQuery = query;
     if (this.selectedSnapshot) {
-      const tree = buildFileTree(this.fileState);
-      this._renderFilesColumn(tree);
+      this._renderFilesColumn(this._getTree());
     }
   }
 
@@ -1031,8 +1057,7 @@ export class BackupBrowserView extends ItemView {
     // Re-render the files column so the clicked dir-header picks up
     // aria-selected. Mirror of the file-row pattern in _selectFile.
     if (this.fileState) {
-      const tree = buildFileTree(this.fileState);
-      this._renderFilesColumn(tree);
+      this._renderFilesColumn(this._getTree());
     }
 
     // Compute the matching files from the already-materialized snapshot
@@ -1212,8 +1237,7 @@ export class BackupBrowserView extends ItemView {
     // it at render time, so a fresh render is needed to surface the
     // selection visually.
     if (this.fileState) {
-      const tree = buildFileTree(this.fileState);
-      this._renderFilesColumn(tree);
+      this._renderFilesColumn(this._getTree());
     }
 
     // Show loading in preview — header swaps from generic "Preview" to the

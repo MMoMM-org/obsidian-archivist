@@ -533,9 +533,11 @@ export class BackupService {
       const createdAt = this.now();
 
       // --- Read + hash changed files (only those that still exist on disk) ---
-      const existingPaths = changesPaths.filter((p) =>
-        this.vault.getFiles().some((f) => f.path === p),
-      );
+      // M8: O(1) Set lookup. The previous `getFiles().some((f) => f.path === p)`
+      // was O(n) per path × m queue paths = O(n*m), e.g. 50k * 1k = 50M
+      // string compares on the main thread before any async I/O.
+      const vaultPathSet = new Set(this.vault.getFiles().map((f) => f.path));
+      const existingPaths = changesPaths.filter((p) => vaultPathSet.has(p));
       this.progress?.setPhase('reading', existingPaths.length);
       const fileData = await this.readAndHashFiles(
         existingPaths,

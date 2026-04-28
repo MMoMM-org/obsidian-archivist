@@ -31,8 +31,22 @@ export interface ManifestCacheDeps {
   logger: Logger;
 }
 
+/**
+ * Per-id manifest cache cap. A FULL manifest of a 10k-file vault is
+ * around a megabyte of in-memory entries; without a cap, a power user
+ * browsing many historical snapshots over a single Obsidian session
+ * would accumulate all of them indefinitely. 50 covers comfortable
+ * scrolling around a working set without unbounded growth.
+ */
+const MANIFEST_CACHE_MAX_ENTRIES = 50;
+
 export class ManifestCache implements ManifestLoader {
   private indexCache: SnapshotIndex | null = null;
+  /**
+   * LRU keyed by snapshot id. Map preserves insertion order, so the
+   * oldest entry is the first key — re-insertion on every hit promotes
+   * to the most-recent end, and the cap eviction takes the head.
+   */
   private readonly manifestById = new Map<string, SnapshotManifest>();
 
   constructor(private readonly deps: ManifestCacheDeps) {}
@@ -63,10 +77,15 @@ export class ManifestCache implements ManifestLoader {
     }
   }
 
-  /** Lazy manifest load with per-id memoisation. */
+  /** Lazy manifest load with per-id LRU memoisation (cap MANIFEST_CACHE_MAX_ENTRIES). */
   async loadManifest(id: string): Promise<SnapshotManifest> {
     const cached = this.manifestById.get(id);
-    if (cached) return cached;
+    if (cached) {
+      // LRU touch: re-insert so this id is the most-recently-used.
+      this.manifestById.delete(id);
+      this.manifestById.set(id, cached);
+      return cached;
+    }
 
     await this.ensureIndexLoaded();
     const raw = await this.deps.dropbox.downloadJson(
@@ -85,6 +104,11 @@ export class ManifestCache implements ManifestLoader {
       );
     }
     this.manifestById.set(id, parsed);
+    if (this.manifestById.size > MANIFEST_CACHE_MAX_ENTRIES) {
+      // Evict the oldest entry (Map iteration order is insertion order).
+      const oldestKey = this.manifestById.keys().next().value;
+      if (oldestKey !== undefined) this.manifestById.delete(oldestKey);
+    }
     return parsed;
   }
 

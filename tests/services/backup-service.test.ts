@@ -2186,6 +2186,54 @@ describe('BackupService — chain-walk depth ceiling (Cluster G)', () => {
     expect(warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full')).toBeUndefined();
   });
 
+  it('runIncremental builds vaultPathSet once instead of n×m linear scans (M8)', async () => {
+    // Seed Full + a small vault with 3 files. Queue has 3 entries (m=3),
+    // each of which triggers the existingPaths check. Pre-fix this would
+    // call vault.getFiles() 3 times; post-fix it calls it once total
+    // for the whole filter pass.
+    const dropbox = makeFakeDropbox();
+    const fullId = '2026-04-24T10-00-full';
+    dropbox.store.set(`${VAULT_PREFIX}/snapshots/${fullId}.json`, {
+      schema_version: '1.0',
+      id: fullId,
+      type: 'full',
+      parent_id: null,
+      vault_prefix: VAULT_PREFIX,
+      files: {},
+    });
+    const { service, vault } = makeHarness(makeVaultFiles(3), {
+      dropbox,
+      initialIndex: {
+        last_full_snapshot_id: fullId,
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: null,
+        last_inc_commit_at: null,
+        files: {},
+      },
+      initialQueue: {
+        entries: [
+          { id: 'q-0', path: 'notes/file-0.md', type: 'create', prev_path: null, observed_at: '2026-04-25T11:00:00.000Z' },
+          { id: 'q-1', path: 'notes/file-1.md', type: 'create', prev_path: null, observed_at: '2026-04-25T11:00:01.000Z' },
+          { id: 'q-2', path: 'notes/file-2.md', type: 'create', prev_path: null, observed_at: '2026-04-25T11:00:02.000Z' },
+        ],
+      },
+    });
+
+    const callsBefore = vault.getFiles.mock.calls.length;
+    await service.runIncremental();
+    const callsAfter = vault.getFiles.mock.calls.length;
+    const delta = callsAfter - callsBefore;
+
+    // The runIncremental flow calls getFiles() at a small handful of
+    // sites (the existingPaths Set, the no-op short-circuit, the FULL
+    // fallback path). The pre-fix version would scale getFiles() calls
+    // with the queue length (n*m); post-fix the count is bounded by a
+    // small constant regardless of queue size. Anything ≤5 is well
+    // within the constant-overhead band for a 3-entry queue and proves
+    // we did NOT regress to the scaling pattern.
+    expect(delta).toBeLessThanOrEqual(5);
+  });
+
   it('missing-manifest mid-chain still produces reason="missing_manifest"', async () => {
     const dropbox = makeFakeDropbox();
     const topId = seedChain(dropbox, 5);

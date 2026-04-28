@@ -1754,6 +1754,54 @@ describe('BackupBrowserView accessibility', () => {
     expect(unsubs[1]).not.toHaveBeenCalled();
   });
 
+  it('caches the file tree across interactions (H7)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState([
+          'a.md',
+          'b.md',
+          'dir/c.md',
+        ])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    // After _selectSnapshot the cache must be populated.
+    const cachedAfterSelect = (
+      view as unknown as { _cachedTree: unknown }
+    )._cachedTree;
+    expect(cachedAfterSelect).not.toBeNull();
+
+    // Mutate fileState directly to a different shape — the cached tree
+    // should NOT pick up the change for cached interactions, proving the
+    // re-render reads from the cache rather than reconstructing.
+    (view as unknown as { fileState: Record<string, unknown> }).fileState = {
+      'should-not-appear.md': { hash: 'h-x', size: 4, mtime: 0 },
+    };
+    (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery('');
+
+    const filesList = findByClass(view.contentEl, 'archivist-files-list')!;
+    const text = collectText(filesList);
+    expect(text).toContain('a.md');
+    expect(text).toContain('b.md');
+    expect(text).not.toContain('should-not-appear.md');
+
+    // Selecting a fresh snapshot rebuilds the cache.
+    const snap2 = makeSnapshot({ id: '2026-04-24T09-00-full', created_at: '2026-04-24T09:00:00Z' });
+    deps.restoreService.materializeVaultStateAt = vi.fn().mockResolvedValue(makeVaultState([
+      'fresh.md',
+    ]));
+    await view._selectSnapshot(snap2);
+    const text2 = collectText(filesList);
+    expect(text2).toContain('fresh.md');
+    expect(text2).not.toContain('a.md');
+  });
+
   it('search query resets across reopen (M11)', async () => {
     const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
     const deps = makeDeps({
