@@ -145,9 +145,15 @@ export class InMemoryPluginStore {
   settings: PluginSettings;
   index: LocalIndex | null = null;
   queue: EventQueueData = { schema_version: '1.0', committed_through: null, entries: [] };
+  device: { device_id: string | null; designated: boolean; device_label: string } = {
+    device_id: null,
+    designated: false,
+    device_label: '',
+  };
 
-  // DeviceCoordinator accesses pluginStore['plugin'].loadData/saveData directly
-  // to read/write the device block stored in data.json.
+  // Plugin-data shim retained for tests that still poke at it directly.
+  // device.json now lives in its own sidecar (see PluginStore module doc) so
+  // DeviceCoordinator no longer reads from this blob.
   private dataBlob: Record<string, unknown> = {};
   readonly plugin = {
     loadData: async (): Promise<Record<string, unknown>> => this.dataBlob,
@@ -169,6 +175,8 @@ export class InMemoryPluginStore {
   async saveIndex(index: LocalIndex): Promise<void> { this.index = index; }
   async loadQueue(): Promise<EventQueueData> { return this.queue; }
   async saveQueue(q: EventQueueData): Promise<void> { this.queue = q; }
+  async loadDevice(): Promise<typeof this.device> { return { ...this.device }; }
+  async saveDevice(d: typeof this.device): Promise<void> { this.device = { ...d }; }
 }
 
 // ---------------------------------------------------------------------------

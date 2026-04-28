@@ -141,7 +141,7 @@ function makeCoordinator(
     plugin?: FakePlugin;
     adapter?: FakeAdapter;
   },
-): { coordinator: DeviceCoordinator; plugin: FakePlugin } {
+): { coordinator: DeviceCoordinator; plugin: FakePlugin; adapter: FakeAdapter } {
   const adapter = opts?.adapter ?? makeFakeAdapter();
   const plugin = opts?.plugin ?? makePlugin(adapter);
   const store = new PluginStore(plugin as never, logger);
@@ -152,7 +152,18 @@ function makeCoordinator(
     vaultPrefix: 'test-vault',
     now: opts?.now,
   });
-  return { coordinator, plugin };
+  return { coordinator, plugin, adapter };
+}
+
+// device.json sidecar — DeviceCoordinator now persists per-device state
+// here (not data.json). Tests that previously inspected plugin._data.device
+// read this file instead.
+const DEVICE_JSON_PATH = '.obsidian/plugins/obsidian-archivist/device.json';
+
+function readDeviceSidecar(adapter: FakeAdapter): Record<string, unknown> {
+  const raw = adapter.files.get(DEVICE_JSON_PATH);
+  if (raw === undefined) throw new Error('device.json not yet written');
+  return JSON.parse(raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,9 +190,7 @@ describe('DeviceCoordinator.getOrCreateDeviceId', () => {
 
     await coordinator.getOrCreateDeviceId();
 
-    const saved = plugin._data as Record<string, unknown>;
-    expect(saved).not.toBeNull();
-    const device = saved.device as Record<string, unknown>;
+    const device = readDeviceSidecar(adapter);
     expect(device.device_id).toMatch(UUID_V4_REGEX);
   });
 
@@ -295,14 +304,11 @@ describe('DeviceCoordinator.takeOwnership / releaseOwnership', () => {
   it('takeOwnership persists designated=true and updates label', async () => {
     const logger = makeLogger();
     const dropbox = makeFakeDropbox('not-found');
-    const adapter = makeFakeAdapter();
-    const plugin = makePlugin(adapter);
-    const { coordinator } = makeCoordinator(dropbox, logger, { plugin, adapter });
+    const { coordinator, adapter } = makeCoordinator(dropbox, logger);
 
     await coordinator.takeOwnership('My Mac');
 
-    const saved = plugin._data as Record<string, unknown>;
-    const device = saved.device as Record<string, unknown>;
+    const device = readDeviceSidecar(adapter);
     expect(device.designated).toBe(true);
     expect(device.device_label).toBe('My Mac');
   });
@@ -322,15 +328,12 @@ describe('DeviceCoordinator.takeOwnership / releaseOwnership', () => {
   it('releaseOwnership persists designated=false', async () => {
     const logger = makeLogger();
     const dropbox = makeFakeDropbox('not-found');
-    const adapter = makeFakeAdapter();
-    const plugin = makePlugin(adapter);
-    const { coordinator } = makeCoordinator(dropbox, logger, { plugin, adapter });
+    const { coordinator, adapter } = makeCoordinator(dropbox, logger);
 
     await coordinator.takeOwnership();
     await coordinator.releaseOwnership();
 
-    const saved = plugin._data as Record<string, unknown>;
-    const device = saved.device as Record<string, unknown>;
+    const device = readDeviceSidecar(adapter);
     expect(device.designated).toBe(false);
   });
 
@@ -652,7 +655,7 @@ describe('DeviceCoordinator.getOrCreateDeviceId — concurrent first-call latch'
     // to both callers AND issues a single saveDevice write.
     const logger = makeLogger();
     const dropbox = makeFakeDropbox('not-found');
-    const { coordinator, plugin } = makeCoordinator(dropbox, logger);
+    const { coordinator, adapter } = makeCoordinator(dropbox, logger);
 
     const [a, b] = await Promise.all([
       coordinator.getOrCreateDeviceId(),
@@ -660,7 +663,7 @@ describe('DeviceCoordinator.getOrCreateDeviceId — concurrent first-call latch'
     ]);
 
     expect(a).toBe(b);
-    const saved = ((plugin._data as Record<string, unknown>).device as Record<string, unknown>).device_id;
+    const saved = readDeviceSidecar(adapter).device_id;
     expect(saved).toBe(a);
   });
 });
