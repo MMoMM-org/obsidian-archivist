@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.4.0...0.4.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **repair:** invalidate manifest cache + add Clear GC Lock command ([#15](https://github.com/MMoMM-org/obsidian-archivist/issues/15)) ([53d72a3](https://github.com/MMoMM-org/obsidian-archivist/commit/53d72a301c3cc5b0249de1735a379a786b049138))
+
 # [0.4.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.3.0...0.4.0) (2026-04-28)
 
 
