@@ -41,6 +41,23 @@ const SMALL_FILE_CHUNK_BYTES = 8 * 1024 * 1024;         // 8 MB
 const LARGE_FILE_CHUNK_BYTES = 150 * 1024 * 1024;       // 150 MB
 const DEFAULT_UPLOAD_PARALLELISM = 4;
 
+/**
+ * Hard ceiling on the once-per-session chain-integrity walk. Each step
+ * is a Dropbox round-trip; at ~200 ms per call, 100 caps the worst-case
+ * startup cost at ~20 s. Retention defaults bound the chain to "a few
+ * dozen" so this is well above steady-state but well below the previous
+ * 1000-link / ~3-min ceiling that bit users with retention disabled.
+ * A chain that exceeds this is treated as broken with `reason:
+ * 'depth_exceeded'` and the next backup re-bootstraps with a FULL.
+ */
+const CHAIN_WALK_MAX_DEPTH = 100;
+
+/**
+ * Soft warning threshold — at this depth we log once per chain walk so
+ * we notice creeping chain length before it bites the depth ceiling.
+ */
+const CHAIN_WALK_DEPTH_WARN = 50;
+
 const NOOP_LOGGER: Logger = {
   info: () => {},
   warn: () => {},
@@ -421,6 +438,7 @@ export class BackupService {
             missing_id: result.missingId,
             referrer_id: result.referrerId,
             walked_depth: result.walkedDepth,
+            reason: result.reason,
             local_last_full: index.last_full_snapshot_id,
             local_last_inc: index.last_inc_snapshot_id,
           });
@@ -698,27 +716,55 @@ export class BackupService {
    * parent_id on a non-Full, depth ceiling). Other errors propagate.
    *
    * Cost: one downloadJson per chain link. Bounded by retention; in V1
-   * defaults that's a few dozen at most.
+   * defaults that's a few dozen at most. CHAIN_WALK_MAX_DEPTH caps the
+   * worst case at ~100 round-trips so a user with retention disabled
+   * doesn't see a multi-minute startup hang. CHAIN_WALK_DEPTH_WARN logs
+   * a warning at 50 so we notice creeping chain length before it bites.
    */
   private async walkChainToFull(
     startId: string,
   ): Promise<
     | { broken: false; depth: number }
-    | { broken: true; missingId: string | null; referrerId: string; walkedDepth: number }
+    | {
+        broken: true;
+        missingId: string | null;
+        referrerId: string;
+        walkedDepth: number;
+        reason: 'missing_manifest' | 'cycle' | 'invalid_schema' | 'depth_exceeded';
+      }
   > {
-    const MAX_DEPTH = 1_000; // pathological-cycle / runaway-chain ceiling
     const seen = new Set<string>();
     let cursor: string | null = startId;
     let lastSeen = startId;
     let depth = 0;
+    let warnedDepth = false;
 
     while (cursor !== null) {
-      if (depth >= MAX_DEPTH) {
-        return { broken: true, missingId: null, referrerId: lastSeen, walkedDepth: depth };
+      if (depth >= CHAIN_WALK_MAX_DEPTH) {
+        // Distinct from a missing-manifest break: we know the chain is
+        // structurally fine here, just unreasonably long. The fallback
+        // FULL is still the right action — a chain this deep would
+        // freeze the Backup Browser even if it weren't broken.
+        return {
+          broken: true,
+          missingId: null,
+          referrerId: lastSeen,
+          walkedDepth: depth,
+          reason: 'depth_exceeded',
+        };
+      }
+      if (!warnedDepth && depth >= CHAIN_WALK_DEPTH_WARN) {
+        this.logger.warn('dropbox_chain_walk_depth_high', { depth, start_id: startId });
+        warnedDepth = true;
       }
       if (seen.has(cursor)) {
-        // Cycle — treat as broken so we re-bootstrap rather than loop.
-        return { broken: true, missingId: cursor, referrerId: lastSeen, walkedDepth: depth };
+        return {
+          broken: true,
+          missingId: cursor,
+          referrerId: lastSeen,
+          walkedDepth: depth,
+          reason: 'cycle',
+        };
       }
       seen.add(cursor);
 
@@ -729,7 +775,13 @@ export class BackupService {
         );
       } catch (err) {
         if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
-          return { broken: true, missingId: cursor, referrerId: lastSeen, walkedDepth: depth };
+          return {
+            broken: true,
+            missingId: cursor,
+            referrerId: lastSeen,
+            walkedDepth: depth,
+            reason: 'missing_manifest',
+          };
         }
         throw err;
       }
@@ -739,14 +791,25 @@ export class BackupService {
         return { broken: false, depth };
       }
       if (typeof manifest.parent_id !== 'string') {
-        // Non-Full with no parent_id — schema violation; treat as broken.
-        return { broken: true, missingId: null, referrerId: cursor, walkedDepth: depth };
+        return {
+          broken: true,
+          missingId: null,
+          referrerId: cursor,
+          walkedDepth: depth,
+          reason: 'invalid_schema',
+        };
       }
       lastSeen = cursor;
       cursor = manifest.parent_id;
     }
 
-    return { broken: true, missingId: null, referrerId: lastSeen, walkedDepth: depth };
+    return {
+      broken: true,
+      missingId: null,
+      referrerId: lastSeen,
+      walkedDepth: depth,
+      reason: 'invalid_schema',
+    };
   }
 
   /**

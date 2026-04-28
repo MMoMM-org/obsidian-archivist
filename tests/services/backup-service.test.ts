@@ -21,6 +21,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BackupService, type BackupServiceDeps } from '../../src/services/BackupService';
 import { ConflictError } from '../../src/model/Errors';
+import type { Logger } from '../../src/infra/Logger';
 import type { PluginSettings } from '../../src/model/Settings';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
 import type { LocalIndex } from '../../src/model/Index';
@@ -240,6 +241,11 @@ function makeHarness(
       checkConsistency: ReturnType<typeof vi.fn>;
       claimRemote: ReturnType<typeof vi.fn>;
     };
+    /**
+     * Optional logger to capture warn / info calls. Used by the chain-walk
+     * depth tests (Cluster G) to assert the new `reason` metadata.
+     */
+    logger?: Logger;
   } = {},
 ) {
   const dropbox = opts.dropbox ?? makeFakeDropbox();
@@ -301,6 +307,7 @@ function makeHarness(
     now: opts.now ?? (() => '2026-04-24T10:00:00.000Z'),
     ...(opts.changeDetector ? { changeDetector: opts.changeDetector as never } : {}),
     ...(opts.vaultIdentity ? { vaultIdentity: opts.vaultIdentity as never } : {}),
+    ...(opts.logger ? { logger: opts.logger } : {}),
   };
 
   return {
@@ -2053,5 +2060,164 @@ describe('BackupService — vault-identity guard', () => {
     expect(vaultIdentity.checkConsistency).toHaveBeenCalledTimes(1);
     // claimRemote does NOT fire again — the cache says we're past fresh-folder.
     expect(vaultIdentity.claimRemote).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cluster G — chain-walk depth ceiling + reason metadata
+//
+// Seeds an artificial linear chain of inc manifests on a fake Dropbox and
+// drives runIncremental, which kicks off walkChainToFull on first inc of
+// the session. Verifies that depth-exceeded, missing-manifest, and cycle
+// states all produce the new `reason` field on the broken result and that
+// the warn-threshold log fires.
+// ---------------------------------------------------------------------------
+
+describe('BackupService — chain-walk depth ceiling (Cluster G)', () => {
+  /**
+   * Seed a valid linear chain of N inc manifests on a fake Dropbox,
+   * rooted at a single FULL. Returns the id of the topmost (newest) inc.
+   * Every manifest passes the schema check used by walkChainToFull
+   * (`type` + `parent_id` only — that's all the walker reads).
+   */
+  function seedChain(dropbox: FakeDropbox, n: number): string {
+    const fullId = '2026-04-24T10-00-full';
+    dropbox.store.set(`${VAULT_PREFIX}/snapshots/${fullId}.json`, {
+      schema_version: '1.0',
+      id: fullId,
+      type: 'full',
+      parent_id: null,
+      vault_prefix: VAULT_PREFIX,
+      files: {},
+    });
+    let parent = fullId;
+    let lastId = fullId;
+    for (let i = 0; i < n; i += 1) {
+      const id = `2026-04-${String(25 + Math.floor(i / 60)).padStart(2, '0')}T${String(Math.floor(i / 60)).padStart(2, '0')}-${String(i % 60).padStart(2, '0')}-inc`;
+      dropbox.store.set(`${VAULT_PREFIX}/snapshots/${id}.json`, {
+        schema_version: '1.0',
+        id,
+        type: 'inc',
+        parent_id: parent,
+        vault_prefix: VAULT_PREFIX,
+        files: {},
+      });
+      parent = id;
+      lastId = id;
+    }
+    return lastId;
+  }
+
+  function makeCapturingLogger(): {
+    logger: Logger;
+    warns: Array<{ message: string; payload?: unknown }>;
+  } {
+    const warns: Array<{ message: string; payload?: unknown }> = [];
+    return {
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn((message: string, payload?: unknown) => { warns.push({ message, payload }); }),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+      warns,
+    };
+  }
+
+  it('depth-exceeded chain falls back to FULL with reason="depth_exceeded"', async () => {
+    const dropbox = makeFakeDropbox();
+    // 105 incs > MAX_DEPTH (100). The walker hits the ceiling and bails
+    // before reaching the FULL ancestor that anchors the chain.
+    const topId = seedChain(dropbox, 105);
+    const { logger, warns } = makeCapturingLogger();
+
+    const { service } = makeHarness(makeVaultFiles(2), {
+      dropbox,
+      logger,
+      initialIndex: {
+        last_full_snapshot_id: '2026-04-24T10-00-full',
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: topId,
+        last_inc_commit_at: '2026-04-25T10:00:00.000Z',
+        files: { 'notes/file-0.md': { hash: 'h-0', size: 6, mtime: 0 } },
+      },
+      initialQueue: {
+        entries: [{
+          id: 'q-1',
+          path: 'notes/file-1.md',
+          type: 'create',
+          prev_path: null,
+          observed_at: '2026-04-25T11:00:00.000Z',
+        }],
+      },
+    });
+
+    await service.runIncremental();
+
+    const fallback = warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full');
+    expect(fallback).toBeDefined();
+    expect(fallback!.payload).toMatchObject({ reason: 'depth_exceeded', walked_depth: 100 });
+  });
+
+  it('logs the depth-warn event when the chain crosses the warn threshold', async () => {
+    const dropbox = makeFakeDropbox();
+    // 60 incs > WARN (50), still < MAX_DEPTH so the chain reaches FULL
+    // intact — only the warn fires, no fallback.
+    const topId = seedChain(dropbox, 60);
+    const { logger, warns } = makeCapturingLogger();
+
+    const { service } = makeHarness(makeVaultFiles(1), {
+      dropbox,
+      logger,
+      initialIndex: {
+        last_full_snapshot_id: '2026-04-24T10-00-full',
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: topId,
+        last_inc_commit_at: '2026-04-25T10:00:00.000Z',
+        files: {},
+      },
+      initialQueue: { entries: [] },
+    });
+
+    await service.runIncremental();
+
+    expect(warns.find((w) => w.message === 'dropbox_chain_walk_depth_high')).toBeDefined();
+    // Chain reached FULL — no fallback warn fired.
+    expect(warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full')).toBeUndefined();
+  });
+
+  it('missing-manifest mid-chain still produces reason="missing_manifest"', async () => {
+    const dropbox = makeFakeDropbox();
+    const topId = seedChain(dropbox, 5);
+    // Punch a hole — delete the second-from-top manifest.
+    dropbox.store.delete(`${VAULT_PREFIX}/snapshots/2026-04-25T00-03-inc.json`);
+    const { logger, warns } = makeCapturingLogger();
+
+    const { service } = makeHarness(makeVaultFiles(1), {
+      dropbox,
+      logger,
+      initialIndex: {
+        last_full_snapshot_id: '2026-04-24T10-00-full',
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: topId,
+        last_inc_commit_at: '2026-04-25T10:00:00.000Z',
+        files: {},
+      },
+      initialQueue: {
+        entries: [{
+          id: 'q-1',
+          path: 'notes/file-0.md',
+          type: 'create',
+          prev_path: null,
+          observed_at: '2026-04-25T11:00:00.000Z',
+        }],
+      },
+    });
+
+    await service.runIncremental();
+
+    const fallback = warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full');
+    expect(fallback).toBeDefined();
+    expect(fallback!.payload).toMatchObject({ reason: 'missing_manifest' });
   });
 });
