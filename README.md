@@ -16,6 +16,12 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 - Power users who want **per-file version history**, not just whole-vault snapshots.
 - Anyone who's been bitten by syncing tools and wants a separate, audit-able backup channel.
 
+A note of caution. **Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
+
+I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
+
+For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
+
 **What's different about it**
 
 - **Content-addressed storage**: identical files dedupe automatically. Renaming a 50 MB attachment costs zero new bytes.
@@ -25,22 +31,47 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 
 ## Screenshots
 
-> Screenshots will be added at v0.1.0 release. Placeholders:
->
-> 1. **Backup Browser** — three-column layout: snapshots (grouped by Today / Yesterday / This week / This month / Older), files at the selected snapshot, and a Markdown preview with Restore controls.
-> 2. **File-History modal** — invoke from the command palette on any note. 50 versions per page, rename markers ("Renamed from X on Y"), single-click preview + restore.
-> 3. **Settings** — Schedule / Retention / Notifications / Advanced / Dropbox tabs.
+**Backup Browser** — three-column layout: snapshots (grouped by Today / Yesterday / This week / This month / Older), files at the selected snapshot, and a Markdown preview with Restore controls.
+
+![Backup Browser](assets/Backup%20Browser.png)
+
+**File Versions** — invoke *Show history of current file* from the command palette on any note. Rename markers, preview, and one-click restore.
+
+![File Versions](assets/File%20Versions.png)
+
+**Settings — Schedule** (designated-device toggle, full + incremental cadence, active window).
+
+![Settings — Schedule](assets/Settings%20-%20Schedule.png)
+
+**Settings — Retention** (3-tier hierarchical retention + storage cap).
+
+![Settings — Retention](assets/Settings%20-%20Retention.png)
+
+**Settings — Dropbox** (OAuth connect, account info, vault folder).
+
+![Settings — Dropbox](assets/Settings%20-%20Dropbox.png)
+
+<details>
+<summary>More settings panels (Notifications, Advanced)</summary>
+
+![Settings — Notifications](assets/Settings%20-%20Notifications.png)
+
+![Settings — Advanced](assets/Settings%20-%20Advanced.png)
+
+</details>
 
 ## Setup
 
 1. **Install** Archivist (see *Installation* below).
-2. **Open Settings → Archivist → Dropbox** and click *Connect Dropbox*. The browser opens, you log in, you authorize the app, and you're returned to Obsidian.
+2. **Open Settings → Archivist → Schedule** and toggle *This device backs up the vault* on. Pick the device that will perform backups (only one device per vault should be designated; multiple-device safety is built in but the simplest setup is one designated device).
+3. **Open Settings → Archivist → Advanced** and set **Vault folder name** — this is the folder name under `Apps/Archivist/` where this vault's backups will live (lets you back up several vaults into separate folders). Default: a slug of the Obsidian vault name. **Note:** if you change this after the plugin already loaded, disable + re-enable Archivist (or restart Obsidian) so all services pick up the new path.
+4. **Open Settings → Archivist → Dropbox** and click *Connect Dropbox*. The browser opens, you log in, you authorize the app, and you're returned to Obsidian.
 
    > **You will see a Dropbox warning that this app is "not yet verified by Dropbox"** — this is expected. Dropbox marks every new third-party integration this way until it has accumulated enough usage to be auto-promoted. Archivist is open source ([source on GitHub](https://github.com/MMoMM-org/obsidian-archivist)) and only requests the four scopes documented under [Dropbox scopes](#dropbox-scopes) below; you can audit exactly what is requested before clicking *Allow*. The warning will go away on its own as the user base grows.
    >
    > ![Dropbox unverified-app warning shown during OAuth](assets/setup/dropbox-unverified-app-warning.png)
-3. **Open Settings → Archivist → Schedule** and toggle *This device backs up the vault* on. Pick the device that will perform backups (only one device per vault should be designated; multiple-device safety is built in but the simplest setup is one designated device).
-4. The first **full backup** will run after a 10-minute startup grace + a 2-minute quiet period (configurable). After that, **incrementals** run every 15 minutes when there are changes; **fulls** run weekly by default.
+
+5. The first **full backup** will run after a 10-minute startup grace + a 2-minute quiet period (configurable). After that, **incrementals** run every 15 minutes when there are changes; **fulls** run weekly by default.
 
 ## Dropbox scopes
 
@@ -76,17 +107,19 @@ This is a deliberate trade-off. Obsidian's plugin API does not expose a system-k
 **Best practices**:
 
 - **Don't share `data.json`, `tokens.json`, or your vault's `.obsidian/` folder with anyone.** Treat them as you would any password file.
-- **If you sync your vault** (Obsidian Sync, iCloud, Syncthing, etc.), consider excluding `.obsidian/plugins/obsidian-archivist/` from sync so the tokens don't round-trip between devices. Each device should authorize Dropbox individually.
+- **Multi-device sync — what to exclude.** Per-device state (the OAuth tokens, the device UUID, the local backup index, the pending-changes queue) lives in **sidecar files** that Obsidian Sync deliberately ignores. So if you only use Obsidian Sync, you don't need any path exclusion — only `data.json` (settings + vault_id) syncs across, which is what you want. **But** other vault-syncing tools (iCloud, Syncthing, the Dropbox Desktop app syncing your vault folder, etc.) replicate **everything** under the vault, sidecars included. Those tools will sync your tokens and device-id between machines — both unsafe and incorrect. **For non-Obsidian-Sync setups, exclude `.obsidian/plugins/obsidian-archivist/` from sync on every device, then authorize each device's Dropbox connection separately.**
 - **If you suspect a token leak**, click *Disconnect Dropbox* in Settings (this revokes the token server-side) and reconnect. You can also revoke from <https://www.dropbox.com/account/connected_apps>.
-- **If you sync the `Apps/Archivist/` folder** (e.g. via the Dropbox Desktop app's selective-sync) consider excluding it locally if disk space is tight — the backup data has nothing useful for live work.
+- **If you sync the `Apps/Archivist/` folder locally** (e.g. via the Dropbox Desktop app's selective-sync) consider excluding it if disk space is tight — the backup data has nothing useful for live work, only for the standalone CLI's break-glass recovery.
 
 ## Migrating from `obsidian-dropbox-backups`
 
-If you previously used [obsidian-dropbox-backups](https://github.com/AvianFlu/obsidian-dropbox-backups) (the predecessor plugin), Archivist will detect it on first load and show a one-time advisory. **Disable the old plugin before enabling Archivist** so the two don't fight over the same Dropbox folder.
+If you previously used [obsidian-dropbox-backups](https://github.com/AvianFlu/obsidian-dropbox-backups) (the predecessor plugin), pick one and stick with it — running both in the same vault doesn't lose data (each is a separate Dropbox app talking to its own folder), but it eats CPU + bandwidth backing up the same vault twice. Archivist will show a one-time advisory if it detects the predecessor enabled in Obsidian on first load, suggesting you disable it.
 
-Archivist uses a different storage layout (content-addressed blobs + manifests) so old backups are not migrated automatically — they remain in their original Dropbox path until you decide to clean them up.
+Archivist uses a different storage layout (content-addressed blobs + manifests) than the predecessor's "copy of every file" approach, so old backups are not migrated automatically — they remain in their original Dropbox path until you decide to clean them up.
 
 ## Troubleshooting
+
+For corruption-recovery scenarios (broken chain, repair commands, GC lock cleanup, what to capture for a bug report), see [docs/troubleshooting/dropbox-corruption.md](docs/troubleshooting/dropbox-corruption.md). For the "I'm pointing this vault at an existing Dropbox folder" / vault-id adoption flow, see [docs/operations/connecting-existing-backup.md](docs/operations/connecting-existing-backup.md). The common cases below cover the rest.
 
 **"Dropbox disconnected" / Archivist lost access to your account**
 
@@ -106,42 +139,13 @@ Tune Settings → Advanced → *Concurrent uploads* (default 4, range 1–8) and
 
 **Where do I find logs?**
 
-Archivist logs to Obsidian's developer console (Cmd/Ctrl+Shift+I → Console). Default-mode logs are minimal and contain no path data. To capture verbose logs for a bug report, toggle Settings → Advanced → *Diagnostic logging* on, reproduce the issue, copy the console output, then turn it back off.
+Archivist logs to Obsidian's developer console. To open it: **Cmd/Ctrl + Shift + I** → **Console** tab. Filter for `[archivist]` to drop unrelated Obsidian noise. Default-mode logs are minimal and contain no path data. For a bug report: toggle Settings → Advanced → *Diagnostic logging* on, reproduce the issue, copy the console output, then turn it back off. The full bug-report capture flow is in [docs/troubleshooting/dropbox-corruption.md](docs/troubleshooting/dropbox-corruption.md#what-to-capture-for-a-bug-report).
 
 ## Standalone Restore CLI
 
-In every release, Archivist ships a zero-dependency Node script: `scripts/restore.mjs`. It can read your local Dropbox-mirrored folder (typically synced by the Dropbox Desktop app) and reconstruct any snapshot — without Obsidian, without the plugin, and without an internet connection.
+Every release ships a zero-dependency Node script — `scripts/restore.mjs` — that can reconstruct any snapshot from your **local** Dropbox-synced folder. No Obsidian, no plugin, no internet, no `npm install`. Just `node` 18+ and the bytes on your disk.
 
-This is your **break-glass recovery tool**. If the plugin breaks, if Obsidian breaks, if Dropbox itself goes down, the data on your disk is enough to recover everything.
-
-**Requirements**: Node 18+ (uses Node-stdlib only — no `npm install`).
-
-**Usage**:
-
-```bash
-# List all snapshots in a Dropbox-synced folder, newest first.
-node scripts/restore.mjs --input ~/Dropbox/Apps/Archivist/my-vault --list-snapshots
-
-# Restore the latest snapshot to a fresh directory.
-node scripts/restore.mjs \
-  --input ~/Dropbox/Apps/Archivist/my-vault \
-  --output ./restored \
-  --at latest
-
-# Restore the version of your vault from 2026-04-20.
-node scripts/restore.mjs \
-  --input ~/Dropbox/Apps/Archivist/my-vault \
-  --output ./restored \
-  --at 2026-04-20
-
-# Verify all content blobs hash correctly without writing anything.
-node scripts/restore.mjs --input ~/Dropbox/Apps/Archivist/my-vault --verify-only
-
-# Print the file plan without writing.
-node scripts/restore.mjs --input ~/Dropbox/Apps/Archivist/my-vault --at latest --dry-run
-```
-
-The CLI uses the same chain-merge algorithm as the plugin (verified by parity tests in CI), so output is byte-for-byte identical. Atomic-dir writes mean a partial run leaves no half-restored output.
+This is your **break-glass recovery tool**. The full walkthrough — where to get the script, `--at` selectors, dry-run / verify modes, current limitations — is in **[docs/restore-guide.md](docs/restore-guide.md)**.
 
 ## Installation
 

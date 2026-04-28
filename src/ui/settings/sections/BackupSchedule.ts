@@ -2,7 +2,6 @@
 //
 // Fields:
 //   - Designated-device toggle (→ DeviceCoordinator takeOwnership/release)
-//   - Device ID (readonly, first 6 chars displayed, full UUID copyable)
 //   - Full cadence dropdown (weekly / biweekly / monthly)
 //   - Full day-of-week dropdown
 //   - Full time-of-day (HH:MM text with regex validation)
@@ -55,16 +54,6 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
       if (on) void ctx.device.takeOwnership();
       else void ctx.device.releaseOwnership();
     },
-  });
-
-  // ---- Device ID (read-only, first-6 display, full UUID copyable) ---------
-  const shortId = ctx.deviceId.slice(0, 6);
-  host.field({
-    kind: 'readonly',
-    label: 'Device ID',
-    value: shortId,
-    copyable: true,
-    description: 'Used for multi-device coordination. Copies the full ID to clipboard.',
   });
 
   // ---- Full backup cadence / day / time -----------------------------------

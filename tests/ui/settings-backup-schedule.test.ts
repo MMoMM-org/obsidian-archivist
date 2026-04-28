@@ -90,7 +90,6 @@ describe('renderBackupSchedule — fields present', () => {
     const fieldLabels = host.fields().map((f) => 'label' in f ? f.label : f.kind);
     expect(fieldLabels).toEqual([
       S.SETTINGS_DESIGNATED_TOGGLE,
-      'Device ID',
       S.SETTINGS_FULL_CADENCE,
       'Full backup day',
       S.SETTINGS_FULL_TIME,
@@ -154,26 +153,6 @@ describe('renderBackupSchedule — designated toggle', () => {
     field!.onChange(false);
     expect(harness.releaseOwnershipCalls).toBe(1);
     expect(harness.takeOwnershipCalls).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Device ID read-only
-// ---------------------------------------------------------------------------
-
-describe('renderBackupSchedule — device ID', () => {
-  it('displays first 6 characters of the UUID', () => {
-    const host = new RecordingSectionHost();
-    const { ctx } = makeCtx({ deviceId: '123abc45-dead-beef-1234-567890abcdef' });
-    renderBackupSchedule(host, ctx);
-    const field = host.findField('readonly', 'Device ID');
-    expect(field?.value).toBe('123abc');
-  });
-
-  it('is copyable', () => {
-    const host = new RecordingSectionHost();
-    renderBackupSchedule(host, makeCtx().ctx);
-    expect(host.findField('readonly', 'Device ID')?.copyable).toBe(true);
   });
 });
 
