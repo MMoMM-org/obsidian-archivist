@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.3...0.3.0) (2026-04-28)
+
+
+### Features
+
+* **recovery:** show banner when chain-walk falls back to FULL ([#12](https://github.com/MMoMM-org/obsidian-archivist/issues/12)) ([5bf2a6d](https://github.com/MMoMM-org/obsidian-archivist/commit/5bf2a6deb161b556df467c3f86ed6e3895a9ea67))
+
 ## [0.2.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.2...0.2.3) (2026-04-28)
 
 
