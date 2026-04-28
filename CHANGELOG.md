@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.4.1...0.5.0) (2026-04-28)
+
+
+### Features
+
+* **a11y:** announce banner + filter count, focus + Escape on browser search ([#16](https://github.com/MMoMM-org/obsidian-archivist/issues/16)) ([25c577e](https://github.com/MMoMM-org/obsidian-archivist/commit/25c577eadaff65ff8b7eba3049d4851abe04670b))
+
 ## [0.4.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.4.0...0.4.1) (2026-04-28)
 
 
