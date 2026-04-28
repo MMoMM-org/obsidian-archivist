@@ -502,6 +502,91 @@ describe('PluginStore.loadSettings partial/corrupt fallback contract', () => {
 });
 
 // ---------------------------------------------------------------------------
+// H2: data.json read-modify-write serialization. Concurrent saveSettings +
+// saveVaultId must NOT lose updates — both target plugin.loadData/saveData,
+// the same blob, and prior to the fix both did an unserialized
+// load → mutate → save cycle.
+// ---------------------------------------------------------------------------
+
+describe('PluginStore data.json write serialization (H2)', () => {
+  it('concurrent saveSettings + saveVaultId both land in data.json (no lost update)', async () => {
+    // Plain plugin — no gate needed when the queue serializes correctly,
+    // because the second call only reads existing AFTER the first's
+    // saveData has resolved.
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    plugin._data = null;
+    const store = new PluginStore(plugin as never, makeTestLogger());
+
+    const settings = makeSampleSettings();
+    const vaultId = '3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1';
+
+    // Fire concurrently — pre-fix this would race: both calls read the
+    // same null `existing`, build their own blob, and the second save
+    // wipes the first's field.
+    const [a, b] = await Promise.allSettled([
+      store.saveSettings(settings),
+      store.saveVaultId(vaultId),
+    ]);
+
+    expect(a.status).toBe('fulfilled');
+    expect(b.status).toBe('fulfilled');
+
+    const final = plugin._data as Record<string, unknown>;
+    expect(final.vault_id).toBe(vaultId);
+    expect(final.settings).toMatchObject({ schema_version: settings.schema_version });
+  });
+
+  it('reverse order: saveVaultId then saveSettings still preserves vault_id', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    plugin._data = null;
+    const store = new PluginStore(plugin as never, makeTestLogger());
+
+    const settings = makeSampleSettings();
+    const vaultId = '3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1';
+
+    // saveVaultId first, settings second — the existing `saveSettings`
+    // already preserves vault_id when reading existing, so this case is
+    // an end-to-end belt-and-braces verification.
+    await Promise.all([
+      store.saveVaultId(vaultId),
+      store.saveSettings(settings),
+    ]);
+
+    const final = plugin._data as Record<string, unknown>;
+    expect(final.vault_id).toBe(vaultId);
+    expect(final.settings).toBeDefined();
+  });
+
+  it('a rejected saveSettings does not poison the dataJsonQueue', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    plugin._data = null;
+    const failingPlugin = {
+      ...plugin,
+      saveData: vi.fn(async (d: unknown): Promise<void> => {
+        // First call rejects; subsequent calls succeed.
+        if (failingPlugin.saveData.mock.calls.length === 1) {
+          throw new Error('boom');
+        }
+        plugin._data = d;
+      }),
+      loadData: vi.fn(async (): Promise<unknown> => plugin._data),
+    };
+    const store = new PluginStore(failingPlugin as never, makeTestLogger());
+
+    await expect(store.saveSettings(makeSampleSettings())).rejects.toThrow('boom');
+    // Next call must still succeed — the queue must not be wedged on the
+    // prior rejection (mirrors the writeQueue recovery pattern).
+    await store.saveVaultId('3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1');
+    expect((plugin._data as Record<string, unknown>).vault_id).toBe(
+      '3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: DEFAULT_SETTINGS match PRD 3-tier spec
 // ---------------------------------------------------------------------------
 
