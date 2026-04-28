@@ -109,7 +109,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     dry_run_mode: false,
     vault_prefix: '',
     diagnostic_logging: false,
-    upload_parallelism: 4,
+    upload_parallelism: 2,
     chunk_size_mb: 8,
   },
   ui: {

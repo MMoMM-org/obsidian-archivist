@@ -640,7 +640,7 @@ describe('BackupService.runFull — upload_parallelism validation', () => {
     // runFull now returns { filesWritten }, so just await without asserting shape.
     await runWithTimeout;
 
-    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (4) was used
+    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (2) was used
     expect(getContentPaths(dropbox.store)).toHaveLength(3);
   });
 
@@ -652,7 +652,7 @@ describe('BackupService.runFull — upload_parallelism validation', () => {
 
     await service.runFull();
 
-    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (4) was used
+    // All 3 blobs uploaded — fallback to DEFAULT_UPLOAD_PARALLELISM (2) was used
     expect(getContentPaths(dropbox.store)).toHaveLength(3);
   });
 });
