@@ -43,6 +43,22 @@ export const S = {
   CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
   CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
   CMD_GC_ORPHAN_CONTENT: 'Archivist: Garbage collect orphan content',
+  CMD_VERIFY_VAULT_OWNERSHIP: 'Archivist: Verify backup ownership',
+
+  // ─── Verify-vault-ownership notifications ────────────────────────
+  VERIFY_OWNERSHIP_RUNNING: 'Archivist: checking Dropbox vault ownership…',
+  VERIFY_OWNERSHIP_OK: (vaultName: string): string =>
+    `Archivist: ownership ok — this device claims "${vaultName}".`,
+  VERIFY_OWNERSHIP_FRESH_FOLDER:
+    'Archivist: Dropbox folder is empty. The next full backup will claim it for this vault.',
+  VERIFY_OWNERSHIP_ADOPT_NEEDED: (remoteName: string): string =>
+    `Archivist: this folder belongs to vault "${remoteName}". Adopt or change Dropbox vault folder. Reload Obsidian to see the Adopt dialog.`,
+  VERIFY_OWNERSHIP_MISMATCH: (remoteName: string): string =>
+    `Archivist: vault id mismatch — this folder belongs to "${remoteName}". Backups are blocked. See docs/troubleshooting/dropbox-corruption.md.`,
+  VERIFY_OWNERSHIP_REMOTE_CORRUPT:
+    'Archivist: Dropbox vault_meta.json is corrupt. Backups are blocked. Delete vault_meta.json on Dropbox to let the next backup recreate it.',
+  VERIFY_OWNERSHIP_FAILED: (msg: string): string =>
+    `Archivist: ownership check failed — ${msg}`,
 
   // ─── Adopt Vault modal (vault-id fingerprint adoption flow) ──────
   ADOPT_VAULT_TITLE: 'Adopt existing Dropbox backup?',
@@ -285,7 +301,7 @@ export const S = {
   SETTINGS_DIAGNOSTIC_LOGGING: 'Diagnostic logging (paths visible in logs)',
   SETTINGS_VAULT_PREFIX: 'Dropbox vault folder',
   SETTINGS_VAULT_PREFIX_HELP:
-    'Folder name under Apps/Archivist/. Lowercase letters, numbers, hyphens, underscores. Changing this starts a fresh backup history.',
+    'Folder name under Apps/Archivist/. Lowercase letters, numbers, hyphens, underscores. Changing this requires restarting Obsidian; if the new folder already has backups from another vault, the next launch shows the Adopt dialog. See docs/operations/connecting-existing-backup.md.',
   SETTINGS_UPLOAD_PARALLELISM: 'Concurrent uploads',
   SETTINGS_CHUNK_SIZE: 'Upload chunk size (MB)',
   SETTINGS_TOAST_AFTER_INC: 'Show toast after incremental backup',

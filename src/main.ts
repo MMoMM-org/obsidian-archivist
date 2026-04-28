@@ -30,6 +30,7 @@ import {
   registerOpenBackupBrowserCommand,
   registerShowHistoryCommand,
   registerRepairCommands,
+  registerVerifyVaultOwnershipCommand,
 } from './ui/Commands';
 import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView, BACKUP_BROWSER_VIEW_TYPE } from './ui/BackupBrowserView';
@@ -740,6 +741,12 @@ export default class ArchivistPlugin extends Plugin {
     registerRepairCommands({
       plugin: this,
       repair: repairService,
+      notify,
+      logger: this.logger,
+    });
+    registerVerifyVaultOwnershipCommand({
+      plugin: this,
+      vaultIdentity,
       notify,
       logger: this.logger,
     });

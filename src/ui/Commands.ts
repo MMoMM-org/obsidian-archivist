@@ -11,6 +11,7 @@
 import type { Plugin } from 'obsidian';
 import type { SchedulerFSM } from '../services/SchedulerFSM';
 import type { RepairService } from '../services/RepairService';
+import type { VaultIdentity } from '../services/VaultIdentity';
 import type { Logger } from '../infra/Logger';
 import type { NotifyFn } from './NoticeCenter';
 import { S } from './strings';
@@ -182,5 +183,60 @@ async function runGcOrphanContent(deps: RepairCommandsDeps): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     deps.notify(S.GC_FAILED(msg), { timeout: 10_000 });
     deps.logger.warn('gc_orphan_content_command_failed', { error: msg });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Verify-vault-ownership command — on-demand variant of the layout-ready
+// consistency probe. Surfaces the current state via toast so users can
+// confirm they're set up correctly (or get an actionable message after
+// changing vault_prefix in settings).
+// ---------------------------------------------------------------------------
+
+export interface VerifyVaultOwnershipCommandDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  vaultIdentity: Pick<VaultIdentity, 'checkConsistency'>;
+  notify: NotifyFn;
+  logger: Logger;
+}
+
+const VERIFY_OWNERSHIP_COMMAND_ID = 'archivist-verify-vault-ownership';
+
+export function registerVerifyVaultOwnershipCommand(
+  deps: VerifyVaultOwnershipCommandDeps,
+): void {
+  deps.plugin.addCommand({
+    id: VERIFY_OWNERSHIP_COMMAND_ID,
+    name: S.CMD_VERIFY_VAULT_OWNERSHIP,
+    callback: () => { void runVerifyOwnership(deps); },
+  });
+}
+
+async function runVerifyOwnership(deps: VerifyVaultOwnershipCommandDeps): Promise<void> {
+  deps.notify(S.VERIFY_OWNERSHIP_RUNNING, { timeout: 4_000 });
+  try {
+    const result = await deps.vaultIdentity.checkConsistency();
+    switch (result.kind) {
+      case 'ok':
+        deps.notify(S.VERIFY_OWNERSHIP_OK(result.remote.vault_name), { timeout: 6_000 });
+        break;
+      case 'fresh-folder':
+        deps.notify(S.VERIFY_OWNERSHIP_FRESH_FOLDER, { timeout: 6_000 });
+        break;
+      case 'adopt-remote':
+        deps.notify(S.VERIFY_OWNERSHIP_ADOPT_NEEDED(result.remote.vault_name), { timeout: 10_000 });
+        break;
+      case 'mismatch':
+        deps.notify(S.VERIFY_OWNERSHIP_MISMATCH(result.remote.vault_name), { timeout: 10_000 });
+        break;
+      case 'remote-corrupt':
+        deps.notify(S.VERIFY_OWNERSHIP_REMOTE_CORRUPT, { timeout: 10_000 });
+        break;
+    }
+    deps.logger.info('verify_ownership_command_done', { kind: result.kind });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.VERIFY_OWNERSHIP_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('verify_ownership_command_failed', { error: msg });
   }
 }

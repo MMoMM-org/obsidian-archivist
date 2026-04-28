@@ -1,7 +1,10 @@
 // T7.5 — registerBackupNowCommand: Obsidian command palette integration.
 
 import { describe, expect, it, vi } from 'vitest';
-import { registerBackupNowCommand } from '../../src/ui/Commands';
+import {
+  registerBackupNowCommand,
+  registerVerifyVaultOwnershipCommand,
+} from '../../src/ui/Commands';
 import {
   SchedulerFSM,
   type SchedulerFSMDeps,
@@ -167,5 +170,117 @@ describe('registerBackupNowCommand', () => {
     expect(fsm.getState()).toBe('AUTH_LOST');
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0].message).toBe(S.OAUTH_REAUTH_REQUIRED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registerVerifyVaultOwnershipCommand — on-demand consistency probe
+// ---------------------------------------------------------------------------
+
+describe('registerVerifyVaultOwnershipCommand', () => {
+  function makeIdentity(state:
+    | { kind: 'ok'; remoteName: string }
+    | { kind: 'fresh-folder' }
+    | { kind: 'adopt-remote'; remoteName: string }
+    | { kind: 'mismatch'; remoteName: string }
+    | { kind: 'remote-corrupt' }
+    | { kind: 'throws'; error: Error }
+  ) {
+    return {
+      checkConsistency: vi.fn(async () => {
+        switch (state.kind) {
+          case 'ok':
+            return { kind: 'ok', localId: 'L', remote: { vault_id: 'L', vault_name: state.remoteName } };
+          case 'fresh-folder':
+            return { kind: 'fresh-folder', localId: 'L' };
+          case 'adopt-remote':
+            return { kind: 'adopt-remote', remote: { vault_id: 'R', vault_name: state.remoteName } };
+          case 'mismatch':
+            return { kind: 'mismatch', localId: 'L', remote: { vault_id: 'R', vault_name: state.remoteName } };
+          case 'remote-corrupt':
+            return { kind: 'remote-corrupt', localId: 'L', rawError: 'bad' };
+          case 'throws':
+            throw state.error;
+        }
+      }),
+    };
+  }
+
+  it("'ok' state surfaces the OK toast naming the remote vault", async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'ok', remoteName: 'TestVault' }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_OK('TestVault'))).toBe(true);
+  });
+
+  it("'fresh-folder' state surfaces the empty-folder toast", async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'fresh-folder' }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_FRESH_FOLDER)).toBe(true);
+  });
+
+  it("'mismatch' surfaces the blocked toast with the remote vault name", async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'mismatch', remoteName: 'OtherVault' }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_MISMATCH('OtherVault'))).toBe(true);
+  });
+
+  it("'adopt-remote' surfaces the adopt-needed toast", async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'adopt-remote', remoteName: 'OtherVault' }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_ADOPT_NEEDED('OtherVault'))).toBe(true);
+  });
+
+  it("'remote-corrupt' surfaces the corrupt-meta toast", async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'remote-corrupt' }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_REMOTE_CORRUPT)).toBe(true);
+  });
+
+  it('thrown error from checkConsistency is surfaced via the failure toast', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerVerifyVaultOwnershipCommand({
+      plugin,
+      vaultIdentity: makeIdentity({ kind: 'throws', error: new Error('network down') }) as never,
+      notify,
+      logger: makeLogger() as never,
+    });
+    await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
+    expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_FAILED('network down'))).toBe(true);
   });
 });
