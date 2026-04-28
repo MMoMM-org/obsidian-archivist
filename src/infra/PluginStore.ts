@@ -2,11 +2,21 @@
 //
 // Storage layout (ADR-7, ADR-11):
 //   data.json              → plugin.loadData/saveData (Obsidian-managed, Sync-eligible)
+//                            Holds: settings, top-level vault_id, ui flags
 //   index.json             → adapter.write at <plugin-data-dir>/index.json (NOT synced)
 //   pending_changes.json   → adapter.write at <plugin-data-dir>/pending_changes.json (NOT synced)
+//   device.json            → adapter.write at <plugin-data-dir>/device.json (NOT synced)
+//                            Holds: device_id, designated flag, device_label.
+//                            Per-device state must NOT travel with Obsidian Sync —
+//                            two devices sharing a synced data.json would both
+//                            see designated=true and overwrite each other's HEAD.
+//                            Older installs persisted this in data.json.device;
+//                            loadDevice() migrates that block on first call.
 //
 // ROB-003: adapter.write calls are serialized through a per-instance writeQueue
 // promise chain so concurrent saves never interleave partial JSON.
+// data.json read-modify-write goes through a separate dataJsonQueue so concurrent
+// saveSettings + saveVaultId never lose updates (H2 from the post-V1 review).
 //
 // SCHEMA_INCOMPATIBLE (future plugin wrote data.json) propagates to the caller —
 // the UI layer shows "upgrade the plugin". All other load errors fall back to
@@ -25,6 +35,36 @@ import type { EventQueue } from '../model/QueueEntry';
 const INDEX_FILENAME = 'index.json';
 const QUEUE_FILENAME = 'pending_changes.json';
 const DATA_BAK_FILENAME = 'data.json.bak';
+const DEVICE_FILENAME = 'device.json';
+
+/**
+ * Per-device state that must never sync between machines. Persisted at
+ * `<plugin-data-dir>/device.json`, written via adapter.write so Obsidian
+ * Sync ignores it (ADR-11 sidecar pattern). Each install gets its own
+ * device_id and `designated` flag — sharing them across devices via a
+ * synced data.json caused HEAD double-writes (cross-device race).
+ */
+export interface DeviceBlock {
+  device_id: string | null;
+  designated: boolean;
+  device_label: string;
+}
+
+const EMPTY_DEVICE_BLOCK: DeviceBlock = {
+  device_id: null,
+  designated: false,
+  device_label: '',
+};
+
+function parseDeviceBlock(raw: unknown): DeviceBlock {
+  if (!raw || typeof raw !== 'object') return { ...EMPTY_DEVICE_BLOCK };
+  const d = raw as Record<string, unknown>;
+  return {
+    device_id: typeof d.device_id === 'string' ? d.device_id : null,
+    designated: d.designated === true,
+    device_label: typeof d.device_label === 'string' ? d.device_label : '',
+  };
+}
 
 export class PluginStore {
   private writeQueue: Promise<void> = Promise.resolve();
@@ -134,7 +174,6 @@ export class PluginStore {
       schema_version: settings.schema_version,
       ...(existing
         ? {
-            device: existing.device,
             ui: existing.ui,
             // Preserve top-level vault_id (set by VaultIdentity); without
             // this entry, calling saveSettings would silently drop it on
@@ -171,6 +210,52 @@ export class PluginStore {
       ...(existing ?? {}),
       vault_id: vaultId,
     }));
+  }
+
+  // ---- Device (device.json sidecar via adapter) ------------------------------
+
+  /**
+   * Load the per-device state. Returns an empty block on a fresh install
+   * (no device.json yet, no legacy data.json.device). Migrates a legacy
+   * data.json.device entry into device.json on first call so older
+   * installs upgrade transparently — the legacy block is only read once,
+   * then cleared from data.json so future loads use the sidecar exclusively.
+   */
+  async loadDevice(): Promise<DeviceBlock> {
+    const path = `${this.pluginDataDir}/${DEVICE_FILENAME}`;
+    const adapter = this.plugin.app.vault.adapter;
+    if (await adapter.exists(path)) {
+      try {
+        return parseDeviceBlock(JSON.parse(await adapter.read(path)));
+      } catch (err) {
+        this.logger.warn('device_corrupt', {
+          error: err instanceof Error ? err : new Error(String(err)),
+        });
+        return { ...EMPTY_DEVICE_BLOCK };
+      }
+    }
+    // Legacy install: device-block was inside data.json. Move it to the
+    // sidecar so it stops travelling with Obsidian Sync, and clear the
+    // legacy field so a future settings save doesn't resurrect it.
+    const raw = (await this.plugin.loadData()) as Record<string, unknown> | null;
+    if (raw && typeof raw.device === 'object' && raw.device !== null) {
+      const legacy = parseDeviceBlock(raw.device);
+      await this.saveDevice(legacy);
+      await this.enqueueDataJsonUpdate((existing) => {
+        if (!existing) return {};
+        const next = { ...existing };
+        delete next.device;
+        return next;
+      });
+      this.logger.info('device_migrated_to_sidecar', {});
+      return legacy;
+    }
+    return { ...EMPTY_DEVICE_BLOCK };
+  }
+
+  async saveDevice(device: DeviceBlock): Promise<void> {
+    const path = `${this.pluginDataDir}/${DEVICE_FILENAME}`;
+    return this.enqueueWrite(path, JSON.stringify(device, null, 2));
   }
 
   // ---- Index (index.json via adapter) ----------------------------------------

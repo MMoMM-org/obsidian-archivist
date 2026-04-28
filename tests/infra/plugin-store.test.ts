@@ -160,24 +160,24 @@ describe('PluginStore.loadSettings / saveSettings', () => {
     expect(loaded).toEqual(sample);
   });
 
-  it('preserves device and ui fields in data.json on saveSettings', async () => {
+  it('preserves ui fields in data.json on saveSettings', async () => {
     const adapter = makeFakeAdapter();
     const plugin = makePlugin(adapter);
     const logger = makeTestLogger();
     const store = new PluginStore(plugin as never, logger);
 
-    // Seed data.json with device + ui fields via the raw plugin interface
+    // Seed data.json with ui fields via the raw plugin interface. The
+    // device block lives in the device.json sidecar (not data.json) since
+    // the per-device-state-must-not-sync refactor.
     plugin._data = {
       schema_version: '1.0',
       settings: DEFAULT_SETTINGS,
-      device: { device_id: 'dev-1', designated: true, device_label: 'MyMac' },
       ui: { predecessor_notice_dismissed: true },
     };
 
     await store.saveSettings(makeSampleSettings());
 
     const saved = plugin._data as Record<string, unknown>;
-    expect(saved.device).toEqual({ device_id: 'dev-1', designated: true, device_label: 'MyMac' });
     expect(saved.ui).toEqual({ predecessor_notice_dismissed: true });
   });
 
@@ -498,6 +498,93 @@ describe('PluginStore.loadSettings partial/corrupt fallback contract', () => {
     expect(loaded).toEqual(DEFAULT_SETTINGS); // user's customization is NOT retained
     expect(adapter.files.has(`${PLUGIN_DIR}/data.json.bak`)).toBe(true);
     expect(logger.warnCalls.some((c) => c.message === 'settings_corrupt')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// device.json sidecar — per-device state lives outside data.json so
+// Obsidian Sync (and other vault-folder syncers, given path exclusion of
+// the plugin folder is hard to configure) cannot replicate device_id +
+// designated flag across machines. Includes a one-time migration from
+// the legacy data.json.device location.
+// ---------------------------------------------------------------------------
+
+describe('PluginStore device.json sidecar', () => {
+  it('loadDevice returns the empty block on a fresh install', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    const store = new PluginStore(plugin as never, makeTestLogger());
+    const device = await store.loadDevice();
+    expect(device).toEqual({ device_id: null, designated: false, device_label: '' });
+  });
+
+  it('saveDevice + loadDevice round-trip via the device.json sidecar', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    const store = new PluginStore(plugin as never, makeTestLogger());
+
+    await store.saveDevice({ device_id: 'd-1', designated: true, device_label: 'My Mac' });
+
+    // Sidecar lives next to index.json — adapter.write was used, NOT plugin.saveData.
+    expect(adapter.files.has(`${PLUGIN_DIR}/device.json`)).toBe(true);
+    expect(plugin._data).toBeNull();
+
+    const reloaded = await store.loadDevice();
+    expect(reloaded).toEqual({ device_id: 'd-1', designated: true, device_label: 'My Mac' });
+  });
+
+  it('migrates legacy data.json.device into device.json on first load', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    plugin._data = {
+      schema_version: '1.0',
+      settings: DEFAULT_SETTINGS,
+      device: { device_id: 'legacy-id', designated: true, device_label: 'Legacy Mac' },
+      vault_id: '3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1',
+    };
+    const store = new PluginStore(plugin as never, makeTestLogger());
+
+    const device = await store.loadDevice();
+    expect(device).toEqual({ device_id: 'legacy-id', designated: true, device_label: 'Legacy Mac' });
+
+    // Sidecar now exists with the migrated content.
+    const sidecar = JSON.parse(adapter.files.get(`${PLUGIN_DIR}/device.json`)!);
+    expect(sidecar).toEqual({ device_id: 'legacy-id', designated: true, device_label: 'Legacy Mac' });
+
+    // Legacy field cleared from data.json — but the rest survives.
+    const data = plugin._data as Record<string, unknown>;
+    expect(data.device).toBeUndefined();
+    expect(data.vault_id).toBe('3f2a8c1e-7d4b-4f12-a1c0-bc5d76e9a2e1');
+    expect(data.settings).toBeDefined();
+  });
+
+  it('subsequent loadDevice calls go to the sidecar — no second migration', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    plugin._data = {
+      device: { device_id: 'legacy-id', designated: false, device_label: '' },
+    };
+    const store = new PluginStore(plugin as never, makeTestLogger());
+
+    await store.loadDevice(); // triggers migration
+    await store.loadDevice(); // hits the sidecar
+
+    // The migration ran exactly once — even if a third party re-injected
+    // device into data.json (it shouldn't), sidecar is now authoritative.
+    const sidecar = JSON.parse(adapter.files.get(`${PLUGIN_DIR}/device.json`)!);
+    expect(sidecar.device_id).toBe('legacy-id');
+  });
+
+  it('returns the empty block for a corrupt sidecar and warns', async () => {
+    const adapter = makeFakeAdapter();
+    const plugin = makePlugin(adapter);
+    adapter.files.set(`${PLUGIN_DIR}/device.json`, '{not valid json');
+    const logger = makeTestLogger();
+    const store = new PluginStore(plugin as never, logger);
+
+    const device = await store.loadDevice();
+    expect(device).toEqual({ device_id: null, designated: false, device_label: '' });
+    expect(logger.warnCalls.some((c) => c.message === 'device_corrupt')).toBe(true);
   });
 });
 

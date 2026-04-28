@@ -1,13 +1,15 @@
 // DeviceCoordinator — device identity, ownership flag, and HEAD conflict detection.
 //
 // Responsibilities (T5.1 / PRD F5 / SDD Algorithm 2):
-//   - Generate and persist a stable UUIDv4 per install (ADR-7 data.json device block).
+//   - Generate and persist a stable UUIDv4 per install. Persisted by
+//     PluginStore in the `device.json` sidecar (NOT data.json — see ADR-11
+//     and the PluginStore module doc for the sync-isolation rationale).
 //   - Track the `designated` flag (which device performs backups).
 //   - Validate HEAD.json schema before trusting any field (SEC-M4 DoS-protection).
 //   - Detect multi-device conflicts: another device committed within recentWindowHours.
 //
 // Design invariants:
-//   - takeOwnership / releaseOwnership are pure data.json mutations — no Dropbox calls.
+//   - takeOwnership / releaseOwnership are pure local mutations — no Dropbox calls.
 //   - A schema-invalid HEAD is logged as WARN and treated as absent; it never blocks
 //     backups (SEC-M4). Only a valid HEAD from a different, recently-active device
 //     raises ConflictError('DEVICE_CONFLICT').
@@ -18,7 +20,7 @@ import { ConflictError, PathError } from '../model/Errors';
 import { headPath } from '../util/paths';
 import type { DropboxClient } from '../infra/DropboxClient';
 import type { Logger } from '../infra/Logger';
-import type { PluginStore } from '../infra/PluginStore';
+import type { DeviceBlock, PluginStore } from '../infra/PluginStore';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -34,12 +36,6 @@ const DEFAULT_RECENT_WINDOW_HOURS = 2;
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface DeviceBlock {
-  device_id: string | null;
-  designated: boolean;
-  device_label: string;
-}
 
 export interface DeviceCoordinatorDeps {
   pluginStore: PluginStore;
@@ -182,26 +178,12 @@ export class DeviceCoordinator {
     return true;
   }
 
-  private async loadDevice(): Promise<DeviceBlock> {
-    const raw = (await this.pluginStore['plugin'].loadData()) as Record<string, unknown> | null;
-    if (!raw || typeof raw.device !== 'object' || raw.device === null) {
-      return { device_id: null, designated: false, device_label: '' };
-    }
-    const d = raw.device as Record<string, unknown>;
-    return {
-      device_id: typeof d.device_id === 'string' ? d.device_id : null,
-      designated: d.designated === true,
-      device_label: typeof d.device_label === 'string' ? d.device_label : '',
-    };
+  private loadDevice(): Promise<DeviceBlock> {
+    return this.pluginStore.loadDevice();
   }
 
-  private async saveDevice(device: DeviceBlock): Promise<void> {
-    const existing = (await this.pluginStore['plugin'].loadData()) as Record<string, unknown> | null;
-    const blob: Record<string, unknown> = {
-      ...(existing ?? {}),
-      device,
-    };
-    await this.pluginStore['plugin'].saveData(blob);
+  private saveDevice(device: DeviceBlock): Promise<void> {
+    return this.pluginStore.saveDevice(device);
   }
 }
 
