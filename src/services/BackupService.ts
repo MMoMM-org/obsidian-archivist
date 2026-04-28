@@ -264,42 +264,33 @@ export class BackupService {
       return this.runFull(opts);
     }
 
-    // Once-per-session parent-manifest verification: probe whether the
-    // snapshot we'd attach the next INC to actually exists on Dropbox.
-    // Catches three corruption shapes that all break the BackupBrowser's
-    // chain walk:
-    //   (a) HEAD.json + the entire vault folder gone (probe gets 409 too)
-    //   (b) HEAD.json present, our parent manifest gone (this commit's case)
-    //   (c) GC over-pruned and removed an inc whose parent_id our index
-    //       still references
-    // In all three, stacking another INC produces a snapshot whose parent_id
-    // points at a missing manifest — re-bootstrapping with FULL is the only
-    // safe answer. Auth/network/5xx errors propagate so the FSM still
-    // surfaces them; the verified flag stays false on those so the next inc
-    // re-probes.
+    // Once-per-session full chain walk: verify the entire predecessor chain
+    // from `last_inc_snapshot_id` (or `last_full` if no inc yet) back to its
+    // nearest Full ancestor. If ANY manifest in that chain is missing on
+    // Dropbox, the new inc would inherit the same broken parent_id link and
+    // the BackupBrowser would keep showing chain_broken on every snapshot
+    // newer than the gap. Re-bootstrap with FULL.
+    //
+    // Cost: one `downloadJson` per snapshot in the chain. Bounded by retention
+    // (typically <50 for V1 defaults), once per session — acceptable to catch
+    // mid-chain corruption that a single-probe check misses.
     if (!this.dropboxChainVerified) {
-      const parentId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
-      if (parentId !== null) {
-        try {
-          await this.dropbox.downloadJson<unknown>(
-            snapshotPath({ vault_prefix: this.vaultPrefix, id: parentId }),
-          );
+      const startId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
+      if (startId !== null) {
+        const result = await this.walkChainToFull(startId);
+        if (result.broken) {
           this.dropboxChainVerified = true;
-        } catch (err) {
-          if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
-            this.dropboxChainVerified = true;
-            this.logger.warn('dropbox_parent_missing_falling_back_to_full', {
-              missing_parent_id: parentId,
-              local_last_full: index.last_full_snapshot_id,
-              local_last_inc: index.last_inc_snapshot_id,
-            });
-            return this.runFull(opts);
-          }
-          throw err;
+          this.logger.warn('dropbox_chain_broken_falling_back_to_full', {
+            missing_id: result.missingId,
+            referrer_id: result.referrerId,
+            walked_depth: result.walkedDepth,
+            local_last_full: index.last_full_snapshot_id,
+            local_last_inc: index.last_inc_snapshot_id,
+          });
+          return this.runFull(opts);
         }
+        this.dropboxChainVerified = true;
       } else {
-        // No parent_id in the local index — runFull will be reached anyway
-        // via the same fallback below; nothing to probe.
         this.dropboxChainVerified = true;
       }
     }
@@ -551,6 +542,65 @@ export class BackupService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Walk the predecessor chain from `startId` back to its nearest Full
+   * ancestor, downloading each manifest. Returns `{ broken: false }` when
+   * the chain reaches a Full intact, or `{ broken: true, ... }` on the
+   * first PATH_NOT_FOUND or pathological condition (cycle, missing
+   * parent_id on a non-Full, depth ceiling). Other errors propagate.
+   *
+   * Cost: one downloadJson per chain link. Bounded by retention; in V1
+   * defaults that's a few dozen at most.
+   */
+  private async walkChainToFull(
+    startId: string,
+  ): Promise<
+    | { broken: false; depth: number }
+    | { broken: true; missingId: string | null; referrerId: string; walkedDepth: number }
+  > {
+    const MAX_DEPTH = 1_000; // pathological-cycle / runaway-chain ceiling
+    const seen = new Set<string>();
+    let cursor: string | null = startId;
+    let lastSeen = startId;
+    let depth = 0;
+
+    while (cursor !== null) {
+      if (depth >= MAX_DEPTH) {
+        return { broken: true, missingId: null, referrerId: lastSeen, walkedDepth: depth };
+      }
+      if (seen.has(cursor)) {
+        // Cycle — treat as broken so we re-bootstrap rather than loop.
+        return { broken: true, missingId: cursor, referrerId: lastSeen, walkedDepth: depth };
+      }
+      seen.add(cursor);
+
+      let manifest: { type?: unknown; parent_id?: unknown };
+      try {
+        manifest = await this.dropbox.downloadJson<{ type?: unknown; parent_id?: unknown }>(
+          snapshotPath({ vault_prefix: this.vaultPrefix, id: cursor }),
+        );
+      } catch (err) {
+        if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') {
+          return { broken: true, missingId: cursor, referrerId: lastSeen, walkedDepth: depth };
+        }
+        throw err;
+      }
+
+      depth += 1;
+      if (manifest.type === 'full') {
+        return { broken: false, depth };
+      }
+      if (typeof manifest.parent_id !== 'string') {
+        // Non-Full with no parent_id — schema violation; treat as broken.
+        return { broken: true, missingId: null, referrerId: cursor, walkedDepth: depth };
+      }
+      lastSeen = cursor;
+      cursor = manifest.parent_id;
+    }
+
+    return { broken: true, missingId: null, referrerId: lastSeen, walkedDepth: depth };
+  }
 
   /**
    * Read each file exactly once and compute its hash in the same step.
