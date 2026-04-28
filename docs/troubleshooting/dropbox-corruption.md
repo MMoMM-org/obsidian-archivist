@@ -166,6 +166,8 @@ has what's needed:
 2. Reproduce the issue once.
 3. Run `Archivist: Open settings` and copy the diagnostic-log section
    shown at the top.
+**note:** is this a new feature?
+I can't find it..
 4. Open an issue at <https://github.com/MMoMM-org/obsidian-archivist/issues>
    with the log and a one-line description of the symptom.
 
