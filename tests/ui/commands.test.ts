@@ -365,11 +365,12 @@ describe('registerRepairCommands', () => {
     // Command IDs stay stable (COMPAT-003) so user hotkeys are
     // preserved, but the user-visible names are no longer
     // jargon-laden ("GC", "garbage collect", "orphan content").
+    // No "Archivist: " prefix — Obsidian adds the plugin name itself.
     expect(captured.byId.get('archivist-gc-orphan-content')!.name).toBe(
-      'Archivist: Remove unused backup blobs',
+      'Remove unused backup blobs',
     );
     expect(captured.byId.get('archivist-clear-gc-lock')!.name).toBe(
-      'Archivist: Clear stuck garbage-collection lock',
+      'Clear stuck garbage-collection lock',
     );
   });
 
