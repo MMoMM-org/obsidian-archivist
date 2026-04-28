@@ -208,3 +208,71 @@ describe('ManifestCache.invalidate', () => {
     expect(callsAfter - callsBefore).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// L4: per-id manifest cache is bounded — beyond MANIFEST_CACHE_MAX_ENTRIES
+// the least-recently-used entry is evicted, with LRU-on-hit promotion so a
+// frequently-accessed manifest survives an unrelated browse spree.
+// ---------------------------------------------------------------------------
+
+describe('ManifestCache LRU eviction (L4)', () => {
+  function manyManifestsHarness(count: number): {
+    h: Harness;
+    ids: string[];
+  } {
+    const ids = Array.from({ length: count }, (_, i) =>
+      `2026-04-${String(10 + Math.floor(i / 24)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}-00-inc`,
+    );
+    const manifests: Record<string, SnapshotManifest> = {};
+    for (const id of ids) manifests[id] = makeManifest(id);
+    const h = makeHarness({
+      manifests,
+      index: makeIndex(ids.map((id) => ({ id, type: 'inc' as const }))),
+    });
+    return { h, ids };
+  }
+
+  it('caches up to 50 distinct manifests without eviction', async () => {
+    const { h, ids } = manyManifestsHarness(50);
+    for (const id of ids) await h.cache.loadManifest(id);
+    const callsAfterAllLoaded = h.downloadJson.mock.calls.length;
+    // Re-fetch the first id — should still be cached, no extra download.
+    await h.cache.loadManifest(ids[0]);
+    expect(h.downloadJson.mock.calls.length).toBe(callsAfterAllLoaded);
+  });
+
+  it('evicts the oldest entry when the cap is exceeded', async () => {
+    const { h, ids } = manyManifestsHarness(51);
+    for (const id of ids) await h.cache.loadManifest(id);
+    const callsAfterAllLoaded = h.downloadJson.mock.calls.length;
+    // Most recent (last) is still cached — no extra download.
+    await h.cache.loadManifest(ids[50]);
+    expect(h.downloadJson.mock.calls.length).toBe(callsAfterAllLoaded);
+    // Oldest (ids[0]) was evicted to make room for ids[50] — re-fetch
+    // requires a new download.
+    await h.cache.loadManifest(ids[0]);
+    expect(h.downloadJson.mock.calls.length).toBe(callsAfterAllLoaded + 1);
+  });
+
+  it('LRU touch on hit prevents premature eviction of a hot id', async () => {
+    const { h, ids } = manyManifestsHarness(50);
+    // Load all 50 — fills the cache.
+    for (const id of ids) await h.cache.loadManifest(id);
+    // Promote ids[0] to most-recent by re-fetching.
+    await h.cache.loadManifest(ids[0]);
+    // Insert one more (id[50] would be the eviction trigger). Use a
+    // manifest not already in the cache.
+    const newId = '2026-05-01T00-00-inc';
+    h.downloadJson.mockImplementationOnce(async () => makeManifest(newId));
+    await h.cache.loadManifest(newId);
+    const callsAfterPush = h.downloadJson.mock.calls.length;
+
+    // ids[0] survived (was touched right before the push), so re-fetch
+    // hits cache, no new download.
+    await h.cache.loadManifest(ids[0]);
+    expect(h.downloadJson.mock.calls.length).toBe(callsAfterPush);
+    // ids[1] was the oldest after the touch — it should have been evicted.
+    await h.cache.loadManifest(ids[1]);
+    expect(h.downloadJson.mock.calls.length).toBe(callsAfterPush + 1);
+  });
+});

@@ -166,6 +166,23 @@ export default class ArchivistPlugin extends Plugin {
     const eventQueue = new EventQueue(pluginStore);
     await eventQueue.init();
 
+    // M7: O(1) vault-presence lookup for the Backup Browser / File-History
+    // / file-menu callbacks. The Set is built lazily on first call and
+    // invalidated whenever the vault gains, loses, or renames a file —
+    // those are the only mutations that change the path set. `modify`
+    // events are not invalidating.
+    let vaultPathSet: Set<string> | null = null;
+    const invalidateVaultPaths = (): void => { vaultPathSet = null; };
+    const vaultHasPath = (path: string): boolean => {
+      if (vaultPathSet === null) {
+        vaultPathSet = new Set(vaultAdapter.getFiles().map((f) => f.path));
+      }
+      return vaultPathSet.has(path);
+    };
+    this.registerEvent(this.app.vault.on('create', invalidateVaultPaths));
+    this.registerEvent(this.app.vault.on('delete', invalidateVaultPaths));
+    this.registerEvent(this.app.vault.on('rename', invalidateVaultPaths));
+
     const vaultName = (this.app.vault as unknown as { getName?: () => string }).getName?.() ?? 'vault';
     const vaultPrefix = settings.advanced.vault_prefix || slugifyVaultName(vaultName);
 
@@ -741,7 +758,7 @@ export default class ArchivistPlugin extends Plugin {
                 size: stat?.size ?? 0,
                 mtime: stat?.mtime ?? 0,
               },
-              vaultHasPath: (p) => vaultAdapter.getFiles().some((f) => f.path === p),
+              vaultHasPath,
             }).open();
           } catch (err) {
             this.logger.warn('show_history_command_failed', {
@@ -884,7 +901,7 @@ export default class ArchivistPlugin extends Plugin {
             await pluginStore.saveSettings(updated);
           },
         },
-        vaultHasPath: (path) => vaultAdapter.getFiles().some((f) => f.path === path),
+        vaultHasPath,
         notify,
         app: this.app,
       });
@@ -899,7 +916,7 @@ export default class ArchivistPlugin extends Plugin {
           showPersistent: (code, message, opts) =>
             noticeCenter.showPersistent(code, message, opts),
         },
-        vaultHasPath: (path) => vaultAdapter.getFiles().some((f) => f.path === path),
+        vaultHasPath,
         notify,
         app: this.app,
       });
