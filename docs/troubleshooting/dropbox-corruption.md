@@ -163,12 +163,13 @@ has what's needed:
 
 1. Settings → Advanced → enable **Diagnostic logging** (if not
    already on).
-2. Reproduce the issue once.
-3. Run `Archivist: Open settings` and copy the diagnostic-log section
-   shown at the top.
-**note:** is this a new feature?
-I can't find it..
-4. Open an issue at <https://github.com/MMoMM-org/obsidian-archivist/issues>
+2. Open the developer console: **Cmd/Ctrl + Shift + I** → **Console**
+   tab. Filter for `[archivist]` to drop unrelated Obsidian logs.
+3. Reproduce the issue once.
+4. Right-click in the console, *Save as…* (or just copy the relevant
+   lines). Look especially for entries prefixed `repair_`, `gc_`,
+   `chain_`, or `vault_`.
+5. Open an issue at <https://github.com/MMoMM-org/obsidian-archivist/issues>
    with the log and a one-line description of the symptom.
 
 The log entries you're looking for are prefixed `repair_` or
