@@ -1,3 +1,10 @@
+## [0.2.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.2...0.2.3) (2026-04-28)
+
+
+### Bug Fixes
+
+* **dropbox:** probe parent manifest, not just HEAD, for chain corruption ([#11](https://github.com/MMoMM-org/obsidian-archivist/issues/11)) ([ca4692f](https://github.com/MMoMM-org/obsidian-archivist/commit/ca4692ff89bcb4384e51f8bf883ee46e213970c5)), closes [#9](https://github.com/MMoMM-org/obsidian-archivist/issues/9) [#9](https://github.com/MMoMM-org/obsidian-archivist/issues/9)
+
 ## [0.2.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.1...0.2.2) (2026-04-27)
 
 
