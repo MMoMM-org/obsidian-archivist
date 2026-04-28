@@ -69,6 +69,12 @@ export const S = {
     'See docs/operations/connecting-existing-backup.md for when adoption is the right choice.',
   ADOPT_VAULT_ADOPT: 'Adopt',
   ADOPT_VAULT_CANCEL: 'Cancel',
+  ADOPT_VAULT_OK: (vaultName: string): string =>
+    `Archivist: adopted vault "${vaultName}". Backups will resume on the next tick.`,
+  ADOPT_VAULT_FAILED: (msg: string): string =>
+    `Archivist: vault adoption failed — ${msg}. Try again from "Verify backup ownership" in the command palette.`,
+  VAULT_META_CORRUPT_BANNER:
+    'Dropbox vault_meta.json is corrupt — backups are blocked. Delete vault_meta.json on Dropbox to let the next backup recreate it. See docs/troubleshooting/dropbox-corruption.md.',
 
   // ─── Repair-command notifications ────────────────────────────────
   REPAIR_INDEX_RUNNING: 'Archivist: rebuilding backup index from Dropbox…',

@@ -2000,4 +2000,58 @@ describe('BackupService — vault-identity guard', () => {
 
     await expect(service.runIncremental()).rejects.toMatchObject({ code: 'VAULT_ID_MISMATCH' });
   });
+
+  // -------------------------------------------------------------------------
+  // H1: vault-ownership session cache — checkConsistency() must run at most
+  // once per BackupService instance for the steady-state 'ok' path, and the
+  // post-claim transition from 'fresh-folder' must mirror that.
+  // -------------------------------------------------------------------------
+
+  it('caches the ok result across runs (H1)', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({ kind: 'ok' });
+    const { service } = makeHarness(makeVaultFiles(2), {
+      vaultIdentity,
+      initialIndex: {
+        last_full_snapshot_id: '2026-04-24T10-00-full',
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: null,
+        last_inc_commit_at: null,
+        files: { 'notes/file-0.md': { hash: 'hash-0', size: 6, mtime: 0 } },
+      },
+      initialQueue: {
+        entries: [{
+          id: 'q-1',
+          path: 'notes/file-1.md',
+          type: 'create',
+          prev_path: null,
+          observed_at: '2026-04-24T11:00:00.000Z',
+        }],
+      },
+    });
+
+    await service.runFull();
+    await service.runIncremental();
+    // First call hits Dropbox; the second is served from cache and never
+    // re-fetches vault_meta.json.
+    expect(vaultIdentity.checkConsistency).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches after a successful fresh-folder claim so subsequent runs skip the re-check (H1)', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'fresh-folder',
+      localId: 'loc-id-fresh',
+    });
+    const { service } = makeHarness(makeVaultFiles(2), { vaultIdentity });
+
+    // First runFull: triggers checkConsistency + claimRemote.
+    await service.runFull();
+    expect(vaultIdentity.checkConsistency).toHaveBeenCalledTimes(1);
+    expect(vaultIdentity.claimRemote).toHaveBeenCalledTimes(1);
+
+    // Second runFull: the cache short-circuits checkConsistency.
+    await service.runFull();
+    expect(vaultIdentity.checkConsistency).toHaveBeenCalledTimes(1);
+    // claimRemote does NOT fire again — the cache says we're past fresh-folder.
+    expect(vaultIdentity.claimRemote).toHaveBeenCalledTimes(1);
+  });
 });

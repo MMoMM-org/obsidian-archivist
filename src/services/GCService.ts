@@ -37,7 +37,16 @@ export interface GCServiceDeps {
   snapshotIndexStore: SnapshotIndexStore;
   logger: Logger;
   vaultPrefix: string;
-  deviceId: string;
+  /**
+   * Identifier recorded in the GC lock file's `device_id` field for
+   * diagnostics ("which device left this stale lock?"). Accept either a
+   * string or a getter — production wires the getter so the lock carries
+   * the real DeviceCoordinator UUID even when GCService is constructed
+   * before the device id has been resolved (Obsidian plugin lifecycle:
+   * services are wired synchronously in `onload`, but `loadData()` reads
+   * are async). Tests pass a fixed string.
+   */
+  deviceId: string | (() => string | Promise<string>);
   now?: () => Date;
   maxClockSkewMinutes?: number;
 }
@@ -68,7 +77,7 @@ export class GCService {
   private readonly logger: Logger;
   private readonly lockPath: string;
   private readonly contentFolder: string;
-  private readonly deviceId: string;
+  private readonly resolveDeviceId: () => string | Promise<string>;
   private readonly now: () => Date;
   private readonly maxClockSkewMinutes: number;
 
@@ -78,7 +87,8 @@ export class GCService {
     this.logger = deps.logger;
     this.lockPath = gcLockPath(deps.vaultPrefix);
     this.contentFolder = contentFolderPath(deps.vaultPrefix);
-    this.deviceId = deps.deviceId;
+    this.resolveDeviceId =
+      typeof deps.deviceId === 'function' ? deps.deviceId : () => deps.deviceId as string;
     this.now = deps.now ?? (() => new Date());
     this.maxClockSkewMinutes = deps.maxClockSkewMinutes ?? 5;
   }
@@ -89,10 +99,11 @@ export class GCService {
     const lockCheck = await this.checkExistingLock(now);
     if (lockCheck !== 'proceed') return lockCheck;
 
+    const deviceId = await this.resolveDeviceId();
     const lock: GcLock = {
       schema_version: '1.0',
       started_at: now.toISOString(),
-      device_id: this.deviceId,
+      device_id: deviceId,
     };
     await this.dropbox.uploadJson(this.lockPath, lock);
 
