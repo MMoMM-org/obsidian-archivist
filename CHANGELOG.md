@@ -1,3 +1,10 @@
+## [0.7.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.0...0.7.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **manifest:** rename plugin id to "archivist", drop "Obsidian" from description ([#28](https://github.com/MMoMM-org/obsidian-archivist/issues/28)) ([b236e04](https://github.com/MMoMM-org/obsidian-archivist/commit/b236e0404b1da39b67b0a88889dde44fbd583de3)), closes [#12370](https://github.com/MMoMM-org/obsidian-archivist/issues/12370) [obsidian-releases#12370](https://github.com/obsidian-releases/issues/12370)
+
 # [0.7.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.6.5...0.7.0) (2026-04-28)
 
 
