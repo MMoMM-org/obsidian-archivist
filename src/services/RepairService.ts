@@ -22,11 +22,20 @@
 import { CorruptionError, PathError } from '../model/Errors';
 import type { DropboxClient } from '../infra/DropboxClient';
 import type { Logger } from '../infra/Logger';
-import type { SnapshotManifest } from '../model/Manifest';
 import { isSnapshotManifest } from '../model/Manifest';
+import type { SnapshotIndexEntry } from '../model/SnapshotIndex';
 import { gcLockPath, snapshotsDir } from '../util/paths';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
+import { manifestToIndexEntry } from './SnapshotIndexStore';
 import type { GCService, GCResult } from './GCService';
+
+/**
+ * Manifest-download fan-out width. 8 in-flight requests is well below
+ * Dropbox's 200-req/min user-rate budget for a manual repair op while
+ * giving an order-of-magnitude speedup over the previous serial loop on
+ * vaults with hundreds of snapshots.
+ */
+const MANIFEST_DOWNLOAD_BATCH_SIZE = 8;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -79,13 +88,13 @@ export class RepairService {
     const existing = await this.readExistingIndexIds();
 
     const entries = await this.listManifestEntries(vaultPrefix);
-    const { manifests, invalidManifests } = await this.downloadValidManifests(entries);
+    const { indexEntries, invalidManifests } = await this.downloadValidManifests(entries);
 
-    const validIds = new Set(manifests.map((m) => m.id));
+    const validIds = new Set(indexEntries.map((e) => e.id));
     const phantomsRemoved = [...existing].filter((id) => !validIds.has(id));
     const kept = [...existing].filter((id) => validIds.has(id));
 
-    await snapshotIndexStore.rebuild(manifests);
+    await snapshotIndexStore.rebuildFromEntries(indexEntries);
     this.deps.invalidateManifestCache?.();
 
     logger.info('repair_index_rebuilt', {
@@ -175,28 +184,52 @@ export class RepairService {
     }
   }
 
+  /**
+   * Download manifests in parallel batches and reduce each one to an
+   * `SnapshotIndexEntry` immediately so the full `files` map can be
+   * garbage-collected before the next batch starts. On a vault with
+   * hundreds of snapshots this is the difference between holding all
+   * manifest contents in memory at once vs. one batch-worth.
+   *
+   * Concurrency is bounded by `MANIFEST_DOWNLOAD_BATCH_SIZE` to stay
+   * well under Dropbox's user-rate budget on a manual repair op.
+   */
   private async downloadValidManifests(
     entries: Array<{ path: string }>,
-  ): Promise<{ manifests: SnapshotManifest[]; invalidManifests: string[] }> {
-    const manifests: SnapshotManifest[] = [];
+  ): Promise<{ indexEntries: SnapshotIndexEntry[]; invalidManifests: string[] }> {
+    const indexEntries: SnapshotIndexEntry[] = [];
     const invalidManifests: string[] = [];
-    for (const entry of entries) {
-      try {
-        const raw = await this.deps.dropbox.downloadJson<unknown>(entry.path);
-        if (isSnapshotManifest(raw)) {
-          manifests.push(raw);
-        } else {
-          this.deps.logger.warn('repair_manifest_invalid_schema', { path: entry.path });
-          invalidManifests.push(entry.path);
-        }
-      } catch (err) {
-        this.deps.logger.warn('repair_manifest_download_failed', {
-          path: entry.path,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        invalidManifests.push(entry.path);
+    for (let i = 0; i < entries.length; i += MANIFEST_DOWNLOAD_BATCH_SIZE) {
+      const batch = entries.slice(i, i + MANIFEST_DOWNLOAD_BATCH_SIZE);
+      const settled = await Promise.all(
+        batch.map(async (entry) => this.fetchManifestEntry(entry.path)),
+      );
+      for (const result of settled) {
+        if (result.kind === 'ok') indexEntries.push(result.entry);
+        else invalidManifests.push(result.path);
       }
     }
-    return { manifests, invalidManifests };
+    // Stable order: list-folder iteration ordering is preserved across
+    // batches because we await each batch before kicking off the next.
+    return { indexEntries, invalidManifests };
+  }
+
+  private async fetchManifestEntry(
+    path: string,
+  ): Promise<{ kind: 'ok'; entry: SnapshotIndexEntry } | { kind: 'invalid'; path: string }> {
+    try {
+      const raw = await this.deps.dropbox.downloadJson<unknown>(path);
+      if (isSnapshotManifest(raw)) {
+        return { kind: 'ok', entry: manifestToIndexEntry(raw) };
+      }
+      this.deps.logger.warn('repair_manifest_invalid_schema', { path });
+      return { kind: 'invalid', path };
+    } catch (err) {
+      this.deps.logger.warn('repair_manifest_download_failed', {
+        path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { kind: 'invalid', path };
+    }
   }
 }

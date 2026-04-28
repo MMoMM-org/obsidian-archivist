@@ -114,7 +114,11 @@ function makeFakeDropbox(): {
 
 function makeFakeSnapshotIndexStore(initial: SnapshotIndex | null, opts?: { readThrows?: Error }) {
   let stored: SnapshotIndex | null = initial ? JSON.parse(JSON.stringify(initial)) : null;
-  const rebuildCalls: SnapshotManifest[][] = [];
+  // RepairService now calls rebuildFromEntries (M9 — entries are extracted
+  // batch-by-batch so the manifest's `files` map can be GCed). The legacy
+  // `rebuild(manifests)` path is still exercised by other callers
+  // (RetentionService, StartupRecovery) so the fake covers both.
+  const rebuildCalls: Array<Array<{ id: string }>> = [];
   return {
     rebuildCalls,
     get storedIndex(): SnapshotIndex | null { return stored; },
@@ -123,7 +127,7 @@ function makeFakeSnapshotIndexStore(initial: SnapshotIndex | null, opts?: { read
       return stored;
     }),
     rebuild: vi.fn(async (manifests: SnapshotManifest[]) => {
-      rebuildCalls.push(manifests.slice());
+      rebuildCalls.push(manifests.map((m) => ({ id: m.id })));
       stored = {
         schema_version: '1.0',
         last_updated_at: '2026-04-10T11:00:00.000Z',
@@ -135,6 +139,17 @@ function makeFakeSnapshotIndexStore(initial: SnapshotIndex | null, opts?: { read
           device_id: m.device_id,
           blob_hashes: [],
         })),
+      };
+    }),
+    rebuildFromEntries: vi.fn(async (entries: Array<{
+      id: string; type: 'full' | 'inc'; parent_id: string | null;
+      created_at: string; device_id: string; blob_hashes: string[];
+    }>) => {
+      rebuildCalls.push(entries.map((e) => ({ id: e.id })));
+      stored = {
+        schema_version: '1.0',
+        last_updated_at: '2026-04-10T11:00:00.000Z',
+        snapshots: entries.slice(),
       };
     }),
   };
@@ -325,6 +340,9 @@ describe('RepairService.rebuildSnapshotIndex', () => {
     expect(result.kept).toEqual(['2026-04-26T21-48-full']);
     expect(result.phantomsRemoved).toEqual(['2026-04-27T16-09-inc']);
     expect(result.invalidManifests).toHaveLength(1);
+    // M12: pin the path content so a future change of the `invalidManifests`
+    // shape (e.g. switching to ids) breaks loudly instead of leaking through.
+    expect(result.invalidManifests[0]).toContain('2026-04-27T16-09-inc');
     expect(indexStore.rebuildCalls[0].map((m) => m.id)).toEqual(['2026-04-26T21-48-full']);
   });
 
@@ -347,6 +365,93 @@ describe('RepairService.rebuildSnapshotIndex', () => {
     expect(result.kept).toEqual(['2026-04-26T21-48-full']);
     expect(result.phantomsRemoved).toEqual(['2026-04-27T11-46-inc']);
     expect(result.invalidManifests).toHaveLength(1);
+    // M12: same pin for the download-error path.
+    expect(result.invalidManifests[0]).toContain('2026-04-27T11-46-inc');
+  });
+
+  // -------------------------------------------------------------------------
+  // H6 + M9: parallel batched download with bounded in-flight set, results
+  // reduced to index entries before the next batch starts.
+  // -------------------------------------------------------------------------
+
+  it('downloads manifests in parallel batches (H6)', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    // 20 manifests — exceeds the batch size (8) so we observe at least three
+    // batches (8 + 8 + 4).
+    const ids = Array.from({ length: 20 }, (_, i) =>
+      `2026-04-${String(10 + i).padStart(2, '0')}T10-00-full`,
+    );
+    for (const id of ids) seedManifest(fakeDropbox.store, makeManifest(id));
+    const indexStore = makeFakeSnapshotIndexStore(makeIndex(ids));
+
+    let inFlight = 0;
+    let maxObservedInFlight = 0;
+    const originalDownload = fakeDropbox.downloadJson as unknown as (path: string) => Promise<unknown>;
+    fakeDropbox.downloadJson = vi.fn(async (path: string) => {
+      inFlight += 1;
+      maxObservedInFlight = Math.max(maxObservedInFlight, inFlight);
+      try {
+        // Tiny await tick so concurrent fan-out can be observed.
+        await Promise.resolve();
+        return await originalDownload(path);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: indexStore as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+
+    const result = await repair.rebuildSnapshotIndex();
+    expect(result.kept).toHaveLength(20);
+    // Bounded fan-out: at least 2 in flight (proves parallelism), and never
+    // more than the documented batch size (8) in flight at once.
+    expect(maxObservedInFlight).toBeGreaterThanOrEqual(2);
+    expect(maxObservedInFlight).toBeLessThanOrEqual(8);
+  });
+
+  it('reduces manifests to index entries (no full files map retained, M9)', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    // Big files map: makes a measurable difference in store content so the
+    // assertion that we did NOT pass full manifests is verifiable.
+    const bigFiles: Record<string, { hash: string; size: number; mtime: number }> = {};
+    for (let i = 0; i < 50; i += 1) {
+      bigFiles[`note-${i}.md`] = { hash: `h${i}`, size: 100, mtime: 0 };
+    }
+    seedManifest(
+      fakeDropbox.store,
+      makeManifest('2026-04-26T21-48-full', { files: bigFiles }),
+    );
+    const indexStore = makeFakeSnapshotIndexStore(makeIndex(['2026-04-26T21-48-full']));
+
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: indexStore as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+    await repair.rebuildSnapshotIndex();
+
+    // The store-fake records SnapshotIndexEntry-shaped objects on
+    // rebuildFromEntries — assert the entry has only the index-row
+    // fields (no `files` map leaked through).
+    const stored = indexStore.storedIndex!;
+    expect(stored.snapshots).toHaveLength(1);
+    expect(stored.snapshots[0]).not.toHaveProperty('files');
+    // blob_hashes are pre-computed from the manifest before discard.
+    expect(stored.snapshots[0].blob_hashes).toEqual(
+      Array.from(new Set(Object.values(bigFiles).map((f) => f.hash))),
+    );
+    // rebuild() (manifest variant) was NOT called — proves the new
+    // entry path is used.
+    expect(indexStore.rebuild).not.toHaveBeenCalled();
+    expect(indexStore.rebuildFromEntries).toHaveBeenCalledOnce();
   });
 });
 
@@ -389,6 +494,21 @@ describe('RepairService.gcOrphanContent', () => {
     const r1 = await repair.gcOrphanContent();
     expect(r1.state).toBe('skipped_locked');
     expect(r1.blocking_lock?.age_ms).toBe(12 * 60 * 1000);
+  });
+
+  it('passes through skipped_no_index state (M13)', async () => {
+    const gcNoIndex = makeFakeGcService({ state: 'skipped_no_index' });
+    const repair = new RepairService({
+      dropbox: makeFakeDropbox() as never,
+      snapshotIndexStore: makeFakeSnapshotIndexStore(null) as never,
+      gcService: gcNoIndex as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+    const result = await repair.gcOrphanContent();
+    expect(result.state).toBe('skipped_no_index');
+    expect(result.deleted).toEqual([]);
+    expect(result.kept_count).toBe(0);
   });
 });
 
@@ -441,5 +561,28 @@ describe('RepairService.clearGcLock', () => {
     });
     const cleared = await repair.clearGcLock();
     expect(cleared).toBe(false);
+  });
+
+  it('propagates non-PATH_NOT_FOUND errors from deleteV2 (L6)', async () => {
+    const fakeDropbox = makeFakeDropbox();
+    fakeDropbox.store.set(gcLockPath(VAULT_PREFIX), { schema_version: '1.0', started_at: 'x' });
+    // Override deleteV2 to throw a non-path error (e.g. permissions
+    // / network), which clearGcLock must NOT swallow.
+    fakeDropbox.deleteV2 = vi.fn(async () => {
+      throw new NetworkError('NETWORK_TIMEOUT', 'transient', true);
+    });
+    const repair = new RepairService({
+      dropbox: fakeDropbox as never,
+      snapshotIndexStore: makeFakeSnapshotIndexStore(null) as never,
+      gcService: makeFakeGcService({ state: 'swept' }) as never,
+      vaultPrefix: VAULT_PREFIX,
+      logger: makeLogger() as never,
+    });
+    await expect(repair.clearGcLock()).rejects.toMatchObject({
+      code: 'NETWORK_TIMEOUT',
+    });
+    // Lock is still in the store — we did NOT silently treat this as a
+    // no-op the way the PATH_NOT_FOUND branch does.
+    expect(fakeDropbox.store.has(gcLockPath(VAULT_PREFIX))).toBe(true);
   });
 });
