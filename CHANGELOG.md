@@ -1,3 +1,10 @@
+## [0.7.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.2...0.7.3) (2026-04-28)
+
+
+### Performance Improvements
+
+* **rate-limit:** conservative defaults to silence 429 cycles ([#30](https://github.com/MMoMM-org/obsidian-archivist/issues/30)) ([e40d2dd](https://github.com/MMoMM-org/obsidian-archivist/commit/e40d2dddc7b91c0ca88092e9f353a2d4375f42d5))
+
 ## [0.7.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.1...0.7.2) (2026-04-28)
 
 
