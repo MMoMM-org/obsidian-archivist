@@ -12,6 +12,7 @@ import { DeviceCoordinator } from './services/DeviceCoordinator';
 import { SnapshotIndexStore } from './services/SnapshotIndexStore';
 import { RetentionService } from './services/RetentionService';
 import { GCService } from './services/GCService';
+import { RepairService } from './services/RepairService';
 import { MaintenanceScheduler } from './services/MaintenanceScheduler';
 import { StorageProbe } from './services/StorageProbe';
 import { ManifestCache } from './services/ManifestCache';
@@ -26,6 +27,7 @@ import {
   registerBackupNowCommand,
   registerOpenBackupBrowserCommand,
   registerShowHistoryCommand,
+  registerRepairCommands,
 } from './ui/Commands';
 import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView, BACKUP_BROWSER_VIEW_TYPE } from './ui/BackupBrowserView';
@@ -286,6 +288,16 @@ export default class ArchivistPlugin extends Plugin {
           });
         });
       },
+    });
+
+    // RepairService — user-triggerable recovery (rebuild snapshot_index +
+    // manual GC). See `docs/troubleshooting/dropbox-corruption.md`.
+    const repairService = new RepairService({
+      dropbox: dropboxProxy as unknown as DropboxClient,
+      snapshotIndexStore,
+      gcService,
+      vaultPrefix,
+      logger: this.logger,
     });
 
     const maintenanceScheduler = new MaintenanceScheduler({
@@ -704,6 +716,12 @@ export default class ArchivistPlugin extends Plugin {
           }
         })();
       },
+    });
+    registerRepairCommands({
+      plugin: this,
+      repair: repairService,
+      notify,
+      logger: this.logger,
     });
 
     // ---------------------------------------------------------------------------

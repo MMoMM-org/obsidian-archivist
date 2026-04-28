@@ -41,6 +41,30 @@ export const S = {
   CMD_OPEN_BACKUP_BROWSER: 'Archivist: Open Backup Browser',
   CMD_OPEN_SETTINGS: 'Archivist: Open settings',
   CMD_SHOW_HISTORY_OF_CURRENT_FILE: 'Archivist: Show history of current file',
+  CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
+  CMD_GC_ORPHAN_CONTENT: 'Archivist: Garbage collect orphan content',
+
+  // ─── Repair-command notifications ────────────────────────────────
+  REPAIR_INDEX_RUNNING: 'Archivist: rebuilding backup index from Dropbox…',
+  REPAIR_INDEX_OK: (kept: number, removed: number, invalid: number): string => {
+    const parts = [`kept ${kept}`];
+    if (removed > 0) parts.push(`removed ${removed} phantom${removed === 1 ? '' : 's'}`);
+    if (invalid > 0) parts.push(`skipped ${invalid} invalid manifest${invalid === 1 ? '' : 's'}`);
+    return `Archivist: backup index rebuilt — ${parts.join(', ')}.`;
+  },
+  REPAIR_INDEX_FAILED: (msg: string): string =>
+    `Archivist: backup index rebuild failed — ${msg}`,
+  GC_RUNNING: 'Archivist: garbage-collecting orphan content blobs…',
+  GC_OK_SWEPT: (deleted: number, kept: number, ageGated: number): string => {
+    const parts = [`deleted ${deleted}`, `kept ${kept}`];
+    if (ageGated > 0) parts.push(`${ageGated} age-gated`);
+    return `Archivist: GC complete — ${parts.join(', ')}.`;
+  },
+  GC_OK_NO_INDEX: 'Archivist: GC skipped — snapshot index unreadable. Run "Repair backup index" first.',
+  GC_OK_LOCKED: (ageMinutes: number): string =>
+    `Archivist: GC skipped — another sweep is in progress (lock age ${ageMinutes} min).`,
+  GC_FAILED: (msg: string): string =>
+    `Archivist: GC failed — ${msg}`,
 
   // ─── OAuth ───────────────────────────────────────────────────────
   OAUTH_EMPTY_STATE_TITLE: 'Connect Dropbox to start backing up your vault.',

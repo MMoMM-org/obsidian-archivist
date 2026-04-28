@@ -10,6 +10,8 @@
 
 import type { Plugin } from 'obsidian';
 import type { SchedulerFSM } from '../services/SchedulerFSM';
+import type { RepairService } from '../services/RepairService';
+import type { Logger } from '../infra/Logger';
 import type { NotifyFn } from './NoticeCenter';
 import { S } from './strings';
 
@@ -103,4 +105,82 @@ export function registerShowHistoryCommand(deps: ShowHistoryCommandDeps): void {
       return true;
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Repair commands — user-triggerable recovery actions for Dropbox-side
+// corruption. See `docs/troubleshooting/dropbox-corruption.md` for when to
+// reach for these.
+// ---------------------------------------------------------------------------
+
+export interface RepairCommandsDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  repair: Pick<RepairService, 'rebuildSnapshotIndex' | 'gcOrphanContent'>;
+  notify: NotifyFn;
+  logger: Logger;
+}
+
+const REPAIR_INDEX_COMMAND_ID = 'archivist-repair-backup-index';
+const GC_ORPHAN_CONTENT_COMMAND_ID = 'archivist-gc-orphan-content';
+
+export function registerRepairCommands(deps: RepairCommandsDeps): void {
+  deps.plugin.addCommand({
+    id: REPAIR_INDEX_COMMAND_ID,
+    name: S.CMD_REPAIR_INDEX,
+    callback: () => { void runRepairIndex(deps); },
+  });
+  deps.plugin.addCommand({
+    id: GC_ORPHAN_CONTENT_COMMAND_ID,
+    name: S.CMD_GC_ORPHAN_CONTENT,
+    callback: () => { void runGcOrphanContent(deps); },
+  });
+}
+
+async function runRepairIndex(deps: RepairCommandsDeps): Promise<void> {
+  deps.notify(S.REPAIR_INDEX_RUNNING, { timeout: 4_000 });
+  try {
+    const result = await deps.repair.rebuildSnapshotIndex();
+    deps.notify(
+      S.REPAIR_INDEX_OK(
+        result.kept.length,
+        result.phantomsRemoved.length,
+        result.invalidManifests.length,
+      ),
+      { timeout: 8_000 },
+    );
+    deps.logger.info('repair_index_command_done', {
+      kept_count: result.kept.length,
+      phantoms_removed_count: result.phantomsRemoved.length,
+      invalid_manifest_count: result.invalidManifests.length,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.REPAIR_INDEX_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('repair_index_command_failed', { error: msg });
+  }
+}
+
+async function runGcOrphanContent(deps: RepairCommandsDeps): Promise<void> {
+  deps.notify(S.GC_RUNNING, { timeout: 4_000 });
+  try {
+    const result = await deps.repair.gcOrphanContent();
+    if (result.state === 'swept') {
+      deps.notify(
+        S.GC_OK_SWEPT(result.deleted.length, result.kept_count, result.skipped_age_gate),
+        { timeout: 8_000 },
+      );
+    } else if (result.state === 'skipped_no_index') {
+      deps.notify(S.GC_OK_NO_INDEX, { timeout: 10_000 });
+    } else {
+      // skipped_locked — surface the lock age so the user knows whether to
+      // wait or to manually remove a stale lock.
+      const ageMin = Math.round((result.blocking_lock?.age_ms ?? 0) / 60_000);
+      deps.notify(S.GC_OK_LOCKED(ageMin), { timeout: 8_000 });
+    }
+    deps.logger.info('gc_orphan_content_command_done', { state: result.state });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.GC_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('gc_orphan_content_command_failed', { error: msg });
+  }
 }
