@@ -78,6 +78,10 @@ export function snapshotIndexPath(prefix: string): string {
   return `${vaultRoot(prefix)}/snapshot_index.json`;
 }
 
+export function vaultMetaPath(prefix: string): string {
+  return `${vaultRoot(prefix)}/vault_meta.json`;
+}
+
 export function gcLockPath(prefix: string): string {
   return `${vaultRoot(prefix)}/gc_lock`;
 }
