@@ -1,3 +1,15 @@
+# [0.4.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.3.0...0.4.0) (2026-04-28)
+
+
+### Bug Fixes
+
+* **vault:** vault_id fingerprint + repair commands + cross-vault docs ([#14](https://github.com/MMoMM-org/obsidian-archivist/issues/14)) ([5757dec](https://github.com/MMoMM-org/obsidian-archivist/commit/5757decf15b41aa06c31c1c9dd1a5ff55caf605f))
+
+
+### Features
+
+* **browser:** fuzzy search in Backup Browser files column ([#13](https://github.com/MMoMM-org/obsidian-archivist/issues/13)) ([751c582](https://github.com/MMoMM-org/obsidian-archivist/commit/751c5823c3e7b22dd7b15d520caf7863a22ad33a))
+
 # [0.3.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.2.3...0.3.0) (2026-04-28)
 
 
