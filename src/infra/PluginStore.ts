@@ -103,8 +103,46 @@ export class PluginStore {
     const existing = (await this.plugin.loadData()) as Record<string, unknown> | null;
     const blob: Record<string, unknown> = {
       schema_version: settings.schema_version,
-      ...(existing ? { device: existing.device, ui: existing.ui } : {}),
+      ...(existing
+        ? {
+            device: existing.device,
+            ui: existing.ui,
+            // Preserve top-level vault_id (set by VaultIdentity); without
+            // this entry, calling saveSettings would silently drop it on
+            // every settings update, undoing the adoption work.
+            ...(typeof existing.vault_id === 'string' ? { vault_id: existing.vault_id } : {}),
+          }
+        : {}),
       settings,
+    };
+    await this.plugin.saveData(blob);
+  }
+
+  // ---- Vault identity (top-level vault_id in data.json) ----------------------
+
+  /**
+   * Read the locally-stored `vault_id` from the top of `data.json`.
+   * Returns null when the field is missing or has the wrong type — the
+   * caller is expected to generate a UUID and persist it via
+   * {@link saveVaultId} on first run.
+   */
+  async loadVaultId(): Promise<string | null> {
+    const raw = (await this.plugin.loadData()) as Record<string, unknown> | null;
+    if (!raw) return null;
+    return typeof raw.vault_id === 'string' && raw.vault_id.length > 0 ? raw.vault_id : null;
+  }
+
+  /**
+   * Write the given UUID into the top-level `vault_id` field of
+   * `data.json`, preserving every other top-level key. Used for both
+   * the initial generation and the adoption flow (overwrite-with-the-
+   * Dropbox-side ID).
+   */
+  async saveVaultId(vaultId: string): Promise<void> {
+    const existing = (await this.plugin.loadData()) as Record<string, unknown> | null;
+    const blob: Record<string, unknown> = {
+      ...(existing ?? {}),
+      vault_id: vaultId,
     };
     await this.plugin.saveData(blob);
   }

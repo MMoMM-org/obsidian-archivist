@@ -13,6 +13,8 @@ import { SnapshotIndexStore } from './services/SnapshotIndexStore';
 import { RetentionService } from './services/RetentionService';
 import { GCService } from './services/GCService';
 import { RepairService } from './services/RepairService';
+import { VaultIdentity } from './services/VaultIdentity';
+import { AdoptVaultModal } from './ui/AdoptVaultModal';
 import { MaintenanceScheduler } from './services/MaintenanceScheduler';
 import { StorageProbe } from './services/StorageProbe';
 import { ManifestCache } from './services/ManifestCache';
@@ -221,6 +223,23 @@ export default class ArchivistPlugin extends Plugin {
       vaultPrefix,
     });
 
+    // VaultIdentity — vault-fingerprint guard. Generates a local UUID on
+    // first plugin load, claims the Dropbox folder on first FULL, and
+    // blocks backup writes when the IDs disagree. See
+    // `docs/operations/connecting-existing-backup.md`.
+    const vaultIdentity = new VaultIdentity({
+      pluginStore,
+      dropbox: dropboxProxy as unknown as DropboxClient,
+      vaultPrefix,
+      vaultName,
+      logger: this.logger,
+    });
+    // Generate the local vault_id immediately so any subsequent code
+    // (settings tab, backup invocations) sees a populated identity. The
+    // remote consistency check runs once Dropbox is reachable — see the
+    // onLayoutReady block below.
+    await vaultIdentity.ensureLocalVaultId();
+
     // ---------------------------------------------------------------------------
     // Step 7: BackupService
     // ---------------------------------------------------------------------------
@@ -259,6 +278,7 @@ export default class ArchivistPlugin extends Plugin {
       onChainCorruptionDetected: () => {
         noticeCenter.showPersistent('CHAIN_RECOVERY', S.CHAIN_RECOVERY_BANNER);
       },
+      vaultIdentity,
       vaultPrefix,
       vaultName,
     });
@@ -913,6 +933,34 @@ export default class ArchivistPlugin extends Plugin {
       fsm.onLayoutReady();
       fsm.recoverOnStartup();
       predecessorDetector.check();
+      // Vault-id consistency probe: surfaces the Adopt modal on first
+      // launch when this vault has no local id but the configured
+      // Dropbox folder already has a vault_meta. We run this AFTER
+      // layout-ready so the modal lands in a workspace the user can
+      // see (running it during onload would race with Obsidian's own
+      // startup-modal queue). Errors from the probe (Dropbox not
+      // connected yet, transient network) are non-fatal — the same
+      // probe re-runs on every layout-ready of every plugin reload,
+      // and BackupService blocks writes until the IDs agree.
+      void (async (): Promise<void> => {
+        try {
+          const result = await vaultIdentity.checkConsistency();
+          if (result.kind === 'adopt-remote') {
+            new AdoptVaultModal(this.app, {
+              remoteVaultName: result.remote.vault_name,
+              remoteVaultId: result.remote.vault_id,
+              onAdopt: () => {
+                void vaultIdentity.adoptVaultId(result.remote.vault_id);
+              },
+              onCancel: () => {},
+            }).open();
+          }
+        } catch (err) {
+          this.logger.debug('vault_identity_probe_skipped', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
     });
 
     // ---------------------------------------------------------------------------

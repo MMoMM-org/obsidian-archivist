@@ -26,7 +26,7 @@ import type { EventQueue as EventQueueInfra } from '../infra/EventQueue';
 import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
-import { PathError } from '../model/Errors';
+import { ConfigError, PathError } from '../model/Errors';
 import type { LocalIndex } from '../model/Index';
 import type { QueueEntry } from '../model/QueueEntry';
 import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
@@ -106,8 +106,34 @@ export interface BackupServiceDeps {
     referrerId: string;
     walkedDepth: number;
   }) => void;
+  /**
+   * Optional vault-fingerprint guard. When provided, BackupService runs a
+   * pre-write consistency check on every backup attempt and aborts on
+   * 'mismatch' / 'remote-corrupt' / 'adopt-remote' (the UI handles
+   * adoption — BackupService never silently claims a foreign folder).
+   * On 'fresh-folder', the service writes vault_meta.json after the
+   * first successful FULL so subsequent runs see 'ok'.
+   */
+  vaultIdentity?: VaultIdentitySubset;
   /** Injectable clock for deterministic tests. Defaults to new Date().toISOString(). */
   now?: () => string;
+}
+
+/**
+ * Narrow subset of VaultIdentity that BackupService actually exercises.
+ * Keeps the dep cycle one-way: BackupService → vault-identity contract,
+ * not BackupService → src/services/VaultIdentity (which would make
+ * VaultIdentity tests transitively pull in BackupService's deps).
+ */
+export interface VaultIdentitySubset {
+  checkConsistency(): Promise<
+    | { kind: 'ok'; localId: string; remote: { vault_id: string; vault_name: string } }
+    | { kind: 'fresh-folder'; localId: string }
+    | { kind: 'adopt-remote'; remote: { vault_id: string; vault_name: string } }
+    | { kind: 'mismatch'; localId: string; remote: { vault_id: string; vault_name: string } }
+    | { kind: 'remote-corrupt'; localId: string; rawError: string }
+  >;
+  claimRemote(localVaultId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +156,7 @@ export class BackupService {
   private readonly onChainCorruptionDetected:
     | ((info: { missingId: string | null; referrerId: string; walkedDepth: number }) => void)
     | null;
+  private readonly vaultIdentity: VaultIdentitySubset | null;
   private readonly now: () => string;
 
   /**
@@ -170,7 +197,47 @@ export class BackupService {
     this.logger = deps.logger ?? NOOP_LOGGER;
     this.progress = deps.progress ?? null;
     this.onChainCorruptionDetected = deps.onChainCorruptionDetected ?? null;
+    this.vaultIdentity = deps.vaultIdentity ?? null;
     this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  /**
+   * Pre-write fingerprint check. Returns the consistency state so callers
+   * (runFull, runIncremental) can react: 'ok' / 'fresh-folder' proceed,
+   * everything else aborts with a clear error message that points at the
+   * troubleshooting doc. When `vaultIdentity` was not injected, this is
+   * a no-op (returns 'ok' with synthetic IDs) — keeps existing tests that
+   * don't care about identity working unchanged.
+   */
+  private async assertVaultOwnership(): Promise<{ freshFolder: boolean; localId: string | null }> {
+    if (!this.vaultIdentity) {
+      return { freshFolder: false, localId: null };
+    }
+    const result = await this.vaultIdentity.checkConsistency();
+    switch (result.kind) {
+      case 'ok':
+        return { freshFolder: false, localId: result.localId };
+      case 'fresh-folder':
+        return { freshFolder: true, localId: result.localId };
+      case 'adopt-remote':
+        throw new ConfigError(
+          'VAULT_ID_NEEDS_ADOPTION',
+          `This Dropbox folder belongs to vault "${result.remote.vault_name}" (${result.remote.vault_id}). Open the Adoption modal from the Backup Browser to claim it for the current vault, or change vault_prefix to a different folder. See docs/operations/connecting-existing-backup.md.`,
+          false,
+        );
+      case 'mismatch':
+        throw new ConfigError(
+          'VAULT_ID_MISMATCH',
+          `Vault identity mismatch: local vault_id ${result.localId} does not match Dropbox vault_meta.vault_id ${result.remote.vault_id} (registered to "${result.remote.vault_name}"). Backup blocked to prevent cross-vault pollution. See docs/troubleshooting/dropbox-corruption.md.`,
+          false,
+        );
+      case 'remote-corrupt':
+        throw new ConfigError(
+          'VAULT_META_CORRUPT',
+          `Dropbox vault_meta.json failed schema validation (${result.rawError}). Backup blocked. Use "Repair backup index" to inspect, or delete vault_meta.json manually to let the next backup recreate it.`,
+          false,
+        );
+    }
   }
 
   /**
@@ -187,6 +254,10 @@ export class BackupService {
     this.progress?.start({ kind: 'full' });
 
     try {
+      // --- Vault-fingerprint guard (ahead of conflict check so identity
+      //     issues don't burn an extra HEAD round-trip on the wrong folder) ---
+      const ownership = await this.assertVaultOwnership();
+
       // --- Pre-upload conflict check (first of two — ROB-001) ---
       await this.coordinator.verifyNoConflict();
 
@@ -237,6 +308,22 @@ export class BackupService {
         queueCursorAdvanceTo: manifest.created_at,
       });
       this.progress?.advance(1);
+
+      // First successful FULL on a fresh folder claims the remote
+      // vault_meta. We do this AFTER commit succeeds so a partial
+      // upload doesn't leave a vault_meta pointing at half-state. If
+      // the claim itself fails we log + swallow — the chain is
+      // already committed and the next backup will retry the claim
+      // (the consistency check is idempotent).
+      if (ownership.freshFolder && ownership.localId && this.vaultIdentity) {
+        try {
+          await this.vaultIdentity.claimRemote(ownership.localId);
+        } catch (err) {
+          this.logger.warn('vault_meta_claim_failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       const fileCount = Object.keys(manifest.files).length;
       this.logger.info('full backup done');
@@ -382,6 +469,11 @@ export class BackupService {
     this.progress?.start({ kind: 'inc' });
 
     try {
+      // --- Vault-fingerprint guard (mirror of runFull). Inc never claims
+      //     a fresh folder — the first ever upload is always a Full — so
+      //     we throw away the freshFolder flag here. ---
+      await this.assertVaultOwnership();
+
       // --- Pre-upload conflict check (first of two — ROB-001) ---
       await this.coordinator.verifyNoConflict();
 

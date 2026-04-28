@@ -44,6 +44,15 @@ export const S = {
   CMD_REPAIR_INDEX: 'Archivist: Repair backup index (rebuild from Dropbox manifests)',
   CMD_GC_ORPHAN_CONTENT: 'Archivist: Garbage collect orphan content',
 
+  // ─── Adopt Vault modal (vault-id fingerprint adoption flow) ──────
+  ADOPT_VAULT_TITLE: 'Adopt existing Dropbox backup?',
+  ADOPT_VAULT_BODY: (remoteName: string, remoteId: string): string =>
+    `This Dropbox folder belongs to vault "${remoteName}" (id: ${remoteId}). The vault on this device does not yet have an ID. Adopt to claim this backup for the current vault — backups will resume where the previous installation left off. Cancel to keep this device unclaimed; you can change the Dropbox vault folder in Settings instead.`,
+  ADOPT_VAULT_HINT:
+    'See docs/operations/connecting-existing-backup.md for when adoption is the right choice.',
+  ADOPT_VAULT_ADOPT: 'Adopt',
+  ADOPT_VAULT_CANCEL: 'Cancel',
+
   // ─── Repair-command notifications ────────────────────────────────
   REPAIR_INDEX_RUNNING: 'Archivist: rebuilding backup index from Dropbox…',
   REPAIR_INDEX_OK: (kept: number, removed: number, invalid: number): string => {

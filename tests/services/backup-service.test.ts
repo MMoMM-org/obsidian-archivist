@@ -231,6 +231,15 @@ function makeHarness(
      * mock with `getChangedPaths` returning a controlled set of paths.
      */
     changeDetector?: { getChangedPaths: ReturnType<typeof vi.fn> };
+    /**
+     * Optional vault-identity dep. When supplied, BackupService runs the
+     * fingerprint guard before each backup. Tests verify that 'mismatch'
+     * blocks the call and 'fresh-folder' triggers a claim post-commit.
+     */
+    vaultIdentity?: {
+      checkConsistency: ReturnType<typeof vi.fn>;
+      claimRemote: ReturnType<typeof vi.fn>;
+    };
   } = {},
 ) {
   const dropbox = opts.dropbox ?? makeFakeDropbox();
@@ -291,6 +300,7 @@ function makeHarness(
     vaultName: VAULT_NAME,
     now: opts.now ?? (() => '2026-04-24T10:00:00.000Z'),
     ...(opts.changeDetector ? { changeDetector: opts.changeDetector as never } : {}),
+    ...(opts.vaultIdentity ? { vaultIdentity: opts.vaultIdentity as never } : {}),
   };
 
   return {
@@ -301,6 +311,7 @@ function makeHarness(
     pluginStore,
     snapshotIndexStore,
     changeDetector: opts.changeDetector,
+    vaultIdentity: opts.vaultIdentity,
   };
 }
 
@@ -1852,5 +1863,141 @@ describe('BackupService.runIncremental — ROB-009: conflict on 2nd verifyNoConf
 
     // HEAD still points at Full
     expect(dropbox.store.get(HEAD_PATH)).toEqual(headAfterFull);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vault-identity guard — fingerprint pre-write check
+// ---------------------------------------------------------------------------
+
+describe('BackupService — vault-identity guard', () => {
+  function makeFakeVaultIdentity(state:
+    | { kind: 'ok' }
+    | { kind: 'fresh-folder'; localId: string }
+    | { kind: 'mismatch'; localId: string; remoteId: string; remoteName: string }
+    | { kind: 'adopt-remote'; remoteId: string; remoteName: string }
+    | { kind: 'remote-corrupt'; localId: string }
+  ) {
+    let claimed = false;
+    return {
+      claimed: (): boolean => claimed,
+      checkConsistency: vi.fn(async () => {
+        switch (state.kind) {
+          case 'ok':
+            return { kind: 'ok', localId: 'loc-id', remote: { vault_id: 'loc-id', vault_name: 'TestVault' } };
+          case 'fresh-folder':
+            return { kind: 'fresh-folder', localId: state.localId };
+          case 'mismatch':
+            return {
+              kind: 'mismatch',
+              localId: state.localId,
+              remote: { vault_id: state.remoteId, vault_name: state.remoteName },
+            };
+          case 'adopt-remote':
+            return {
+              kind: 'adopt-remote',
+              remote: { vault_id: state.remoteId, vault_name: state.remoteName },
+            };
+          case 'remote-corrupt':
+            return { kind: 'remote-corrupt', localId: state.localId, rawError: 'bad schema' };
+        }
+      }),
+      claimRemote: vi.fn(async (_id: string) => {
+        claimed = true;
+      }),
+    };
+  }
+
+  it('runFull blocks with VAULT_ID_MISMATCH when local and remote ids differ', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'mismatch',
+      localId: 'loc-id-A',
+      remoteId: 'rem-id-B',
+      remoteName: 'OtherVault',
+    });
+    const { service, dropbox } = makeHarness(makeVaultFiles(3), { vaultIdentity });
+
+    await expect(service.runFull()).rejects.toMatchObject({ code: 'VAULT_ID_MISMATCH' });
+
+    // No content blobs uploaded — guard runs BEFORE any data movement.
+    expect(getContentPaths(dropbox.store)).toHaveLength(0);
+    // No manifest written.
+    expect(getManifestPaths(dropbox.store)).toHaveLength(0);
+  });
+
+  it('runFull blocks with VAULT_ID_NEEDS_ADOPTION when local id missing but remote present', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'adopt-remote',
+      remoteId: 'rem-id',
+      remoteName: 'OtherVault',
+    });
+    const { service, dropbox } = makeHarness(makeVaultFiles(2), { vaultIdentity });
+
+    await expect(service.runFull()).rejects.toMatchObject({ code: 'VAULT_ID_NEEDS_ADOPTION' });
+    expect(getContentPaths(dropbox.store)).toHaveLength(0);
+  });
+
+  it('runFull blocks with VAULT_META_CORRUPT when remote vault_meta failed schema validation', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'remote-corrupt',
+      localId: 'loc-id',
+    });
+    const { service, dropbox } = makeHarness(makeVaultFiles(2), { vaultIdentity });
+
+    await expect(service.runFull()).rejects.toMatchObject({ code: 'VAULT_META_CORRUPT' });
+    expect(getContentPaths(dropbox.store)).toHaveLength(0);
+  });
+
+  it('runFull on fresh-folder claims remote AFTER successful commit', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'fresh-folder',
+      localId: 'loc-id-fresh',
+    });
+    const { service } = makeHarness(makeVaultFiles(3), { vaultIdentity });
+
+    await service.runFull();
+
+    expect(vaultIdentity.claimed()).toBe(true);
+    expect(vaultIdentity.claimRemote).toHaveBeenCalledWith('loc-id-fresh');
+  });
+
+  it('runFull on consistent ok state does NOT claim again (idempotent on populated meta)', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({ kind: 'ok' });
+    const { service } = makeHarness(makeVaultFiles(2), { vaultIdentity });
+
+    await service.runFull();
+
+    expect(vaultIdentity.claimRemote).not.toHaveBeenCalled();
+  });
+
+  it('runIncremental blocks with VAULT_ID_MISMATCH when ids differ', async () => {
+    const vaultIdentity = makeFakeVaultIdentity({
+      kind: 'mismatch',
+      localId: 'loc-id-A',
+      remoteId: 'rem-id-B',
+      remoteName: 'OtherVault',
+    });
+    // Inc requires a prior Full's local index — seed one.
+    const { service } = makeHarness(makeVaultFiles(2), {
+      vaultIdentity,
+      initialIndex: {
+        last_full_snapshot_id: '2026-04-24T10-00-full',
+        last_full_commit_at: '2026-04-24T10:00:00.000Z',
+        last_inc_snapshot_id: null,
+        last_inc_commit_at: null,
+        files: { 'notes/file-0.md': { hash: 'hash-0', size: 6, mtime: 0 } },
+      },
+      initialQueue: {
+        entries: [{
+          id: 'q-1',
+          path: 'notes/file-0.md',
+          type: 'modify',
+          prev_path: null,
+          observed_at: '2026-04-24T11:00:00.000Z',
+        }],
+      },
+    });
+
+    await expect(service.runIncremental()).rejects.toMatchObject({ code: 'VAULT_ID_MISMATCH' });
   });
 });
