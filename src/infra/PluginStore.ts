@@ -28,6 +28,16 @@ const DATA_BAK_FILENAME = 'data.json.bak';
 
 export class PluginStore {
   private writeQueue: Promise<void> = Promise.resolve();
+  /**
+   * Separate serialization chain for `data.json` updates. Both
+   * saveSettings and saveVaultId do a load-modify-save against the same
+   * Obsidian-managed file via `plugin.loadData()` / `plugin.saveData()`,
+   * so two concurrent calls would otherwise read the same stale blob and
+   * the second writer would silently drop the first writer's changes
+   * (e.g. settings update racing with vault-id adoption — a known
+   * lost-update scenario, H2 from the post-V1 review).
+   */
+  private dataJsonQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly plugin: Plugin,
@@ -53,6 +63,26 @@ export class PluginStore {
     // does not poison later writes. Caller still sees the raw rejection on `next`.
     const recovered = next.catch(() => undefined);
     this.writeQueue = recovered;
+    return next;
+  }
+
+  /**
+   * Serialize a `data.json` read-modify-write through the dedicated
+   * dataJsonQueue. The updater runs inside the critical section: it
+   * receives the freshly-loaded blob and returns the blob to persist.
+   * Two concurrent calls execute strictly sequentially so the second
+   * always sees the first's committed state.
+   */
+  private enqueueDataJsonUpdate(
+    updater: (existing: Record<string, unknown> | null) => Record<string, unknown>,
+  ): Promise<void> {
+    const next = this.dataJsonQueue.then(async () => {
+      const existing = (await this.plugin.loadData()) as Record<string, unknown> | null;
+      const blob = updater(existing);
+      await this.plugin.saveData(blob);
+    });
+    const recovered = next.catch(() => undefined);
+    this.dataJsonQueue = recovered;
     return next;
   }
 
@@ -100,8 +130,7 @@ export class PluginStore {
   }
 
   async saveSettings(settings: PluginSettings): Promise<void> {
-    const existing = (await this.plugin.loadData()) as Record<string, unknown> | null;
-    const blob: Record<string, unknown> = {
+    return this.enqueueDataJsonUpdate((existing) => ({
       schema_version: settings.schema_version,
       ...(existing
         ? {
@@ -114,8 +143,7 @@ export class PluginStore {
           }
         : {}),
       settings,
-    };
-    await this.plugin.saveData(blob);
+    }));
   }
 
   // ---- Vault identity (top-level vault_id in data.json) ----------------------
@@ -139,12 +167,10 @@ export class PluginStore {
    * Dropbox-side ID).
    */
   async saveVaultId(vaultId: string): Promise<void> {
-    const existing = (await this.plugin.loadData()) as Record<string, unknown> | null;
-    const blob: Record<string, unknown> = {
+    return this.enqueueDataJsonUpdate((existing) => ({
       ...(existing ?? {}),
       vault_id: vaultId,
-    };
-    await this.plugin.saveData(blob);
+    }));
   }
 
   // ---- Index (index.json via adapter) ----------------------------------------
