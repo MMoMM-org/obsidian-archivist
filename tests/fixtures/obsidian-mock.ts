@@ -465,6 +465,26 @@ export function setIcon(_el: unknown, _iconName: string): void {}
 export function setTooltip(_el: unknown, _tooltip: string): void {}
 
 // ---------------------------------------------------------------------------
+// prepareFuzzySearch — substring-match stub for tests
+// ---------------------------------------------------------------------------
+// The real Obsidian fuzzy matcher is a chain-of-characters algorithm; for
+// view-level unit tests we only need "did the candidate contain the query
+// (case-insensitive)" — that's enough to verify the prune logic. Filter-
+// algorithm tests inject their own matcher and bypass this stub entirely.
+
+export function prepareFuzzySearch(
+  query: string,
+): (text: string) => { score: number; matches: Array<[number, number]> } | null {
+  const q = query.toLowerCase();
+  return (text: string) => {
+    if (q === '') return { score: 0, matches: [] };
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx < 0) return null;
+    return { score: -idx, matches: [[idx, idx + q.length]] };
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Modal — Phase 9 addition (T9.3)
 // ---------------------------------------------------------------------------
 // A minimal but structurally complete stub of the Obsidian Modal class.

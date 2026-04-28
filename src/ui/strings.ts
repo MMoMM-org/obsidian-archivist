@@ -163,6 +163,11 @@ export const S = {
   BROWSER_ERROR_CHAIN_BROKEN:
     'A backup history chain has a missing ancestor. Some snapshots may not be restorable.',
 
+  // ─── Backup Browser files-column search (fuzzy filter over full path) ─
+  BROWSER_FILES_SEARCH_PLACEHOLDER: 'Search files…',
+  BROWSER_FILES_SEARCH_NO_MATCHES: (query: string): string =>
+    `No files match "${query}".`,
+
   // ─── Backup Browser tier labels (mirror FILE_HISTORY_TIER_* for use in browser) ─
   BROWSER_TIER_DAILY: '[daily]',
   BROWSER_TIER_MONTHLY: '[monthly]',
