@@ -263,9 +263,25 @@
 	border-radius: 4px;
 }
 
-.archivist-files-search-input:focus {
-	outline: none;
+.archivist-files-search-input:focus,
+.archivist-files-search-input:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
 	border-color: var(--interactive-accent);
+}
+
+/* H11: visually-hidden but still announced — used by the files-search live
+   region. Mirrors the WAI-ARIA Authoring Practices "sr-only" recipe. */
+.archivist-visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
 }
 
 .archivist-files-no-matches {
@@ -302,9 +318,16 @@
 
 .archivist-snapshot-row:focus-visible,
 .archivist-dir-header:focus-visible,
+.archivist-file-row:focus-visible,
 .archivist-fv-snapshot-row:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: -2px;
+}
+
+/* M14: banner dismiss button needs a visible focus ring for keyboard users. */
+.archivist-banner-dismiss:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
 }
 
 .archivist-snapshot-row[aria-selected="true"] {

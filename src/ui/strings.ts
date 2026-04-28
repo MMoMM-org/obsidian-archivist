@@ -224,6 +224,8 @@ export const S = {
   BROWSER_FILES_SEARCH_PLACEHOLDER: 'Search files…',
   BROWSER_FILES_SEARCH_NO_MATCHES: (query: string): string =>
     `No files match "${query}".`,
+  BROWSER_FILES_SEARCH_MATCH_COUNT: (count: number, query: string): string =>
+    `${count} file${count === 1 ? '' : 's'} match "${query}".`,
 
   // ─── Backup Browser tier labels (mirror FILE_HISTORY_TIER_* for use in browser) ─
   BROWSER_TIER_DAILY: '[daily]',

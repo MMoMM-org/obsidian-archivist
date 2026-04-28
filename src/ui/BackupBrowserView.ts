@@ -85,6 +85,17 @@ export interface FileTreeNode {
   children: FileTreeNode[];
 }
 
+/**
+ * Recursive file-leaf count for filter-result announcements.
+ * Exported for tests.
+ */
+export function countFileLeaves(node: FileTreeNode): number {
+  if (!node.isDir) return 1;
+  let n = 0;
+  for (const child of node.children) n += countFileLeaves(child);
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // groupSnapshotsByDate — pure, exported for tests
 // ---------------------------------------------------------------------------
@@ -648,6 +659,7 @@ export class BackupBrowserView extends ItemView {
 
   // Banner region (Fix 7 — storage-warning banner rendering)
   private bannerRegionEl!: HTMLElement;
+  private filesSearchLiveEl: HTMLElement | null = null;
 
   // State
   private snapshots: SnapshotIndexEntry[] = [];
@@ -694,12 +706,26 @@ export class BackupBrowserView extends ItemView {
     // bleed into this fresh open cycle.
     this._closed = false;
 
+    // M10: drop any prior banner subscription before rewiring. Obsidian can
+    // call onOpen on a leaf without a paired onClose (split / view-change),
+    // which would otherwise leak the previous closure.
+    this.unsubBanners?.();
+    this.unsubBanners = null;
+
+    // M11: reset stale search state — a query left over from a prior open
+    // would render an empty tree against the not-yet-loaded fileState.
+    this.searchQuery = '';
+
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('archivist-browser');
 
-    // Fix 7: banner region at the top of the content area.
-    this.bannerRegionEl = contentEl.createDiv({ cls: 'archivist-browser-banners' });
+    // H8: banner region announces newly added persistent banners (chain
+    // recovery, storage warnings) to assistive tech without stealing focus.
+    this.bannerRegionEl = contentEl.createDiv({
+      cls: 'archivist-browser-banners',
+      attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'false' },
+    });
 
     // Storage warning banner subscription — re-renders banner region on change.
     this.unsubBanners = this.deps.noticeCenter.onBannersChange(() => {
@@ -742,9 +768,11 @@ export class BackupBrowserView extends ItemView {
     );
 
     // Load snapshots (show loading state immediately)
+    this.snapshotsListEl.setAttribute('aria-busy', 'true');
     this.snapshotsListEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
 
     const snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+    if (this._closed) return;
     this.snapshots = snapshots;
 
     const now = this.deps.now ? this.deps.now() : new Date();
@@ -755,6 +783,7 @@ export class BackupBrowserView extends ItemView {
       (snap) => { void this._selectSnapshot(snap); },
       now,
     );
+    this.snapshotsListEl.setAttribute('aria-busy', 'false');
   }
 
   async onClose(): Promise<void> {
@@ -762,6 +791,7 @@ export class BackupBrowserView extends ItemView {
     this._closed = true;
     this.unsubBanners?.();
     this.unsubBanners = null;
+    this.filesSearchLiveEl = null;
     if (this.searchDebounceTimer !== null) {
       activeWindow.clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
@@ -831,6 +861,7 @@ export class BackupBrowserView extends ItemView {
 
     // Show loading in the files column while we materialize
     this.filesListEl.empty();
+    this.filesListEl.setAttribute('aria-busy', 'true');
     this.filesListEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
 
     let state: Record<string, FileEntry>;
@@ -840,6 +871,7 @@ export class BackupBrowserView extends ItemView {
       // Fix 1: selection may have changed during the await — bail.
       if (this._closed || this.selectedSnapshot !== capturedSnap) return;
       this.filesListEl.empty();
+      this.filesListEl.setAttribute('aria-busy', 'false');
       if (err instanceof ChainError && err.code === 'CHAIN_BROKEN') {
         this.filesListEl.createEl('p', {
           text: S.BROWSER_ERROR_CHAIN_BROKEN,
@@ -858,11 +890,14 @@ export class BackupBrowserView extends ItemView {
     this.fileState = state;
     const tree = buildFileTree(state);
     this._renderFilesColumn(tree);
+    this.filesListEl.setAttribute('aria-busy', 'false');
   }
 
   private _renderFilesColumn(tree: FileTreeNode): void {
     const query = this.searchQuery.trim();
     if (query === '') {
+      // Empty query — clear the live region; full tree shown.
+      this._announceFilterCount(null);
       renderFilesColumn(
         this.filesListEl,
         tree,
@@ -884,6 +919,7 @@ export class BackupBrowserView extends ItemView {
     const pruned = filterFileTree(tree, matcher);
 
     if (pruned.children.length === 0) {
+      this._announceFilterCount({ count: 0, query });
       this.filesListEl.empty();
       this.filesListEl.createEl('p', {
         text: S.BROWSER_FILES_SEARCH_NO_MATCHES(query),
@@ -892,6 +928,7 @@ export class BackupBrowserView extends ItemView {
       return;
     }
 
+    this._announceFilterCount({ count: countFileLeaves(pruned), query });
     renderFilesColumn(
       this.filesListEl,
       pruned,
@@ -901,6 +938,20 @@ export class BackupBrowserView extends ItemView {
         onSelectFile: (path) => { void this._selectFile(path); },
         onSelectDir: (prefix) => { void this._selectDir(prefix); },
       },
+    );
+  }
+
+  // H11: AT-only announcement of the current filter result count.
+  private _announceFilterCount(state: { count: number; query: string } | null): void {
+    if (!this.filesSearchLiveEl) return;
+    if (state === null) {
+      this.filesSearchLiveEl.setText('');
+      return;
+    }
+    this.filesSearchLiveEl.setText(
+      state.count === 0
+        ? S.BROWSER_FILES_SEARCH_NO_MATCHES(state.query)
+        : S.BROWSER_FILES_SEARCH_MATCH_COUNT(state.count, state.query),
     );
   }
 
@@ -922,6 +973,12 @@ export class BackupBrowserView extends ItemView {
       cls: 'archivist-files-search-input',
     });
     input.value = this.searchQuery;
+    // H11: hidden live region announces filter result counts to screen
+    // readers without changing visual layout.
+    this.filesSearchLiveEl = wrap.createSpan({
+      cls: 'archivist-visually-hidden',
+      attr: { role: 'status', 'aria-live': 'polite' },
+    });
     input.addEventListener('input', () => {
       const next = input.value;
       if (this.searchDebounceTimer !== null) {
@@ -931,6 +988,23 @@ export class BackupBrowserView extends ItemView {
         this.searchDebounceTimer = null;
         this._applySearchQuery(next);
       }, 150);
+    });
+    // H10: Escape clears an active query and re-renders the unfiltered tree.
+    // stopPropagation keeps Obsidian's modal-close handler from closing the
+    // wrapping leaf; preventDefault keeps the browser's built-in `type=search`
+    // clear from racing the debounce timer.
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && input.value !== '') {
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = '';
+        if (this.searchDebounceTimer !== null) {
+          activeWindow.clearTimeout(this.searchDebounceTimer);
+          this.searchDebounceTimer = null;
+        }
+        this._applySearchQuery('');
+        input.focus();
+      }
     });
   }
 
