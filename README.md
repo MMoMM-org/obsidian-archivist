@@ -35,6 +35,10 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 
 1. **Install** Archivist (see *Installation* below).
 2. **Open Settings → Archivist → Dropbox** and click *Connect Dropbox*. The browser opens, you log in, you authorize the app, and you're returned to Obsidian.
+
+   > **You will see a Dropbox warning that this app is "not yet verified by Dropbox"** — this is expected. Dropbox marks every new third-party integration this way until it has accumulated enough usage to be auto-promoted. Archivist is open source ([source on GitHub](https://github.com/MMoMM-org/obsidian-archivist)) and only requests the four scopes documented under [Dropbox scopes](#dropbox-scopes) below; you can audit exactly what is requested before clicking *Allow*. The warning will go away on its own as the user base grows.
+   >
+   > ![Dropbox unverified-app warning shown during OAuth](assets/setup/dropbox-unverified-app-warning.png)
 3. **Open Settings → Archivist → Schedule** and toggle *This device backs up the vault* on. Pick the device that will perform backups (only one device per vault should be designated; multiple-device safety is built in but the simplest setup is one designated device).
 4. The first **full backup** will run after a 10-minute startup grace + a 2-minute quiet period (configurable). After that, **incrementals** run every 15 minutes when there are changes; **fulls** run weekly by default.
 
