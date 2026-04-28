@@ -1600,3 +1600,179 @@ describe('BackupBrowserView fuzzy search', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Section: BackupBrowserView — accessibility (Cluster A: H8/H10/H11/L5/L7/M10/M11)
+// ---------------------------------------------------------------------------
+//
+// These tests pin the assistive-tech contract for the recovery banner and the
+// files-column search input. They drive the input's actual keydown listener
+// (not a private method cast) so a renamed handler would fail the test.
+
+describe('BackupBrowserView accessibility', () => {
+  it('banner region carries role=status and aria-live=polite (H8)', async () => {
+    const view = new BackupBrowserView(makeLeaf(), makeDeps());
+    await view.onOpen();
+    const region = findByClass(view.contentEl, 'archivist-browser-banners');
+    expect(region).toBeDefined();
+    expect(region!.attrs['role']).toBe('status');
+    expect(region!.attrs['aria-live']).toBe('polite');
+    expect(region!.attrs['aria-atomic']).toBe('false');
+  });
+
+  it('snapshots and files lists toggle aria-busy across loading transitions (L7)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['a.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    const snapsList = findByClass(view.contentEl, 'archivist-snapshots-list')!;
+    expect(snapsList.attrs['aria-busy']).toBe('false');
+
+    await view._selectSnapshot(snap);
+    const filesList = findByClass(view.contentEl, 'archivist-files-list')!;
+    expect(filesList.attrs['aria-busy']).toBe('false');
+  });
+
+  it('Escape on a non-empty search clears the query and refocuses the input (H10, L5)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['a.md', 'b.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const apply = (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery.bind(view);
+    apply('a');
+    const input = findByClass(view.contentEl, 'archivist-files-search-input')!;
+    // Simulate the user having typed into the input.
+    (input as unknown as { value: string }).value = 'a';
+    input._focusCalled = false;
+
+    let preventCalled = false;
+    let stopCalled = false;
+    input.dispatchEvent({
+      type: 'keydown',
+      key: 'Escape',
+      preventDefault: () => { preventCalled = true; },
+      stopPropagation: () => { stopCalled = true; },
+    });
+
+    expect(preventCalled).toBe(true);
+    expect(stopCalled).toBe(true);
+    expect((input as unknown as { value: string }).value).toBe('');
+    expect(input._focusCalled).toBe(true);
+    const filesList = findByClass(view.contentEl, 'archivist-files-list')!;
+    const text = collectText(filesList);
+    expect(text).toContain('a.md');
+    expect(text).toContain('b.md');
+  });
+
+  it('Escape on an empty search input is a no-op (H10)', async () => {
+    const view = new BackupBrowserView(makeLeaf(), makeDeps());
+    await view.onOpen();
+    const input = findByClass(view.contentEl, 'archivist-files-search-input')!;
+    (input as unknown as { value: string }).value = '';
+    let preventCalled = false;
+    input.dispatchEvent({
+      type: 'keydown',
+      key: 'Escape',
+      preventDefault: () => { preventCalled = true; },
+      stopPropagation: () => {},
+    });
+    // Empty input — handler must let the event through (modal close, etc).
+    expect(preventCalled).toBe(false);
+  });
+
+  it('live region announces match count when filter is active (H11)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState([
+          'Atlas/Notes/Hizyx.md',
+          'Atlas/Notes/Other.md',
+          'Calendar/today.md',
+        ])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    const apply = (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery.bind(view);
+    apply('hizyx');
+
+    const search = findByClass(view.contentEl, 'archivist-files-search')!;
+    const live = findByClass(search, 'archivist-visually-hidden')!;
+    expect(live.attrs['role']).toBe('status');
+    expect(live.attrs['aria-live']).toBe('polite');
+    expect(live.textContent).toBe(S.BROWSER_FILES_SEARCH_MATCH_COUNT(1, 'hizyx'));
+
+    apply('zzz-no-match');
+    expect(live.textContent).toBe(S.BROWSER_FILES_SEARCH_NO_MATCHES('zzz-no-match'));
+
+    apply('');
+    expect(live.textContent).toBe('');
+  });
+
+  it('reopen drops the prior banner subscription before resubscribing (M10)', async () => {
+    const unsubs: Array<ReturnType<typeof vi.fn>> = [];
+    const onBannersChange = vi.fn(() => {
+      const unsub = vi.fn();
+      unsubs.push(unsub);
+      return unsub;
+    });
+    const deps = makeDeps({
+      noticeCenter: {
+        showNotice: vi.fn(),
+        addPersistentBanner: vi.fn(),
+        removePersistentBanner: vi.fn(),
+        getPersistentBanners: vi.fn().mockReturnValue([]),
+        onBannersChange,
+      } as unknown as BackupBrowserDeps['noticeCenter'],
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    expect(unsubs).toHaveLength(1);
+    expect(unsubs[0]).not.toHaveBeenCalled();
+    // Re-open without a paired onClose (split / view-change). The prior unsub
+    // must fire so the old closure is dropped.
+    await view.onOpen();
+    expect(unsubs).toHaveLength(2);
+    expect(unsubs[0]).toHaveBeenCalledTimes(1);
+    expect(unsubs[1]).not.toHaveBeenCalled();
+  });
+
+  it('search query resets across reopen (M11)', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['a.md', 'b.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    (view as unknown as { _applySearchQuery(q: string): void })._applySearchQuery('a');
+
+    // Re-open: the stale "a" query must NOT be re-applied — fresh full tree.
+    await view.onOpen();
+    const input = findByClass(view.contentEl, 'archivist-files-search-input')!;
+    expect(input.attrs['placeholder']).toBe(S.BROWSER_FILES_SEARCH_PLACEHOLDER);
+    expect((view as unknown as { searchQuery: string }).searchQuery).toBe('');
+  });
+});
+
