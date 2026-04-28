@@ -1,5 +1,72 @@
 # Context Memory
 
+<!-- 2026-04-28 — multi-agent review of post-V1 hardening window (PRs #11–#15) -->
+
+## Deferred Review Items — PRs #11–#15 (2026-04-28)
+
+37 findings from 6-perspective review of `b3a3776..1268628` (vault_id, repair commands, fuzzy search, recovery banner, manifest cache fix). All on `main` already, so each cluster = its own follow-up branch + PR. M2 is the only **Question** — needs your decision before Cluster E ships.
+
+### Cluster A — A11y of new UI surfaces (10 items) — branch `feat/a11y-browser-banner-search`
+User-impact-now cluster. Two findings (banner aria-live, focus outline) affect screen-reader / keyboard users today.
+- **H8** Recovery banner region has no `aria-live` → `BackupBrowserView.ts:702`. Add `attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'false' }`.
+- **H9** Search input `outline: none` with only border-color → `styles.css:267`. Replace with `outline: 2px solid var(--interactive-accent); outline-offset: 2px;` (match `.archivist-snapshot-row:focus-visible` rule at 303).
+- **H10** No Escape-to-clear on search → `BackupBrowserView.ts:914–935`. Add `keydown` listener clearing on `Escape`.
+- **H11** Filter result count not announced → add visually-hidden `<span role="status" aria-live="polite">` updated by `_renderFilesColumn`.
+- **M10** `onBannersChange` subscription not unsubbed if `onOpen` runs without prior `onClose` → `BackupBrowserView.ts:705`. `this.unsubBanners?.()` at top of `onOpen`.
+- **M11** Search query retained across re-open with empty `fileState` → clear `this.searchQuery` in `onOpen` or show loading placeholder.
+- **M14** Banner dismiss button has no `:focus-visible` rule → add to `styles.css`.
+- **M15** `.archivist-file-row:focus-visible` missing → add to selector at `styles.css:303`.
+- **L5** No test for search input focus retention (`MockEl._focusCalled`) → add unit test.
+- **L7** Loading regions lack `aria-busy="true"` → add toggling `aria-busy` on parent during loads at `BackupBrowserView.ts:745,834,1150`.
+
+### Cluster B — Vault-identity hardening (7 items) — branch `feat/vault-identity-hardening`
+- **H1** `vault_meta` re-fetched from Dropbox on every backup run → `BackupService.ts:259,475`. Add session-cache flag mirroring `dropboxChainVerified`.
+- **M3** `saveVaultId` accepts arbitrary strings → guard with `isVaultId` in `VaultIdentity.adoptVaultId` (`VaultIdentity.ts:104`).
+- **M4** `remote-corrupt` state silently swallowed in adoption probe → `main.ts:963–981`. Open repair-vault-meta modal (extend `AdoptVaultModal` or new `RepairVaultMetaModal`).
+- **M5** `adoptVaultId` fire-and-forget → `main.ts:970`. `await` and surface failure via `S.ADOPT_FAILED`.
+- **L1** `vault_id` logged plain at INFO → `VaultIdentity.ts:91,106,142`. Truncate to first 8 chars in log payloads.
+- **L2** `GCService` constructed with hardcoded `deviceId: 'loading'` → `main.ts:296`. Resolve real device ID before constructing, or accept a getter.
+- **L3** Error message points to non-existent "Adopt from Backup Browser" → `BackupService.ts:224–228`. Update copy to actual recovery path.
+
+### Cluster C — Repair perf + test coverage (7 items) — branch `fix/repair-perf-and-tests`
+- **H4** `registerRepairCommands` (3 user-facing commands) has zero tests → mirror `registerVerifyVaultOwnershipCommand` pattern.
+- **H5** Fuzzy-search tests bypass debounce via `as unknown` cast → `tests/ui/backup-browser-view.test.ts:1518…`. Expose typed `_testApplySearchQuery` or assert via real input event with negative assertions.
+- **H6** Serial manifest downloads in repair → `RepairService.ts:183–188`. `Promise.all` chunks of 4–8.
+- **M9** `downloadValidManifests` accumulates all manifests in memory → `RepairService.ts:179–200`. Stream rebuild via `snapshotIndexStore`, or drop `files` map after extraction.
+- **M12** `repair_index` test asserts length only → `tests/services/repair-service.test.ts:327`. Pin path content with `.toContain('2026-04-27T16-09-inc')`.
+- **M13** `gcOrphanContent.skipped_no_index` branch untested → add third test exercising no-index path.
+- **L6** `clearGcLock` non-`PATH_NOT_FOUND` propagation untested → seed failing `deleteV2`, assert rejection.
+
+### Cluster D — Hot-path perf (4 items) — branch `perf/browser-hot-paths`
+- **H7** `buildFileTree` rebuilt on every interaction → `BackupBrowserView.ts:859,946,960,1141`. Cache `_cachedTree` on `_selectSnapshot`, read at all call sites.
+- **M7** `vaultHasPath` O(n) per call → `main.ts:741,884,899`. Build a `Set<string>` once, lookup is O(1).
+- **M8** `existingPaths` filter is O(n×m) on main thread → `BackupService.ts:484–486`. Same `Set` pattern.
+- **L4** `ManifestCache.manifestById` grows unbounded → `ManifestCache.ts:36`. Cap with LRU at ~50 entries.
+
+### Cluster E — Docs + copy (5 items + 1 Question) — branch `chore/docs-and-copy-polish`
+- **M1** Stale "not-yet-shipped" disclaimer in shipped doc → `docs/operations/connecting-existing-backup.md:15–21`. Delete the block.
+- **M2** ⚠️ **OPEN QUESTION** — Doc promises foreign-vault badge in browser, but `SnapshotManifest` has no `vault_id` field. Add field to schema OR correct the doc. See "Pending decisions" below.
+- **M16** `ADOPT_VAULT_BODY` is one 86-word paragraph for a permanent decision → `strings.ts:67`. Split into two paragraphs or `<ul>` (Adopt path / Cancel path).
+- **M17** Palette command labels use internals jargon ("Clear stale GC lock", "Garbage collect orphan content") → `strings.ts:45–46`. Rename labels (NOT command IDs — preserves hotkeys per COMPAT-003) to "Clear stuck garbage-collection lock" and "Remove unused backup blobs".
+- **L8** `[deleted in live vault]` marker hardcoded in TS → `BackupBrowserView.ts:603`. Move to `strings.ts` as `BROWSER_FILE_DELETED_MARKER`.
+- **L9** `VERIFY_OWNERSHIP_ADOPT_NEEDED` toast wording → `strings.ts:56`. "Connect Dropbox in Settings, then reload Obsidian to see the Adopt dialog."
+
+### Cluster F — Persistence atomicity (1 item) — branch `fix/data-json-write-serialization`
+- **H2** `saveVaultId` and `saveSettings` race on `data.json` (both do read-modify-write outside `writeQueue`) → `PluginStore.ts:102–148`. Route both through one queue, or wrap `saveData` calls in a path-keyed lock.
+
+### Cluster G — Chain-walk depth ceiling (1 item) — branch `fix/chain-walk-depth-ceiling`
+- **H3** `MAX_DEPTH=1000` → up to ~200s startup hang for retention-disabled users → `BackupService.ts:675`. Lower to ~100, distinct `broken` + `reason: 'depth_exceeded'`, warn at 50.
+
+### Pending decisions
+
+**M2 — Foreign-vault badge in Backup Browser** is the only blocking question. The doc `connecting-existing-backup.md:169–171` promises "snapshots whose manifest carries a different `vault_id` show a warning chip." But `SnapshotManifest` (`src/model/Manifest.ts:16–29`) has no `vault_id` field — vault identity lives only in `vault_meta.json`. Two paths:
+- **Path A** — Add `vault_id` to `SnapshotManifest`. New manifests carry it; old manifests parse without it (optional). Browser badges per-snapshot. Cost: schema change, parser update, ROB-002-adjacent test work, but enables real per-snapshot badging.
+- **Path B** — Remove the doc bullet. Cross-vault prevention works at the `vault_meta` level (already does); the per-snapshot badge was aspirational. Cheaper, ships now.
+
+Reviewer flagged this as the only doc-vs-impl mismatch worth surfacing. Defaulted to Cluster E pending your call.
+
+---
+
 <!-- 2026-04-27 — review feedback on dir-restore + FileVersionsView -->
 
 ## Deferred Review Items
