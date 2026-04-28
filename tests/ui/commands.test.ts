@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   registerBackupNowCommand,
+  registerRepairCommands,
   registerVerifyVaultOwnershipCommand,
 } from '../../src/ui/Commands';
 import {
@@ -282,5 +283,228 @@ describe('registerVerifyVaultOwnershipCommand', () => {
     });
     await captured.byId.get('archivist-verify-vault-ownership')!.callback!();
     expect(calls.some((c) => c.message === S.VERIFY_OWNERSHIP_FAILED('network down'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registerRepairCommands — three user-facing recovery commands. Tests cover
+// success-toast routing for each command + the failure path. (H4)
+// ---------------------------------------------------------------------------
+
+describe('registerRepairCommands', () => {
+  type RepairKind =
+    | { command: 'rebuild'; result: { kept: string[]; phantomsRemoved: string[]; invalidManifests: string[] } }
+    | { command: 'rebuild'; throws: Error }
+    | { command: 'gc'; result: {
+        state: 'swept' | 'skipped_locked' | 'skipped_no_index';
+        deleted?: string[];
+        kept_count?: number;
+        skipped_age_gate?: number;
+        blocking_lock?: { age_ms: number };
+      } }
+    | { command: 'gc'; throws: Error }
+    | { command: 'clear'; cleared: boolean }
+    | { command: 'clear'; throws: Error };
+
+  function makeRepair(...behaviours: RepairKind[]): {
+    rebuildSnapshotIndex: ReturnType<typeof vi.fn>;
+    gcOrphanContent: ReturnType<typeof vi.fn>;
+    clearGcLock: ReturnType<typeof vi.fn>;
+  } {
+    const rebuild = behaviours.find((b) => b.command === 'rebuild');
+    const gc = behaviours.find((b) => b.command === 'gc');
+    const clear = behaviours.find((b) => b.command === 'clear');
+    return {
+      rebuildSnapshotIndex: vi.fn(async () => {
+        if (!rebuild) throw new Error('rebuildSnapshotIndex not stubbed');
+        if ('throws' in rebuild) throw rebuild.throws;
+        return rebuild.result;
+      }),
+      gcOrphanContent: vi.fn(async () => {
+        if (!gc) throw new Error('gcOrphanContent not stubbed');
+        if ('throws' in gc) throw gc.throws;
+        return {
+          state: gc.result.state,
+          deleted: gc.result.deleted ?? [],
+          kept_count: gc.result.kept_count ?? 0,
+          skipped_age_gate: gc.result.skipped_age_gate ?? 0,
+          blocking_lock: gc.result.blocking_lock,
+        };
+      }),
+      clearGcLock: vi.fn(async () => {
+        if (!clear) throw new Error('clearGcLock not stubbed');
+        if ('throws' in clear) throw clear.throws;
+        return clear.cleared;
+      }),
+    };
+  }
+
+  it('registers all three repair commands with their declared ids', () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair() as never,
+      notify,
+      logger: makeLogger(),
+    });
+    expect(captured.byId.has('archivist-repair-backup-index')).toBe(true);
+    expect(captured.byId.has('archivist-gc-orphan-content')).toBe(true);
+    expect(captured.byId.has('archivist-clear-gc-lock')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // archivist-repair-backup-index
+  // -------------------------------------------------------------------------
+
+  it('repair-index: success surfaces the OK toast with kept/removed/invalid counts', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'rebuild',
+        result: {
+          kept: ['s1', 's2', 's3'],
+          phantomsRemoved: ['p1'],
+          invalidManifests: ['/path/i1'],
+        },
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-repair-backup-index')!.callback!();
+    expect(calls.some((c) => c.message === S.REPAIR_INDEX_RUNNING)).toBe(true);
+    expect(calls.some((c) => c.message === S.REPAIR_INDEX_OK(3, 1, 1))).toBe(true);
+  });
+
+  it('repair-index: failure surfaces the FAILED toast with the error message', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'rebuild',
+        throws: new Error('network down'),
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-repair-backup-index')!.callback!();
+    expect(calls.some((c) => c.message === S.REPAIR_INDEX_FAILED('network down'))).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // archivist-gc-orphan-content
+  // -------------------------------------------------------------------------
+
+  it('gc: swept state surfaces the swept toast with deleted/kept/age-gated counts', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'gc',
+        result: { state: 'swept', deleted: ['a', 'b'], kept_count: 7, skipped_age_gate: 3 },
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-gc-orphan-content')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_OK_SWEPT(2, 7, 3))).toBe(true);
+  });
+
+  it('gc: skipped_no_index surfaces the no-index toast (M13 + GC_OK_NO_INDEX route)', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'gc',
+        result: { state: 'skipped_no_index' },
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-gc-orphan-content')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_OK_NO_INDEX)).toBe(true);
+  });
+
+  it('gc: skipped_locked surfaces the locked toast with rounded age in minutes', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'gc',
+        result: { state: 'skipped_locked', blocking_lock: { age_ms: 12 * 60 * 1000 } },
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-gc-orphan-content')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_OK_LOCKED(12))).toBe(true);
+  });
+
+  it('gc: failure surfaces the GC_FAILED toast', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'gc',
+        throws: new Error('lock contention'),
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-gc-orphan-content')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_FAILED('lock contention'))).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // archivist-clear-gc-lock
+  // -------------------------------------------------------------------------
+
+  it('clear-gc-lock: surfaces the cleared toast when a lock was deleted', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({ command: 'clear', cleared: true }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-clear-gc-lock')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_LOCK_CLEARED)).toBe(true);
+  });
+
+  it('clear-gc-lock: surfaces the no-lock toast when nothing to clear', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({ command: 'clear', cleared: false }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-clear-gc-lock')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_LOCK_CLEAR_NONE)).toBe(true);
+  });
+
+  it('clear-gc-lock: failure surfaces the FAILED toast', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify, calls } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'clear',
+        throws: new Error('insufficient permissions'),
+      }) as never,
+      notify,
+      logger: makeLogger(),
+    });
+    await captured.byId.get('archivist-clear-gc-lock')!.callback!();
+    expect(calls.some((c) => c.message === S.GC_LOCK_CLEAR_FAILED('insufficient permissions'))).toBe(true);
   });
 });

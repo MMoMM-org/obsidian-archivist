@@ -76,19 +76,23 @@ export class SnapshotIndexStore {
 
   /** Rebuilds the index from a list of manifests. Overwrites any existing index. */
   rebuild(manifests: SnapshotManifest[]): Promise<void> {
+    const entries = manifests.map(manifestToIndexEntry);
+    return this.rebuildFromEntries(entries);
+  }
+
+  /**
+   * Like {@link rebuild} but accepts pre-extracted index entries. Lets
+   * callers (e.g. RepairService) downloading and processing manifests in
+   * batches discard each manifest's `files` map after computing its
+   * blob_hashes — important when a vault has many large manifests
+   * (hundreds of MB worth of file maps in the worst case).
+   */
+  rebuildFromEntries(entries: SnapshotIndexEntry[]): Promise<void> {
     return this.enqueue(async () => {
-      const snapshots: SnapshotIndexEntry[] = manifests.map((m) => ({
-        id: m.id,
-        type: m.type,
-        parent_id: m.parent_id,
-        created_at: m.created_at,
-        device_id: m.device_id,
-        blob_hashes: uniqueHashes(m),
-      }));
       const index: SnapshotIndex = {
         schema_version: '1.0',
         last_updated_at: this.now(),
-        snapshots,
+        snapshots: entries.slice(),
       };
       await this.dropbox.uploadJson(this.path, index);
     });
@@ -126,4 +130,17 @@ function uniqueHashes(manifest: SnapshotManifest): string[] {
     seen.add(entry.hash);
   }
   return Array.from(seen);
+}
+
+/** Extract the index-row shape from a manifest. Public via rebuild() but
+ * also exported for the streaming variant in RepairService. */
+export function manifestToIndexEntry(m: SnapshotManifest): SnapshotIndexEntry {
+  return {
+    id: m.id,
+    type: m.type,
+    parent_id: m.parent_id,
+    created_at: m.created_at,
+    device_id: m.device_id,
+    blob_hashes: uniqueHashes(m),
+  };
 }
