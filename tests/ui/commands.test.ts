@@ -353,6 +353,26 @@ describe('registerRepairCommands', () => {
     expect(captured.byId.has('archivist-clear-gc-lock')).toBe(true);
   });
 
+  it('uses jargon-free user-facing labels (M17)', () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify } = makeNotify();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair() as never,
+      notify,
+      logger: makeLogger(),
+    });
+    // Command IDs stay stable (COMPAT-003) so user hotkeys are
+    // preserved, but the user-visible names are no longer
+    // jargon-laden ("GC", "garbage collect", "orphan content").
+    expect(captured.byId.get('archivist-gc-orphan-content')!.name).toBe(
+      'Archivist: Remove unused backup blobs',
+    );
+    expect(captured.byId.get('archivist-clear-gc-lock')!.name).toBe(
+      'Archivist: Clear stuck garbage-collection lock',
+    );
+  });
+
   // -------------------------------------------------------------------------
   // archivist-repair-backup-index
   // -------------------------------------------------------------------------

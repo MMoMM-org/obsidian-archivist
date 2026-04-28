@@ -51,7 +51,11 @@ export function renderAdoptVaultContent(
   const { remoteVaultName, remoteVaultId, onAdopt, onCancel } = opts;
 
   handle.setTitle(S.ADOPT_VAULT_TITLE);
+  // M16: lead + two outcome paragraphs so the Adopt/Cancel decision
+  // boundaries are visible at a glance instead of buried in one block.
   handle.setBody(S.ADOPT_VAULT_BODY(remoteVaultName, remoteVaultId));
+  handle.addLine(S.ADOPT_VAULT_BODY_ADOPT);
+  handle.addLine(S.ADOPT_VAULT_BODY_CANCEL);
   handle.addLine(S.ADOPT_VAULT_HINT);
 
   const dismiss = (action: () => void): void => {

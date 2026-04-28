@@ -80,6 +80,19 @@ describe('renderAdoptVaultContent', () => {
     expect(handle.recorded.extraLines).toContain(S.ADOPT_VAULT_HINT);
   });
 
+  it('renders Adopt + Cancel outcome paragraphs separately (M16)', () => {
+    const handle = makeRecordingHandle();
+    renderAdoptVaultContent(handle, makeOpts());
+    // Body is now the lead summary — neither outcome paragraph should
+    // be folded into it.
+    expect(handle.recorded.body).not.toContain('Backups will resume');
+    expect(handle.recorded.body).not.toContain('keep this device unclaimed');
+    // Each outcome lives on its own line so the two decision paths are
+    // visually separated.
+    expect(handle.recorded.extraLines).toContain(S.ADOPT_VAULT_BODY_ADOPT);
+    expect(handle.recorded.extraLines).toContain(S.ADOPT_VAULT_BODY_CANCEL);
+  });
+
   it('Cancel is the default button — Adopt is NOT default', () => {
     const handle = makeRecordingHandle();
     renderAdoptVaultContent(handle, makeOpts());
