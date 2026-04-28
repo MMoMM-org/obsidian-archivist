@@ -251,6 +251,12 @@ export default class ArchivistPlugin extends Plugin {
       changeDetector,
       logger: this.logger,
       progress: progressTracker,
+      // Surface chain-walk corruption recovery as a persistent banner so a
+      // long-running fall-back FULL doesn't look like the plugin hung. The
+      // banner clears below in the BACKUP_RUNNING success/failure handlers.
+      onChainCorruptionDetected: () => {
+        noticeCenter.showPersistent('CHAIN_RECOVERY', S.CHAIN_RECOVERY_BANNER);
+      },
       vaultPrefix,
       vaultName,
     });
@@ -401,6 +407,9 @@ export default class ArchivistPlugin extends Plugin {
           }
 
           manifestCache.invalidate();
+          // Clear the chain-recovery banner if it was raised — recovery FULL
+          // just succeeded. Idempotent when no banner exists.
+          noticeCenter.clearPersistent('CHAIN_RECOVERY');
           noticeCenter.showSuccess(
             pending.type === 'full'
               ? { type: 'full' }
@@ -428,6 +437,10 @@ export default class ArchivistPlugin extends Plugin {
             : isAuthLost ? 'AUTH_LOST'
             : 'NETWORK';
 
+          // Recovery FULL itself failed — clear the chain-recovery banner so
+          // the user isn't left staring at "running fresh full backup" while
+          // the actual error toast tells them otherwise.
+          noticeCenter.clearPersistent('CHAIN_RECOVERY');
           noticeCenter.showError(code, msg);
           fsm.onBackupFailure();
         }
