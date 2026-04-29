@@ -26,6 +26,7 @@ import { RetentionService } from '../../src/services/RetentionService';
 import { GCService } from '../../src/services/GCService';
 import { MaintenanceScheduler } from '../../src/services/MaintenanceScheduler';
 import { ManifestCache } from '../../src/services/ManifestCache';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 import { RestoreService } from '../../src/services/RestoreService';
 import { RestoreOperations } from '../../src/services/RestoreOperations';
 import { NoticeCenter } from '../../src/ui/NoticeCenter';
@@ -419,6 +420,8 @@ export async function createArchivistFixture(config: FixtureConfig = {}): Promis
     },
     preflightHost: noticeCenter,
     logger,
+    setTimeoutFn: testSetTimeoutFn,
+    clearTimeoutFn: testClearTimeoutFn,
   });
 
   const root = `${vaultPrefix}`;

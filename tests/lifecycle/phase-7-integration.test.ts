@@ -18,6 +18,7 @@ import { DEFAULT_SETTINGS, type PluginSettings } from '../../src/model/Settings'
 import type { Logger } from '../../src/infra/Logger';
 import type { Command } from 'obsidian';
 import { S } from '../../src/ui/strings';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -93,6 +94,8 @@ function makeHarness(nowMs: number): Harness {
     preflightHost: noticeCenter,
     logger: makeLogger(),
     now: () => nowRef.value,
+    setTimeoutFn: testSetTimeoutFn,
+    clearTimeoutFn: testClearTimeoutFn,
   };
   const fsm = new SchedulerFSM(fsmDeps);
 

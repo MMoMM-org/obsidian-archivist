@@ -13,6 +13,7 @@ import { createArchivistFixture } from './_harness';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
 import { SchedulerFSM } from '../../src/services/SchedulerFSM';
 import { createLogger } from '../../src/infra/Logger';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 describe('Integration — catch-up-full', () => {
   it('FSM sets catchupPending when scheduled full was missed during offline period', async () => {
@@ -73,6 +74,8 @@ describe('Integration — catch-up-full', () => {
       preflightHost: { showPreflight: () => {} },
       logger,
       now: () => now,
+      setTimeoutFn: testSetTimeoutFn,
+      clearTimeoutFn: testClearTimeoutFn,
     });
 
     // recoverOnStartup should detect the missed full

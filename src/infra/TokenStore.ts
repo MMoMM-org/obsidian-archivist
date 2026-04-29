@@ -144,7 +144,7 @@ export class TokenStore {
       // The value is a hard-coded literal — the no-unsanitized rule is
       // meant to catch user-controlled strings, which this isn't.
       const specifier = 'fs';
-      // eslint-disable-next-line no-unsanitized/method
+      // eslint-disable-next-line no-unsanitized/method -- specifier is a hard-coded literal ('fs'), not user-controlled input
       const fs = (await import(specifier)) as unknown as FsLike;
       await fs.promises.chmod(abs, DEFAULT_CHMOD);
     } catch (err) {

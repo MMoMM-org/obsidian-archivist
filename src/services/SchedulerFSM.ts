@@ -49,7 +49,11 @@ export type FSMState =
 
 export type StateChangeHandler = (next: FSMState, prev: FSMState) => void;
 
-export type TimerHandle = ReturnType<typeof setTimeout>;
+// Opaque — FSM only round-trips the handle from setTimeoutFn back to clearTimeoutFn,
+// so the caller picks the underlying type. `number | object` covers both
+// browser (`number`) and node (`Timeout` is an object) without pulling in `unknown`,
+// which would collapse `TimerHandle | null` into a redundant union.
+export type TimerHandle = number | object;
 export type SetTimeoutFn = (handler: () => void, ms: number) => TimerHandle;
 export type ClearTimeoutFn = (handle: TimerHandle) => void;
 
@@ -94,12 +98,13 @@ export interface SchedulerFSMDeps {
   /** Injectable for tests — defaults to Date.now(). */
   now?: () => number;
   /**
-   * Timer functions. Production should pass `activeWindow.setTimeout` bound
-   * to `activeWindow` (obsidianmd/prefer-active-window-timers — popout
-   * compatibility). Tests leave these undefined and drive via vi.useFakeTimers().
+   * Timer functions. Required so the FSM never calls bare `setTimeout`/
+   * `clearTimeout` — Obsidian's `obsidianmd/prefer-active-window-timers`
+   * forbids it (popout-window cleanup). Production passes `activeWindow.*`;
+   * tests pass thin wrappers around node's globals so vi.useFakeTimers works.
    */
-  setTimeoutFn?: SetTimeoutFn;
-  clearTimeoutFn?: ClearTimeoutFn;
+  setTimeoutFn: SetTimeoutFn;
+  clearTimeoutFn: ClearTimeoutFn;
 }
 
 const PREFLIGHT_LEAD_MS = 5 * 60 * 1000;
@@ -135,10 +140,8 @@ export class SchedulerFSM {
 
   constructor(private readonly deps: SchedulerFSMDeps) {
     this.now = deps.now ?? ((): number => Date.now());
-    // eslint-disable-next-line obsidianmd/prefer-active-window-timers
-    this.setTimeoutFn = deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
-    // eslint-disable-next-line obsidianmd/prefer-active-window-timers
-    this.clearTimeoutFn = deps.clearTimeoutFn ?? ((h) => clearTimeout(h));
+    this.setTimeoutFn = deps.setTimeoutFn;
+    this.clearTimeoutFn = deps.clearTimeoutFn;
   }
 
   // ---------------------------------------------------------------------------

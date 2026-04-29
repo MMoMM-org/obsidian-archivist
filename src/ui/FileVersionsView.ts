@@ -226,10 +226,11 @@ export class FileVersionsView extends ItemView {
     }
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     this._closed = true;
     this._unloadActiveRenderChild();
     this.contentEl.empty();
+    return Promise.resolve();
   }
 
   // -------------------------------------------------------------------------

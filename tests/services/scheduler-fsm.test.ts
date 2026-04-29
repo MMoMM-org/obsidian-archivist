@@ -14,6 +14,7 @@ import {
 } from '../../src/services/SchedulerFSM';
 import type { ScheduleSettings } from '../../src/model/Settings';
 import type { Logger } from '../../src/infra/Logger';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 // ---------------------------------------------------------------------------
 // Fakes and factories
@@ -95,6 +96,8 @@ function makeFSM(opts: HarnessOpts = {}): {
     preflightHost,
     logger,
     now: opts.now,
+    setTimeoutFn: testSetTimeoutFn,
+    clearTimeoutFn: testClearTimeoutFn,
   };
 
   return {
