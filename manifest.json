@@ -1,7 +1,7 @@
 {
 	"id": "archivist",
 	"name": "Archivist",
-	"version": "0.7.4",
+	"version": "0.7.5",
 	"minAppVersion": "1.5.0",
 	"description": "Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.",
 	"author": "Marcus Breiden <marcus@mmomm.org>",

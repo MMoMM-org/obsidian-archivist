@@ -1,3 +1,10 @@
+## [0.7.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.4...0.7.5) (2026-04-29)
+
+
+### Bug Fixes
+
+* **soak:** await async fixture in four-weeks test ([#32](https://github.com/MMoMM-org/obsidian-archivist/issues/32)) ([05c811a](https://github.com/MMoMM-org/obsidian-archivist/commit/05c811a4fe9bc492c7335d6015324274e3d54332))
+
 ## [0.7.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.3...0.7.4) (2026-04-29)
 
 
