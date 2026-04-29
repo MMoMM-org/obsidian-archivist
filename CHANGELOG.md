@@ -1,3 +1,10 @@
+## [0.7.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.3...0.7.4) (2026-04-29)
+
+
+### Bug Fixes
+
+* **lint:** address obsidian review bot findings ([#31](https://github.com/MMoMM-org/obsidian-archivist/issues/31)) ([0e521fe](https://github.com/MMoMM-org/obsidian-archivist/commit/0e521fe25c0032b930af37eca3317b4d0096d5c5))
+
 ## [0.7.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.2...0.7.3) (2026-04-28)
 
 
