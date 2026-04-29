@@ -443,6 +443,11 @@ export default class ArchivistPlugin extends Plugin {
       },
       preflightHost: noticeCenter,
       logger: this.logger,
+      // Bind to activeWindow so timers are torn down with pop-out windows
+      // (obsidianmd/prefer-active-window-timers). Handles round-trip through
+      // the opaque TimerHandle; cast back to number for activeWindow.clearTimeout.
+      setTimeoutFn: (fn, ms) => activeWindow.setTimeout(fn, ms),
+      clearTimeoutFn: (h) => activeWindow.clearTimeout(h as number),
     });
     this.fsm = fsm;
     this._fsm = fsm;
@@ -798,9 +803,9 @@ export default class ArchivistPlugin extends Plugin {
       dropboxUsedBytes: 0,
       device: {
         getDeviceId: () => deviceCoordinator.getOrCreateDeviceId(),
-        isDesignated: async () => true,
-        takeOwnership: async (_label?: string) => {},
-        releaseOwnership: async () => {},
+        isDesignated: () => Promise.resolve(true),
+        takeOwnership: (_label?: string) => Promise.resolve(),
+        releaseOwnership: () => Promise.resolve(),
       },
       dropbox: {
         // Source of truth for the connected account is tokens.json — survives
@@ -817,7 +822,7 @@ export default class ArchivistPlugin extends Plugin {
           // Settings tab needs to switch back to the empty-state view.
           await this.settingsTab?.refresh();
         },
-        getUsedBytes: async () => 0,
+        getUsedBytes: () => Promise.resolve(0),
       },
       oauth: {
         isConnected: async () => (await tokenStore.load()) !== null,
@@ -833,7 +838,7 @@ export default class ArchivistPlugin extends Plugin {
           clipboard: { writeText: (t: string) => Promise<void> };
         }).clipboard.writeText(text);
       },
-      confirm: async () => true,
+      confirm: () => Promise.resolve(true),
     };
 
     // Pre-populate every async-sourced settingsContext field so the FIRST
@@ -1030,8 +1035,7 @@ export default class ArchivistPlugin extends Plugin {
     // Step 19: Tick interval
     // ---------------------------------------------------------------------------
     this.registerInterval(
-      // eslint-disable-next-line obsidianmd/prefer-active-window-timers
-      setInterval(() => {
+      activeWindow.setInterval(() => {
         fsm.tick();
         refreshTooltips();
       }, 60_000),

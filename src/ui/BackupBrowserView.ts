@@ -798,7 +798,7 @@ export class BackupBrowserView extends ItemView {
     this.snapshotsListEl.setAttribute('aria-busy', 'false');
   }
 
-  async onClose(): Promise<void> {
+  onClose(): Promise<void> {
     // Fix 3: signal all in-flight continuations to bail out.
     this._closed = true;
     this.unsubBanners?.();
@@ -810,6 +810,7 @@ export class BackupBrowserView extends ItemView {
       this.searchDebounceTimer = null;
     }
     this.contentEl.empty();
+    return Promise.resolve();
   }
 
   // Fix 7: re-render the banner region from the current persistent banners.
@@ -1048,7 +1049,7 @@ export class BackupBrowserView extends ItemView {
     }
   }
 
-  async _selectDir(prefix: string): Promise<void> {
+  _selectDir(prefix: string): void {
     this.selectedDir = prefix;
     this.selectedPath = null;
     const capturedSnap = this.selectedSnapshot;

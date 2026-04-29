@@ -15,6 +15,7 @@ import type { Logger } from '../../src/infra/Logger';
 import type { ScheduleSettings } from '../../src/model/Settings';
 import type { Command } from 'obsidian';
 import { S } from '../../src/ui/strings';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 function makeLogger(): Logger {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -44,6 +45,8 @@ function makeFSM(designated = true): SchedulerFSM {
     getEarliestPendingObservedAt: () => null,
     preflightHost: { showPreflight: () => {} },
     logger: makeLogger(),
+    setTimeoutFn: testSetTimeoutFn,
+    clearTimeoutFn: testClearTimeoutFn,
   };
   return new SchedulerFSM(deps);
 }

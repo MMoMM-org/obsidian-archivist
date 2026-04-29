@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { SchedulerFSM } from '../../src/services/SchedulerFSM';
 import { createLogger } from '../../src/infra/Logger';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,6 +61,8 @@ describe('Perf — T10.7b idle-tick SLO', () => {
       preflightHost: { showPreflight: () => {} },
       logger,
       now: () => fixedNow,
+      setTimeoutFn: testSetTimeoutFn,
+      clearTimeoutFn: testClearTimeoutFn,
     });
 
     // Advance FSM to READY state so tick() is not a no-op from LOADING

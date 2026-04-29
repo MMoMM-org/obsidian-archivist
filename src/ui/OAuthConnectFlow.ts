@@ -526,11 +526,14 @@ async function defaultHttpPost(
   return {
     ok: resp.status >= 200 && resp.status < 300,
     status: resp.status,
-    json: async (): Promise<unknown> => {
+    json: (): Promise<unknown> => {
       // requestUrl eagerly parses JSON; fall back to parsing `text` if the
       // eager parse failed (upstream sets `.json` to null in that case).
-      if (resp.json !== null && resp.json !== undefined) return resp.json as unknown;
-      return JSON.parse(resp.text) as unknown;
+      const parsed =
+        resp.json !== null && resp.json !== undefined
+          ? (resp.json as unknown)
+          : (JSON.parse(resp.text) as unknown);
+      return Promise.resolve(parsed);
     },
   };
 }

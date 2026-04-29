@@ -4,6 +4,12 @@
  * Future phases extend this file — keep additions lean and additive.
  */
 
+// Obsidian augments globalThis with an `activeWindow: Window` global. In the
+// vitest node env it doesn't exist, so any src code that calls
+// activeWindow.setInterval / .setTimeout would crash. Point it at globalThis
+// so the timer methods resolve to vitest's fake-timer-stubbed globals.
+(globalThis as unknown as { activeWindow: typeof globalThis }).activeWindow = globalThis;
+
 // Opaque type for event references
 export type EventRef = { _id: number; _event: string };
 

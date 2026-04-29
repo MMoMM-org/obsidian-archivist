@@ -10,6 +10,7 @@ import { SchedulerFSM, type SchedulerFSMDeps } from '../../src/services/Schedule
 import type { Logger } from '../../src/infra/Logger';
 import type { ScheduleSettings } from '../../src/model/Settings';
 import { S } from '../../src/ui/strings';
+import { testSetTimeoutFn, testClearTimeoutFn } from '../fixtures/fsm-timers';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -103,6 +104,8 @@ function makeFSM(opts: HarnessOpts = {}): SchedulerFSM {
     getEarliestPendingObservedAt: () => null,
     preflightHost: { showPreflight: () => {} },
     logger: makeLogger(),
+    setTimeoutFn: testSetTimeoutFn,
+    clearTimeoutFn: testClearTimeoutFn,
   };
   return new SchedulerFSM(deps);
 }
