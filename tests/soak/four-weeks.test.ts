@@ -65,7 +65,9 @@ async function makeFileHash(fileIndex: number, revision: number): Promise<string
   return sha256hex(new TextEncoder().encode(content));
 }
 
-function readSnapshotIndex(fix: ReturnType<typeof createArchivistFixture>): SnapshotIndex | null {
+function readSnapshotIndex(
+  fix: Awaited<ReturnType<typeof createArchivistFixture>>,
+): SnapshotIndex | null {
   const bytes = fix.mockDropbox.store.get(fix.paths.snapshotIndex());
   if (!bytes) return null;
   return JSON.parse(new TextDecoder().decode(bytes)) as SnapshotIndex;
@@ -95,7 +97,7 @@ describe('Soak — T10.2 four-week simulation (1k files)', () => {
       Array.from({ length: FILE_COUNT }, (_, i) => makeFileHash(i, 0)),
     );
 
-    const fix = createArchivistFixture({
+    const fix = await createArchivistFixture({
       settings: {
         retention: {
           never_prune_window_days: 14,
