@@ -662,7 +662,7 @@ export default class ArchivistPlugin extends Plugin {
         // tooltip, but route it into aria-label only — screen readers and
         // hover tooltips still get the state copy, the visual surface stays
         // icon-only.
-        statusBarEl.addEventListener('click', onClick);
+        this.registerDomEvent(statusBarEl, 'click', onClick);
         const handle: StatusBarHandle = {
           setIcon: (name) => {
             if (statusIconEl) setIcon(statusIconEl, name);
