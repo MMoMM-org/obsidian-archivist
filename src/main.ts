@@ -15,6 +15,7 @@ import { GCService } from './services/GCService';
 import { RepairService } from './services/RepairService';
 import { VaultIdentity } from './services/VaultIdentity';
 import { AdoptVaultModal } from './ui/AdoptVaultModal';
+import { ErrorDetailsModal, type ErrorDetailsRecord } from './ui/ErrorDetailsModal';
 import { MaintenanceScheduler } from './services/MaintenanceScheduler';
 import { StorageProbe } from './services/StorageProbe';
 import { ManifestCache } from './services/ManifestCache';
@@ -418,6 +419,14 @@ export default class ArchivistPlugin extends Plugin {
       full: epochMsFromSnapshotId(persistedIndex?.last_full_snapshot_id ?? null),
     };
 
+    // Last backup failure — populated in the catch block below, consumed by
+    // the status-bar click handler (ErrorDetailsModal). Keeping this in main
+    // (not on the FSM) because it carries error semantics — code / message /
+    // stack — that the FSM intentionally does not model. A single ref slot
+    // is enough: when several errors occur in a row the latest one is the
+    // one the user wants to act on.
+    const lastErrorRef: { current: ErrorDetailsRecord | null } = { current: null };
+
     const fsm = new SchedulerFSM({
       schedule: freshSettings.schedule,
       isDesignated: () => true, // DeviceCoordinator gates actual upload via verifyNoConflict
@@ -479,6 +488,11 @@ export default class ArchivistPlugin extends Plugin {
           // Clear the chain-recovery banner if it was raised — recovery FULL
           // just succeeded. Idempotent when no banner exists.
           noticeCenter.clearPersistent('CHAIN_RECOVERY');
+          // A successful backup recovers from any prior failure; drop the
+          // generic backup-error banner and the lastError snapshot so the
+          // status-bar click stops opening a stale ErrorDetailsModal.
+          noticeCenter.clearPersistent('BACKUP_ERROR');
+          lastErrorRef.current = null;
           noticeCenter.showSuccess(
             pending.type === 'full'
               ? { type: 'full' }
@@ -488,6 +502,7 @@ export default class ArchivistPlugin extends Plugin {
           fsm.onBackupSuccess();
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          const stack = err instanceof Error ? (err.stack ?? null) : null;
           const isConflict = msg.includes('DEVICE_CONFLICT');
           const isQuota = msg.includes('QUOTA_EXCEEDED');
           const isAuthLost = msg.includes('TOKEN_REVOKED');
@@ -506,10 +521,49 @@ export default class ArchivistPlugin extends Plugin {
             : isAuthLost ? 'AUTH_LOST'
             : 'NETWORK';
 
+          // Persist enough detail for the status-bar ErrorDetailsModal AND
+          // emit a logger.error so the dev console shows the actual cause —
+          // previously the catch only emitted an FSM transition (debug) and
+          // a generic toast, leaving users staring at "Network error — will
+          // retry automatically." with no way to find the real failure.
+          lastErrorRef.current = {
+            code,
+            message: msg,
+            stack,
+            at: Date.now(),
+            kind: pending.type,
+          };
+          this.logger.error('backup_failed', {
+            code,
+            kind: pending.type,
+            message: msg,
+            stack,
+          });
+
           // Recovery FULL itself failed — clear the chain-recovery banner so
           // the user isn't left staring at "running fresh full backup" while
           // the actual error toast tells them otherwise.
           noticeCenter.clearPersistent('CHAIN_RECOVERY');
+          // For NETWORK / unclassified failures none of the dedicated
+          // banners (AUTH_LOST / DEVICE_CONFLICT / QUOTA_EXCEEDED) fire, so
+          // the user is left with only a 5-min-deduped toast that doesn't
+          // include the actual error text. Promote those to a persistent
+          // BACKUP_ERROR banner that carries the real message — same
+          // banner pipeline the settings tab and the status bar already
+          // observe.
+          if (!isAuthLost && !isConflict && !isQuota) {
+            noticeCenter.showPersistent(
+              'BACKUP_ERROR',
+              S.BACKUP_ERROR_BANNER(pending.type, msg),
+              {
+                onDismiss: () => {
+                  noticeCenter.clearPersistent('BACKUP_ERROR');
+                  lastErrorRef.current = null;
+                },
+                dismissLabel: S.BACKUP_ERROR_DISMISS,
+              },
+            );
+          }
           noticeCenter.showError(code, msg);
           fsm.onBackupFailure();
         }
@@ -686,10 +740,49 @@ export default class ArchivistPlugin extends Plugin {
         return handle;
       },
     };
+    // Status-bar click is state-aware: in healthy states (READY / GRACE /
+    // QUIET_WAIT / BACKUP_RUNNING / PASSIVE) it mirrors the ribbon and opens
+    // the Backup Browser. In ERROR / AUTH_LOST it opens the ErrorDetailsModal
+    // — the alert-triangle is the user's signal that something is wrong, so
+    // a click should explain the problem, not navigate away from it.
+    const openErrorDetails = (): void => {
+      const app = this.app as unknown as {
+        setting?: {
+          open: () => void;
+          openTabById: (id: string) => void;
+        };
+      };
+      new ErrorDetailsModal(this.app, {
+        lastError: lastErrorRef.current,
+        onOpenSettings: () => {
+          // app.setting is Obsidian's internal handle to the Settings dialog.
+          // It's the same surface used by /open-settings command palettes
+          // across community plugins; gracefully degrade if unavailable.
+          if (app.setting) {
+            app.setting.open();
+            app.setting.openTabById(this.manifest.id);
+          }
+        },
+        onCopy: async (report) => {
+          await (navigator as unknown as {
+            clipboard: { writeText: (t: string) => Promise<void> };
+          }).clipboard.writeText(report);
+          new Notice(S.ERROR_DETAILS_COPIED, 3_000);
+        },
+      }).open();
+    };
+    const statusBarOnClick = (): void => {
+      const state = fsm.getState();
+      if (state === 'ERROR' || state === 'AUTH_LOST') {
+        openErrorDetails();
+        return;
+      }
+      openBrowser();
+    };
     const statusBar = new StatusBar({
       host: statusBarHost,
       fsm,
-      onClick: openBrowser,
+      onClick: statusBarOnClick,
       getTooltipInput,
     });
     statusBar.mount();

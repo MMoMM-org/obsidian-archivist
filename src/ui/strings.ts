@@ -164,6 +164,30 @@ export const S = {
   TOAST_BACKUP_PAUSED_NO_CHANGES: 'Nothing new to back up.',
   TOAST_ERROR_GENERIC: 'Archivist encountered an error. Check settings for details.',
   TOAST_RESTORE_DONE: 'File restored.',
+
+  // ─── Error details modal (status-bar click in ERROR / AUTH_LOST) ──
+  ERROR_DETAILS_TITLE: 'Archivist — last backup failure',
+  ERROR_DETAILS_NO_ERROR:
+    'No error recorded. The plugin may have recovered already.',
+  ERROR_DETAILS_HEADING_WHAT: 'What went wrong',
+  ERROR_DETAILS_HEADING_DETAIL: 'Technical detail',
+  ERROR_DETAILS_HEADING_STACK: 'Stack trace',
+  ERROR_DETAILS_LABEL_KIND: 'Backup type',
+  ERROR_DETAILS_LABEL_CODE: 'Error code',
+  ERROR_DETAILS_LABEL_TIME: 'When',
+  ERROR_DETAILS_OPEN_SETTINGS: 'Open Archivist settings',
+  ERROR_DETAILS_COPY: 'Copy report',
+  ERROR_DETAILS_COPIED: 'Error report copied to clipboard.',
+  ERROR_DETAILS_CLOSE: 'Close',
+  ERROR_DETAILS_HINT:
+    'Open the developer console (View → Toggle Developer Tools) for the full log — Archivist now writes the error there too.',
+  // Persistent banner used when a generic / NETWORK-class failure has no
+  // dedicated banner yet. Includes the actual error message so the user
+  // (or the dev console) can act on it instead of seeing only "Network
+  // error — will retry automatically.".
+  BACKUP_ERROR_BANNER: (kind: 'inc' | 'full', detail: string): string =>
+    `Archivist could not finish the ${kind === 'full' ? 'full' : 'incremental'} backup: ${detail}`,
+  BACKUP_ERROR_DISMISS: 'Dismiss',
   TOAST_OFFLINE:
     'Offline — versions known but content unreachable. Reconnect and try again.',
   TOAST_ERRORS_RESOLVED: 'Archivist recovered from recent errors.',
