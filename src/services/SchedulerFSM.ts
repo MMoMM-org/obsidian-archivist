@@ -10,7 +10,10 @@
 //   READY   ──(tick + {full-due | catchup | inc-due})→ BACKUP_RUNNING
 //   BACKUP_RUNNING ──(onBackupSuccess)─────────→ READY
 //   BACKUP_RUNNING ──(onBackupFailure)─────────→ ERROR
+//   BACKUP_RUNNING ──(onBackupBlocked)─────────→ BLOCKED       (permanent)
 //   ERROR   ──(tick + {full-due | catchup | inc-due})→ BACKUP_RUNNING
+//   * (not BACKUP_RUNNING / BLOCKED) + setBlocked() → BLOCKED
+//   BLOCKED + clearBlock() ────────────────────→ READY
 //   * (not BACKUP_RUNNING) + setDesignated(false) → PASSIVE
 //   PASSIVE + setDesignated(true) ─────────────→ READY
 //   *       + setAuthLost()   ─────────────────→ AUTH_LOST
@@ -20,10 +23,13 @@
 //   - FSM never calls Dropbox directly. It emits BACKUP_RUNNING via the state
 //     observer; callers read getPendingBackup() to decide inc vs. full, kick
 //     off BackupService, and report the outcome via onBackupSuccess /
-//     onBackupFailure.
-//   - Ticks in GRACE / QUIET_WAIT / BACKUP_RUNNING / PASSIVE / AUTH_LOST are
-//     no-ops. ERROR is NOT in that no-op list — a failed backup should be
-//     retried on the next tick if the interval is due.
+//     onBackupFailure / onBackupBlocked.
+//   - Ticks in GRACE / QUIET_WAIT / BACKUP_RUNNING / PASSIVE / AUTH_LOST /
+//     BLOCKED are no-ops. ERROR is NOT in that no-op list — a transient
+//     failed backup should be retried on the next tick if the interval is
+//     due. BLOCKED is the *permanent* error class (vault-id mismatch,
+//     schema-corrupt remote, etc.) where retrying is futile and only spams
+//     the user; clearing requires a user action via clearBlock().
 //   - Scheduled full takes priority over incremental when both are due.
 //   - Multiple overdue fulls collapse to a single catch-up — recoverOnStartup
 //     sets `catchupPending = true` once; no per-cycle queue.
@@ -45,7 +51,21 @@ export type FSMState =
   | 'BACKUP_RUNNING'
   | 'PASSIVE'
   | 'ERROR'
-  | 'AUTH_LOST';
+  | 'AUTH_LOST'
+  | 'BLOCKED';
+
+/**
+ * Reason a backup is blocked. Distinct from transient ERROR — these
+ * conditions only resolve via user action (resolving a vault-id mismatch
+ * via the recovery modal, repairing a corrupt remote vault_meta, etc.).
+ * Retrying on the next tick would just spam the user with toasts and
+ * burn Dropbox round-trips against a known-broken state.
+ */
+export type BlockReason =
+  | 'VAULT_ID_MISMATCH'
+  | 'VAULT_META_CORRUPT'
+  | 'VAULT_ID_NEEDS_ADOPTION'
+  | 'VAULT_ID_INVALID';
 
 export type StateChangeHandler = (next: FSMState, prev: FSMState) => void;
 
@@ -241,9 +261,10 @@ export class SchedulerFSM {
    */
   triggerBackupNow(
     kind: 'inc' | 'full' = 'inc',
-  ): 'started' | 'already_running' | 'not_designated' | 'auth_lost' {
+  ): 'started' | 'already_running' | 'not_designated' | 'auth_lost' | 'blocked' {
     if (!this.deps.isDesignated()) return 'not_designated';
     if (this.state === 'AUTH_LOST') return 'auth_lost';
+    if (this.state === 'BLOCKED') return 'blocked';
     if (this.state === 'BACKUP_RUNNING') return 'already_running';
     // Clear any pending grace/quiet so the manual trigger takes effect cleanly.
     this.clearTimers();
@@ -251,6 +272,42 @@ export class SchedulerFSM {
       kind === 'full' ? { type: 'full', reason: 'scheduled' } : { type: 'inc' };
     this.transition('BACKUP_RUNNING');
     return 'started';
+  }
+
+  /**
+   * Permanent-error lock. Distinct from onBackupFailure — that one keeps
+   * the FSM eligible for tick-driven retries (transient failures recover
+   * by themselves). setBlocked / onBackupBlocked freeze the FSM until
+   * clearBlock() fires, typically from the recovery-modal success path.
+   *
+   * Cannot interrupt an in-flight upload — the upload itself will report
+   * its outcome via onBackupSuccess / onBackupFailure / onBackupBlocked
+   * and the latch we'd set here would be stomped a moment later anyway.
+   */
+  setBlocked(reason: BlockReason): void {
+    if (this.state === 'BACKUP_RUNNING') return;
+    this.clearTimers();
+    this.deps.logger.warn('fsm_blocked', { reason });
+    if (this.state !== 'BLOCKED') this.transition('BLOCKED');
+  }
+
+  /** Variant of onBackupFailure for permanent failures detected mid-upload. */
+  onBackupBlocked(reason: BlockReason): void {
+    this.pendingBackup = null;
+    this.deps.logger.warn('fsm_blocked', { reason });
+    if (this.state === 'BACKUP_RUNNING') this.transition('BLOCKED');
+  }
+
+  /**
+   * Release the permanent-error lock. Called by the recovery modal after
+   * the user adopts the remote vault_id (or otherwise resolves the
+   * underlying config), and by setDesignated(true) so a passive device
+   * can come back online cleanly.
+   */
+  clearBlock(): void {
+    if (this.state !== 'BLOCKED') return;
+    this.deps.logger.info('fsm_block_cleared');
+    this.transition('READY');
   }
 
   onBackupSuccess(): void {

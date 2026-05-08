@@ -55,6 +55,9 @@ function handleBackupNow(deps: BackupNowCommandDeps, kind: 'inc' | 'full'): void
     case 'auth_lost':
       deps.notify(S.OAUTH_REAUTH_REQUIRED, { timeout: 6_000 });
       return;
+    case 'blocked':
+      deps.notify(S.CMD_BACKUP_NOW_BLOCKED, { timeout: 8_000 });
+      return;
   }
 }
 

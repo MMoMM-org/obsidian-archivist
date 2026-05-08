@@ -108,5 +108,8 @@ export function formatStatusTooltip(input: StatusTooltipInput): string {
 
     case 'AUTH_LOST':
       return 'Archivist — reconnect Dropbox';
+
+    case 'BLOCKED':
+      return 'Archivist — action required (vault config)';
   }
 }

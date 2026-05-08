@@ -46,6 +46,9 @@ import type { LocalIndex } from './model/Index';
 import type { NotifyFn } from './ui/NoticeCenter';
 import type { DropboxClient } from './infra/DropboxClient';
 import type { PluginSettings } from './model/Settings';
+import { ConfigError } from './model/Errors';
+import { MismatchRecoveryModal } from './ui/MismatchRecoveryModal';
+import type { BlockReason } from './services/SchedulerFSM';
 
 // BACKUP_BROWSER_VIEW_TYPE is the canonical export from BackupBrowserView.
 // It is re-exported here so existing importers (`@/main`) keep working.
@@ -92,6 +95,31 @@ class LazyDropboxProxy {
 
   uploadLarge(...args: Parameters<DropboxClient['uploadLarge']>): ReturnType<DropboxClient['uploadLarge']> {
     return this.client.uploadLarge(...args);
+  }
+}
+
+/**
+ * Map ConfigError.code values to FSM BlockReason. Only codes that
+ * should freeze the backup loop are returned; everything else returns
+ * null so the caller falls through to the transient-error path.
+ *
+ * SCHEMA_INVALID (configInvalid helper) is intentionally excluded —
+ * those originate from data shapes downstream of vault identity and
+ * are typically programmer errors that warrant a hard failure rather
+ * than a user-facing recovery flow.
+ */
+function configCodeToBlockReason(code: string): BlockReason | null {
+  switch (code) {
+    case 'VAULT_ID_MISMATCH':
+      return 'VAULT_ID_MISMATCH';
+    case 'VAULT_META_CORRUPT':
+      return 'VAULT_META_CORRUPT';
+    case 'VAULT_ID_NEEDS_ADOPTION':
+      return 'VAULT_ID_NEEDS_ADOPTION';
+    case 'VAULT_ID_INVALID':
+      return 'VAULT_ID_INVALID';
+    default:
+      return null;
   }
 }
 
@@ -427,6 +455,43 @@ export default class ArchivistPlugin extends Plugin {
     // one the user wants to act on.
     const lastErrorRef: { current: ErrorDetailsRecord | null } = { current: null };
 
+    // Mismatch / corrupt-remote recovery record — populated when the FSM
+    // enters BLOCKED so the status-bar click handler can open
+    // MismatchRecoveryModal with both vault_ids on hand. Cleared by
+    // clearBlock() and by a successful adopt.
+    const mismatchRecordRef: {
+      current: import('./ui/MismatchRecoveryModal').MismatchRecoveryRecord | null;
+    } = { current: null };
+
+    /**
+     * Show the persistent banner + remember the recovery record for the
+     * status-bar click. Consumed both from the catch block (mid-backup
+     * failure) and from the onLayoutReady probe (proactive detection
+     * before the first backup attempt).
+     */
+    const surfaceBlockingConfigError = (
+      reason: BlockReason,
+      detail: string,
+    ): void => {
+      const bannerCode = reason === 'VAULT_META_CORRUPT'
+        ? 'VAULT_META_CORRUPT'
+        : 'VAULT_ID_MISMATCH';
+      const bannerMessage = reason === 'VAULT_META_CORRUPT'
+        ? S.REMOTE_CORRUPT_BANNER
+        : S.MISMATCH_BANNER;
+      noticeCenter.showPersistent(bannerCode, bannerMessage);
+      // Persist the detail for ErrorDetailsModal too — keeps the "Copy
+      // report" button useful even before the user opens the recovery
+      // modal.
+      lastErrorRef.current = {
+        code: reason,
+        message: detail,
+        stack: null,
+        at: Date.now(),
+        kind: 'inc',
+      };
+    };
+
     const fsm = new SchedulerFSM({
       schedule: freshSettings.schedule,
       isDesignated: () => true, // DeviceCoordinator gates actual upload via verifyNoConflict
@@ -506,6 +571,65 @@ export default class ArchivistPlugin extends Plugin {
           const isConflict = msg.includes('DEVICE_CONFLICT');
           const isQuota = msg.includes('QUOTA_EXCEEDED');
           const isAuthLost = msg.includes('TOKEN_REVOKED');
+          // ConfigError is permanent — vault-id mismatch / corrupt remote
+          // vault_meta / invalid local id. Retrying these on every tick
+          // produces nothing but log noise and dedup-suppressed toasts.
+          // The FSM has a separate BLOCKED state for exactly this class.
+          const configBlockReason = err instanceof ConfigError
+            ? configCodeToBlockReason(err.code)
+            : null;
+
+          if (configBlockReason !== null) {
+            // Permanent error path — short-circuit ahead of the transient
+            // banners so we don't double-handle.
+            const errCode = (err as ConfigError).code;
+            lastErrorRef.current = {
+              code: errCode,
+              message: msg,
+              stack,
+              at: Date.now(),
+              kind: pending.type,
+            };
+            this.logger.error('backup_failed', {
+              code: errCode,
+              kind: pending.type,
+              message: msg,
+              stack,
+              permanent: true,
+            });
+            // Try to populate the recovery record for the modal — best
+            // effort. If the consistency probe is reachable here we'll
+            // get full local + remote IDs; otherwise the modal falls
+            // back to the rawError branch.
+            void (async (): Promise<void> => {
+              try {
+                const probe = await vaultIdentity.checkConsistency();
+                if (probe.kind === 'mismatch') {
+                  mismatchRecordRef.current = {
+                    kind: 'mismatch',
+                    localVaultId: probe.localId,
+                    remoteVaultId: probe.remote.vault_id,
+                    remoteVaultName: probe.remote.vault_name,
+                    rawError: null,
+                  };
+                } else if (probe.kind === 'remote-corrupt') {
+                  mismatchRecordRef.current = {
+                    kind: 'remote-corrupt',
+                    localVaultId: probe.localId || null,
+                    remoteVaultId: null,
+                    remoteVaultName: null,
+                    rawError: probe.rawError,
+                  };
+                }
+              } catch {
+                // Probe failed — leave whatever record we have.
+              }
+            })();
+            noticeCenter.clearPersistent('CHAIN_RECOVERY');
+            surfaceBlockingConfigError(configBlockReason, msg);
+            fsm.onBackupBlocked(configBlockReason);
+            return;
+          }
 
           if (isAuthLost) {
             fsm.setAuthLost();
@@ -771,8 +895,66 @@ export default class ArchivistPlugin extends Plugin {
         },
       }).open();
     };
+    const openMismatchRecovery = (): void => {
+      const record = mismatchRecordRef.current;
+      if (!record) {
+        // Defensive — BLOCKED without a record means the consistency
+        // probe failed to populate (transient Dropbox error). Fall
+        // back to the generic ErrorDetailsModal so the user still
+        // sees something actionable.
+        openErrorDetails();
+        return;
+      }
+      new MismatchRecoveryModal(this.app, {
+        record,
+        onAdoptRemote: async () => {
+          if (!record.remoteVaultId) {
+            // remote-corrupt path: shouldn't be reachable (no Adopt
+            // button rendered), but guard anyway.
+            return;
+          }
+          try {
+            await vaultIdentity.adoptVaultId(record.remoteVaultId);
+            this.logger.info('vault_id_adopted_via_recovery', {
+              remote_id: record.remoteVaultId,
+              remote_name: record.remoteVaultName,
+            });
+            new Notice(
+              S.MISMATCH_RECOVERY_OK(record.remoteVaultName ?? 'remote'),
+              4_000,
+            );
+            mismatchRecordRef.current = null;
+            lastErrorRef.current = null;
+            noticeCenter.clearPersistent('VAULT_ID_MISMATCH');
+            noticeCenter.clearPersistent('VAULT_META_CORRUPT');
+            // Release the FSM so the next tick (or the user's next
+            // manual trigger) can run a real backup.
+            fsm.clearBlock();
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.error('vault_id_adoption_failed', { error: msg });
+            new Notice(S.MISMATCH_RECOVERY_FAILED(msg), 0);
+          }
+        },
+        onChangePrefix: () => {
+          const app = this.app as unknown as {
+            setting?: { open: () => void; openTabById: (id: string) => void };
+          };
+          if (app.setting) {
+            app.setting.open();
+            app.setting.openTabById(this.manifest.id);
+          }
+        },
+        onCancel: () => {},
+      }).open();
+    };
+
     const statusBarOnClick = (): void => {
       const state = fsm.getState();
+      if (state === 'BLOCKED') {
+        openMismatchRecovery();
+        return;
+      }
       if (state === 'ERROR' || state === 'AUTH_LOST') {
         openErrorDetails();
         return;
@@ -1105,16 +1287,43 @@ export default class ArchivistPlugin extends Plugin {
               onCancel: () => {},
             }).open();
           } else if (result.kind === 'remote-corrupt') {
-            // M4: surface the corruption via a persistent banner so the
-            // user has a recovery path (delete vault_meta.json + reload)
-            // instead of seeing a generic "backups blocked" toast on the
-            // next scheduled tick. BackupService.assertVaultOwnership
-            // continues to block writes — this is just visibility.
-            noticeCenter.showPersistent(
-              'VAULT_META_CORRUPT',
-              S.VAULT_META_CORRUPT_BANNER,
-            );
+            // Proactive lock — same surface path as a mid-backup
+            // ConfigError: setBlocked + persistent banner + recovery
+            // record, except we hit this BEFORE the first backup
+            // attempt so the FSM is shielded from the retry loop from
+            // tick 1.
             this.logger.warn('vault_meta_corrupt_surfaced', { error: result.rawError });
+            mismatchRecordRef.current = {
+              kind: 'remote-corrupt',
+              localVaultId: result.localId || null,
+              remoteVaultId: null,
+              remoteVaultName: null,
+              rawError: result.rawError,
+            };
+            surfaceBlockingConfigError('VAULT_META_CORRUPT', result.rawError);
+            fsm.setBlocked('VAULT_META_CORRUPT');
+          } else if (result.kind === 'mismatch') {
+            // The case that motivated this whole flow: local got an
+            // auto-generated vault_id at onload, remote already has a
+            // different one. Surface immediately so the user can recover
+            // before the first backup tick.
+            this.logger.warn('vault_id_mismatch_surfaced', {
+              local: result.localId,
+              remote: result.remote.vault_id,
+              remote_name: result.remote.vault_name,
+            });
+            mismatchRecordRef.current = {
+              kind: 'mismatch',
+              localVaultId: result.localId,
+              remoteVaultId: result.remote.vault_id,
+              remoteVaultName: result.remote.vault_name,
+              rawError: null,
+            };
+            surfaceBlockingConfigError(
+              'VAULT_ID_MISMATCH',
+              `local ${result.localId} ≠ remote ${result.remote.vault_id}`,
+            );
+            fsm.setBlocked('VAULT_ID_MISMATCH');
           }
         } catch (err) {
           this.logger.debug('vault_identity_probe_skipped', {
