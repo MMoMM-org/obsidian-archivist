@@ -1,3 +1,10 @@
+## [0.7.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.5...0.7.6) (2026-05-08)
+
+
+### Bug Fixes
+
+* **ui:** surface backup failure details on status-bar click ([#35](https://github.com/MMoMM-org/obsidian-archivist/issues/35)) ([602dda8](https://github.com/MMoMM-org/obsidian-archivist/commit/602dda8c8f03b82c48710693269dca9cb1d65c9b))
+
 ## [0.7.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.4...0.7.5) (2026-04-29)
 
 
