@@ -1,3 +1,10 @@
+## [0.7.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.6...0.7.7) (2026-05-08)
+
+
+### Bug Fixes
+
+* **fsm,ui:** break the retry loop on permanent config errors + add recovery UX ([#36](https://github.com/MMoMM-org/obsidian-archivist/issues/36)) ([ce406af](https://github.com/MMoMM-org/obsidian-archivist/commit/ce406af47765eefb92006f4137e2ae8f27050ec9))
+
 ## [0.7.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.5...0.7.6) (2026-05-08)
 
 
