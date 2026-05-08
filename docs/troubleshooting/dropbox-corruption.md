@@ -37,6 +37,60 @@ The repair command **does not** delete manifest files. It only updates
 the index. If you need to delete a specific manifest, see the manual
 recipes below.
 
+## Vault ID mismatch (after plugin reset)
+
+You see the alert-triangle in the status bar, click it, and the
+**Vault identity mismatch** modal opens with two different UUIDs. This
+is what the dev console shows just before:
+
+```
+[archivist] backup_failed
+code: VAULT_ID_MISMATCH
+message: Vault identity mismatch: local vault_id <A> does not match
+         Dropbox vault_meta.vault_id <B> (registered to "<your-vault>").
+```
+
+**Root cause.** The plugin's local `data.json` was reset (most often
+because you deleted a duplicate Archivist install while the plugin
+folder was shared, or Obsidian replaced the file with defaults after
+a partial uninstall). On the next plugin load, `ensureLocalVaultId()`
+auto-generates a fresh UUID — but the Dropbox folder still carries
+`vault_meta.json` from the previous installation, so local says **A**,
+remote says **B**, and the consistency check refuses to overwrite the
+remote chain with what looks like a different vault.
+
+**Recovery (the common case).** The previous installation's vault was
+the same logical vault (same Obsidian folder, same Dropbox folder,
+same content). The remote chain is yours and worth keeping. Click the
+status-bar warning triangle:
+
+1. The **Vault identity mismatch** modal opens. Confirm the
+   `vault_name` in the remote line matches the vault you're currently
+   in (e.g. `(Privat)`).
+2. Click **Adopt remote ID**. The plugin overwrites the local
+   `vault_id` with the remote one, releases the FSM block, and the
+   next backup tick continues the existing chain.
+
+Until you adopt (or change `vault_prefix`), backups stay paused — the
+FSM enters a `BLOCKED` state instead of the regular `ERROR` state, so
+no retry loop spams the dev console or burns Dropbox round-trips.
+
+**Recovery (the unusual case — different vaults).** If the remote ID
+belongs to a DIFFERENT vault that you don't want to merge into:
+
+1. Click **Cancel** on the recovery modal.
+2. Open `Settings → Advanced → Dropbox vault folder` and change
+   `vault_prefix` to a fresh folder name (one without an existing
+   `vault_meta.json`).
+3. Reload Obsidian. The plugin claims the new folder on first
+   backup, leaving the old one untouched.
+
+**Manual override.** If the modal is unreachable for any reason, the
+manual edit recipe in `docs/operations/connecting-existing-backup.md`
+under "Manually editing `vault_id` in `data.json`" still works:
+disable the plugin, copy the remote `vault_id` from
+`<prefix>/vault_meta.json` into local `data.json`, re-enable.
+
 ## Cross-vault snapshot
 
 This was the V1 issue: copy the plugin folder (`.obsidian/plugins/

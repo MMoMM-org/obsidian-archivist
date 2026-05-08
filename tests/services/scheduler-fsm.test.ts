@@ -974,4 +974,113 @@ describe('SchedulerFSM — triggerBackupNow', () => {
     expect(result).toBe('auth_lost');
     expect(fsm.getState()).toBe('AUTH_LOST');
   });
+
+  it('returns "blocked" when FSM is in BLOCKED — manual trigger refuses to retry permanent errors', () => {
+    const { fsm } = makeFSM({ designated: true });
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    const result = fsm.triggerBackupNow();
+    expect(result).toBe('blocked');
+    expect(fsm.getState()).toBe('BLOCKED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — BLOCKED (permanent-error lock)
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — BLOCKED', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('setBlocked from READY → BLOCKED', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000); // GRACE
+    vi.advanceTimersByTime(2 * 60 * 1000); // QUIET_WAIT → READY
+    expect(fsm.getState()).toBe('READY');
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    expect(fsm.getState()).toBe('BLOCKED');
+  });
+
+  it('setBlocked from ERROR → BLOCKED — escalating a transient retry into a permanent block', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.triggerBackupNow();
+    fsm.onBackupFailure();
+    expect(fsm.getState()).toBe('ERROR');
+    fsm.setBlocked('VAULT_META_CORRUPT');
+    expect(fsm.getState()).toBe('BLOCKED');
+  });
+
+  it('setBlocked from BACKUP_RUNNING is a no-op — cannot interrupt an in-flight upload', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.triggerBackupNow();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+  });
+
+  it('onBackupBlocked from BACKUP_RUNNING → BLOCKED — variant of onBackupFailure for permanent failures', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.triggerBackupNow();
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+    fsm.onBackupBlocked('VAULT_ID_MISMATCH');
+    expect(fsm.getState()).toBe('BLOCKED');
+    expect(fsm.getPendingBackup()).toBeNull();
+  });
+
+  it('tick is a no-op while in BLOCKED — the central anti-loop guarantee', () => {
+    const { fsm, setQueueSize } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    setQueueSize(5);
+    fsm.tick();
+    fsm.tick();
+    fsm.tick();
+    // Three ticks in BLOCKED produce zero re-entries into BACKUP_RUNNING.
+    // This is the regression guard for the retry loop the user reported.
+    expect(fsm.getState()).toBe('BLOCKED');
+  });
+
+  it('clearBlock from BLOCKED → READY', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    expect(fsm.getState()).toBe('BLOCKED');
+    fsm.clearBlock();
+    expect(fsm.getState()).toBe('READY');
+  });
+
+  it('clearBlock from non-BLOCKED is a no-op', () => {
+    const { fsm } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    expect(fsm.getState()).toBe('READY');
+    fsm.clearBlock();
+    expect(fsm.getState()).toBe('READY');
+  });
+
+  it('logs a warn entry on setBlocked and an info entry on clearBlock', () => {
+    const { fsm, logger } = makeFSM();
+    fsm.onLayoutReady();
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    expect(logger.warn).toHaveBeenCalledWith('fsm_blocked', { reason: 'VAULT_ID_MISMATCH' });
+    fsm.clearBlock();
+    expect(logger.info).toHaveBeenCalledWith('fsm_block_cleared');
+  });
 });

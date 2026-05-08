@@ -188,6 +188,44 @@ export const S = {
   BACKUP_ERROR_BANNER: (kind: 'inc' | 'full', detail: string): string =>
     `Archivist could not finish the ${kind === 'full' ? 'full' : 'incremental'} backup: ${detail}`,
   BACKUP_ERROR_DISMISS: 'Dismiss',
+
+  // ─── Mismatch / corrupt-remote recovery (BLOCKED state) ────────────
+  // Persistent banner shown the moment the plugin detects the condition
+  // (onLayoutReady consistency probe) — the backup loop is locked, the
+  // user has to act before any further upload runs.
+  MISMATCH_BANNER:
+    'Vault identity mismatch — backups paused. Click the status-bar warning to resolve.',
+  REMOTE_CORRUPT_BANNER:
+    'Dropbox vault metadata is unreadable — backups paused. Click the status-bar warning for recovery options.',
+  MISMATCH_BANNER_RESOLVE: 'Resolve',
+
+  // Modal copy.
+  MISMATCH_RECOVERY_TITLE_MISMATCH: 'Vault identity mismatch',
+  MISMATCH_RECOVERY_TITLE_CORRUPT: 'Dropbox vault metadata is corrupt',
+  MISMATCH_RECOVERY_BODY_MISMATCH:
+    'The vault_id stored locally does not match the vault_id recorded on Dropbox. Backups are paused so the existing chain is not overwritten with files from a different vault. The most common cause is a plugin reset against an existing Dropbox folder — adopting the remote ID continues the existing chain safely.',
+  MISMATCH_RECOVERY_BODY_CORRUPT:
+    'Dropbox `<prefix>/vault_meta.json` failed schema validation, so the plugin cannot confirm which vault owns the folder. Backups are paused. Manual recovery is required — see the link below.',
+  MISMATCH_RECOVERY_LABEL_LOCAL: 'Local vault_id',
+  MISMATCH_RECOVERY_LABEL_REMOTE: 'Remote vault_id',
+  MISMATCH_RECOVERY_LABEL_RAW: 'Schema error',
+  MISMATCH_RECOVERY_HINT_MISMATCH:
+    'If the remote ID is unfamiliar, click Cancel and change the Dropbox vault folder in Settings → Advanced first.',
+  MISMATCH_RECOVERY_HINT_CORRUPT:
+    'Delete <prefix>/vault_meta.json on Dropbox web and reload Obsidian — the next backup will recreate the metadata from the local vault_id. See docs/troubleshooting/dropbox-corruption.md for the full recipe.',
+  MISMATCH_RECOVERY_ADOPT: 'Adopt remote ID',
+  MISMATCH_RECOVERY_CHANGE_PREFIX: 'Change Dropbox folder…',
+  MISMATCH_RECOVERY_CANCEL: 'Cancel',
+  MISMATCH_RECOVERY_OK: (vaultName: string): string =>
+    `Adopted Dropbox vault "${vaultName}". Backups resumed.`,
+  MISMATCH_RECOVERY_FAILED: (msg: string): string =>
+    `Could not adopt remote vault_id: ${msg}`,
+
+  // ─── BLOCKED status-bar surface ─────────────────────────────────────
+  RIBBON_ARIA_BLOCKED: 'Archivist, action required, backup paused',
+  RIBBON_TOOLTIP_BLOCKED: 'Archivist — action required (backup paused)',
+  CMD_BACKUP_NOW_BLOCKED:
+    'Archivist: backups paused — resolve the alert in the status bar before triggering a backup.',
   TOAST_OFFLINE:
     'Offline — versions known but content unreachable. Reconnect and try again.',
   TOAST_ERRORS_RESOLVED: 'Archivist recovered from recent errors.',

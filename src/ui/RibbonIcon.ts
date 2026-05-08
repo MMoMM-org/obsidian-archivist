@@ -118,6 +118,13 @@ function presentationFor(state: FSMState): StatePresentation {
         tooltip: S.RIBBON_TOOLTIP_DISCONNECTED,
         aria: S.RIBBON_ARIA_AUTH_LOST,
       };
+    case 'BLOCKED':
+      return {
+        icon: 'shield-alert',
+        cssClass: 'archivist-ribbon archivist-error',
+        tooltip: S.RIBBON_TOOLTIP_BLOCKED,
+        aria: S.RIBBON_ARIA_BLOCKED,
+      };
   }
 }
 

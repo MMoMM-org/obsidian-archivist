@@ -96,6 +96,13 @@ function presentationFor(state: FSMState): StatePresentation {
         label: 'Reconnect Dropbox',
         aria: S.RIBBON_ARIA_AUTH_LOST,
       };
+    case 'BLOCKED':
+      return {
+        icon: 'shield-alert',
+        cssClass: 'archivist-status archivist-error',
+        label: 'Archivist (action required)',
+        aria: S.RIBBON_ARIA_BLOCKED,
+      };
   }
 }
 
