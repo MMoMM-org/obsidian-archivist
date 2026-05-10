@@ -1,3 +1,10 @@
+## [0.7.8](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.7...0.7.8) (2026-05-10)
+
+
+### Bug Fixes
+
+* **ui:** render preflight buttons, dismiss after full, show scheduled time ([#37](https://github.com/MMoMM-org/obsidian-archivist/issues/37)) ([28f6276](https://github.com/MMoMM-org/obsidian-archivist/commit/28f6276528fcaf00f4527a5d15c7e98eed1361fb))
+
 ## [0.7.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.6...0.7.7) (2026-05-08)
 
 
