@@ -88,7 +88,14 @@ export interface PreflightActions {
 }
 
 export interface PreflightHost {
-  showPreflight(actions: PreflightActions): void;
+  showPreflight(actions: PreflightActions, scheduledAt: number): void;
+  /**
+   * Dismiss any active preflight notice. Optional so lightweight test stubs
+   * can satisfy the contract without implementing it. Called by the FSM when
+   * the scheduled full has actually completed (so the sticky notice doesn't
+   * linger past the event it was warning about).
+   */
+  dismissPreflight?(): void;
 }
 
 export interface SchedulerFSMDeps {
@@ -317,6 +324,9 @@ export class SchedulerFSM {
       this.skippedCycle = null;
       this.preflightFiredFor = null;
       if (this.pendingBackup.reason === 'catchup') this.catchupPending = false;
+      // The sticky preflight notice has no auto-timeout. Once the full it
+      // warned about has actually run, dismiss it so it doesn't linger.
+      this.deps.preflightHost.dismissPreflight?.();
     }
     this.pendingBackup = null;
     if (this.state === 'BACKUP_RUNNING') this.transition('READY');
@@ -441,22 +451,25 @@ export class SchedulerFSM {
 
   private firePreflight(scheduled: number): void {
     this.preflightFiredFor = scheduled;
-    this.deps.preflightHost.showPreflight({
-      onStartNow: () => {
-        this.fullOverride = this.now();
-        this.preflightFiredFor = null;
+    this.deps.preflightHost.showPreflight(
+      {
+        onStartNow: () => {
+          this.fullOverride = this.now();
+          this.preflightFiredFor = null;
+        },
+        onPostpone1h: () => {
+          const base = this.fullOverride ?? scheduled;
+          this.fullOverride = base + POSTPONE_MS;
+          this.preflightFiredFor = null;
+        },
+        onSkip: () => {
+          this.skippedCycle = scheduled;
+          this.fullOverride = null;
+          this.preflightFiredFor = null;
+        },
       },
-      onPostpone1h: () => {
-        const base = this.fullOverride ?? scheduled;
-        this.fullOverride = base + POSTPONE_MS;
-        this.preflightFiredFor = null;
-      },
-      onSkip: () => {
-        this.skippedCycle = scheduled;
-        this.fullOverride = null;
-        this.preflightFiredFor = null;
-      },
-    });
+      scheduled,
+    );
   }
 
   // ---------------------------------------------------------------------------

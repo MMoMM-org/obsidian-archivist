@@ -34,16 +34,24 @@ interface NotifyCall {
   message: string;
   timeout: number | undefined;
   buttons: Array<{ label: string; onClick: () => void }>;
+  hidden: boolean;
 }
 
 function makeNotify(): { fn: NotifyFn; calls: NotifyCall[] } {
   const calls: NotifyCall[] = [];
   const fn: NotifyFn = (message: string, opts?: NotifyOptions) => {
-    calls.push({
+    const call: NotifyCall = {
       message,
       timeout: opts?.timeout,
       buttons: opts?.buttons ? opts.buttons.map((b) => ({ label: b.label, onClick: b.onClick })) : [],
-    });
+      hidden: false,
+    };
+    calls.push(call);
+    return {
+      hide: () => {
+        call.hidden = true;
+      },
+    };
   };
   return { fn, calls };
 }
@@ -295,10 +303,14 @@ describe('NoticeCenter.showPreflight', () => {
     };
   }
 
+  // 2026-05-10 14:35 local — fixed time so HH:MM rendering is deterministic
+  // regardless of TZ (uses Date#getHours, which returns the local hour).
+  const SCHEDULED_AT = new Date(2026, 4, 10, 14, 35).getTime();
+
   it('renders a sticky notice with 3 labeled buttons when enabled', () => {
     const { center, notifyCalls } = makeCenter();
     const { actions } = makeActions();
-    center.showPreflight(actions);
+    center.showPreflight(actions, SCHEDULED_AT);
 
     expect(notifyCalls).toHaveLength(1);
     expect(notifyCalls[0].timeout).toBe(0); // sticky
@@ -309,36 +321,67 @@ describe('NoticeCenter.showPreflight', () => {
     ]);
   });
 
-  it('clicking Start-now invokes actions.onStartNow', () => {
+  it('renders the scheduled time in the message body', () => {
+    const { center, notifyCalls } = makeCenter();
+    const { actions } = makeActions();
+    center.showPreflight(actions, SCHEDULED_AT);
+    expect(notifyCalls[0].message).toContain('14:35');
+  });
+
+  it('clicking Start-now invokes actions.onStartNow and hides the notice', () => {
     const { center, notifyCalls } = makeCenter();
     const { actions, calls } = makeActions();
-    center.showPreflight(actions);
+    center.showPreflight(actions, SCHEDULED_AT);
     notifyCalls[0].buttons[0].onClick();
     expect(calls).toEqual(['start']);
+    expect(notifyCalls[0].hidden).toBe(true);
   });
 
-  it('clicking Postpone invokes actions.onPostpone1h', () => {
+  it('clicking Postpone invokes actions.onPostpone1h and hides the notice', () => {
     const { center, notifyCalls } = makeCenter();
     const { actions, calls } = makeActions();
-    center.showPreflight(actions);
+    center.showPreflight(actions, SCHEDULED_AT);
     notifyCalls[0].buttons[1].onClick();
     expect(calls).toEqual(['postpone']);
+    expect(notifyCalls[0].hidden).toBe(true);
   });
 
-  it('clicking Skip invokes actions.onSkip', () => {
+  it('clicking Skip invokes actions.onSkip and hides the notice', () => {
     const { center, notifyCalls } = makeCenter();
     const { actions, calls } = makeActions();
-    center.showPreflight(actions);
+    center.showPreflight(actions, SCHEDULED_AT);
     notifyCalls[0].buttons[2].onClick();
     expect(calls).toEqual(['skip']);
+    expect(notifyCalls[0].hidden).toBe(true);
   });
 
   it('silently drops when preflight_notice_enabled is false', () => {
     const { center, notifyCalls } = makeCenter({ settings: { preflight_notice_enabled: false } });
     const { actions, calls } = makeActions();
-    center.showPreflight(actions);
+    center.showPreflight(actions, SCHEDULED_AT);
     expect(notifyCalls).toHaveLength(0);
     expect(calls).toEqual([]);
+  });
+
+  it('dismissPreflight() hides the active notice and is idempotent', () => {
+    const { center, notifyCalls } = makeCenter();
+    const { actions } = makeActions();
+    center.showPreflight(actions, SCHEDULED_AT);
+    center.dismissPreflight();
+    expect(notifyCalls[0].hidden).toBe(true);
+    // second call is a no-op (no error, no second hide())
+    center.dismissPreflight();
+    expect(notifyCalls).toHaveLength(1);
+  });
+
+  it('a second showPreflight dismisses the stale one (no stacked notices)', () => {
+    const { center, notifyCalls } = makeCenter();
+    const { actions } = makeActions();
+    center.showPreflight(actions, SCHEDULED_AT);
+    center.showPreflight(actions, SCHEDULED_AT + 60 * 60 * 1000);
+    expect(notifyCalls).toHaveLength(2);
+    expect(notifyCalls[0].hidden).toBe(true);
+    expect(notifyCalls[1].hidden).toBe(false);
   });
 });
 
