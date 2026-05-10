@@ -56,7 +56,16 @@ export interface NotifyOptions {
   buttons?: NoticeButton[];
 }
 
-export type NotifyFn = (message: string, opts?: NotifyOptions) => void;
+/**
+ * Handle returned by `notify()` so callers can dismiss the notice
+ * programmatically. Required for sticky notices (timeout: 0) — without it,
+ * the only way to clear the notice is a user click.
+ */
+export interface NoticeHandle {
+  hide(): void;
+}
+
+export type NotifyFn = (message: string, opts?: NotifyOptions) => NoticeHandle;
 
 export type BannerSubscriber = (banners: PersistentBanner[]) => void;
 
@@ -73,6 +82,11 @@ const DEFAULT_TOAST_TIMEOUT_MS = 5_000;
 const ERROR_TOAST_TIMEOUT_MS = 8_000;
 const PERSISTENT_TIMEOUT = 0; // sticky in Obsidian Notice
 
+function formatHHmm(epochMs: number): string {
+  const d = new Date(epochMs);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 // ---------------------------------------------------------------------------
 // NoticeCenter
 // ---------------------------------------------------------------------------
@@ -83,6 +97,13 @@ export class NoticeCenter implements PreflightHost {
   private readonly banners = new Map<string, PersistentBanner>();
   private bannerSubscribers: BannerSubscriber[] = [];
   private errorBurstActive = false;
+  /**
+   * Handle for the currently visible preflight notice, if any. The notice is
+   * sticky (timeout: 0), so we keep this reference to dismiss it from
+   * button handlers and from `dismissPreflight()` (called by the FSM when
+   * the scheduled full has run).
+   */
+  private currentPreflightHandle: NoticeHandle | null = null;
 
   constructor(private readonly deps: NoticeCenterDeps) {
     this.now = deps.now ?? ((): number => Date.now());
@@ -172,7 +193,7 @@ export class NoticeCenter implements PreflightHost {
   // Preflight (PreflightHost contract)
   // ---------------------------------------------------------------------------
 
-  showPreflight(actions: PreflightActions): void {
+  showPreflight(actions: PreflightActions, scheduledAt: number): void {
     const settings = this.deps.getSettings();
     if (!settings.preflight_notice_enabled) {
       // User has disabled the preflight notice. The FSM calls this host
@@ -182,15 +203,31 @@ export class NoticeCenter implements PreflightHost {
       return;
     }
 
-    const body = `${S.PREFLIGHT_FULL_TITLE}\n\n${S.PREFLIGHT_FULL_BODY}`;
-    this.deps.notify(body, {
+    // Replace any stale preflight (e.g. from a prior scheduled cycle the
+    // user never interacted with) so we never stack two visible notices.
+    this.dismissPreflight();
+
+    const wrap = (cb: () => void) => (): void => {
+      this.dismissPreflight();
+      cb();
+    };
+
+    const body = `${S.PREFLIGHT_FULL_TITLE(formatHHmm(scheduledAt))}\n\n${S.PREFLIGHT_FULL_BODY}`;
+    this.currentPreflightHandle = this.deps.notify(body, {
       timeout: PERSISTENT_TIMEOUT,
       buttons: [
-        { label: S.PREFLIGHT_START_NOW, onClick: actions.onStartNow },
-        { label: S.PREFLIGHT_POSTPONE_1H, onClick: actions.onPostpone1h },
-        { label: S.PREFLIGHT_SKIP, onClick: actions.onSkip },
+        { label: S.PREFLIGHT_START_NOW, onClick: wrap(actions.onStartNow) },
+        { label: S.PREFLIGHT_POSTPONE_1H, onClick: wrap(actions.onPostpone1h) },
+        { label: S.PREFLIGHT_SKIP, onClick: wrap(actions.onSkip) },
       ],
     });
+  }
+
+  dismissPreflight(): void {
+    const handle = this.currentPreflightHandle;
+    if (handle === null) return;
+    this.currentPreflightHandle = null;
+    handle.hide();
   }
 
   // ---------------------------------------------------------------------------

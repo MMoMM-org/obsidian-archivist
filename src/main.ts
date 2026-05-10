@@ -245,7 +245,35 @@ export default class ArchivistPlugin extends Plugin {
     // Step 5: Notify + NoticeCenter
     // ---------------------------------------------------------------------------
     const notify: NotifyFn = (message, opts) => {
-      new Notice(message, opts?.timeout ?? 5_000);
+      const timeout = opts?.timeout ?? 5_000;
+      const buttons = opts?.buttons ?? [];
+
+      // Compose a DocumentFragment so we can attach buttons inline. The
+      // Notice constructor accepts DocumentFragment as its first argument —
+      // this avoids touching the deprecated `noticeEl` and the v1.8.7-only
+      // `messageEl`, both of which the lint rules disallow at our current
+      // minAppVersion. Each button click dismisses the notice before
+      // invoking the handler, otherwise the sticky preflight would linger.
+      const frag = createFragment();
+      frag.createDiv({ text: message });
+      const noticeRef: { current: Notice | null } = { current: null };
+      if (buttons.length > 0) {
+        const container = frag.createDiv({ cls: 'archivist-notice-actions' });
+        for (const btn of buttons) {
+          const el = container.createEl('button', { text: btn.label });
+          el.addEventListener('click', () => {
+            try {
+              btn.onClick();
+            } finally {
+              noticeRef.current?.hide();
+            }
+          });
+        }
+      }
+
+      const notice = new Notice(frag, timeout);
+      noticeRef.current = notice;
+      return { hide: () => notice.hide() };
     };
 
     const noticeCenter = new NoticeCenter({

@@ -396,7 +396,7 @@ export async function createArchivistFixture(config: FixtureConfig = {}): Promis
 
   const noticeCenter = new NoticeCenter({
     getSettings: () => pluginStore.settings.notifications,
-    notify: () => {},
+    notify: () => ({ hide: () => {} }),
     logger,
   });
 

@@ -39,14 +39,26 @@ function makeSchedule(overrides: Partial<ScheduleSettings> = {}): ScheduleSettin
   };
 }
 
-function makePreflightHost(): PreflightHost & { shown: PreflightActions[] } {
+function makePreflightHost(): PreflightHost & {
+  shown: PreflightActions[];
+  shownAt: number[];
+  dismissCalls: number;
+} {
   const shown: PreflightActions[] = [];
-  return {
+  const shownAt: number[] = [];
+  const host = {
     shown,
-    showPreflight(actions: PreflightActions): void {
+    shownAt,
+    dismissCalls: 0,
+    showPreflight(actions: PreflightActions, scheduledAt: number): void {
       shown.push(actions);
+      shownAt.push(scheduledAt);
+    },
+    dismissPreflight(): void {
+      host.dismissCalls += 1;
     },
   };
+  return host;
 }
 
 interface HarnessOpts {
@@ -74,7 +86,11 @@ function makeFSM(opts: HarnessOpts = {}): {
   setLastFullCommitAt: (ms: number | null) => void;
   setEarliestPendingObservedAt: (ms: number | null) => void;
   logger: Logger;
-  preflightHost: PreflightHost & { shown: PreflightActions[] };
+  preflightHost: PreflightHost & {
+    shown: PreflightActions[];
+    shownAt: number[];
+    dismissCalls: number;
+  };
 } {
   let designated = opts.designated ?? true;
   let queueSize = opts.queueSize ?? 0;
@@ -84,6 +100,8 @@ function makeFSM(opts: HarnessOpts = {}): {
   const logger = makeLogger();
   const preflightHost = (opts.preflightHost ?? makePreflightHost()) as PreflightHost & {
     shown: PreflightActions[];
+    shownAt: number[];
+    dismissCalls: number;
   };
 
   const deps: SchedulerFSMDeps = {
@@ -754,6 +772,44 @@ describe('SchedulerFSM — pre-flight notice', () => {
 
     fsm.tick();
     expect(preflightHost.shown.length).toBe(1);
+  });
+
+  it('passes the scheduled timestamp to showPreflight so the host can render HH:MM', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shownAt[0]).toBe(scheduled);
+  });
+
+  it('dismisses the preflight after the full backup completes', () => {
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    preflightHost.shown[0].onStartNow();
+    fsm.tick(); // → BACKUP_RUNNING (full / scheduled)
+    expect(fsm.getState()).toBe('BACKUP_RUNNING');
+
+    fsm.onBackupSuccess();
+    expect(preflightHost.dismissCalls).toBe(1);
+  });
+
+  it('does NOT dismiss preflight when the completed backup was not a full', () => {
+    // Show the preflight, then complete a non-full backup. The preflight
+    // should still be visible because the full it warned about hasn't run.
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const { fsm, preflightHost } = fsmAtReady(nowRef);
+
+    fsm.tick();
+    expect(preflightHost.shown.length).toBe(1);
+
+    // No pendingBackup (or an inc) → onBackupSuccess must not dismiss.
+    fsm.onBackupSuccess();
+    expect(preflightHost.dismissCalls).toBe(0);
   });
 });
 

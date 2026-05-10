@@ -75,6 +75,7 @@ function makeHarness(nowMs: number): Harness {
         ? opts.buttons.map((b) => ({ label: b.label, onClick: b.onClick }))
         : [],
     });
+    return { hide: () => {} };
   };
 
   const noticeCenter = new NoticeCenter({

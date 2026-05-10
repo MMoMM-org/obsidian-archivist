@@ -693,3 +693,15 @@
 	color: var(--text-muted);
 	font-size: var(--font-small);
 }
+
+/* ─── Notice action buttons (preflight notice) ─────────────────── */
+
+.archivist-notice-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.archivist-notice-actions button {
+	font-size: var(--font-ui-small);
+}

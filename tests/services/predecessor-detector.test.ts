@@ -23,7 +23,7 @@ function makeNotifications(): NotificationSettings {
 function makeNoticeCenter(): NoticeCenter {
   return new NoticeCenter({
     getSettings: () => makeNotifications(),
-    notify: () => {},
+    notify: () => ({ hide: () => {} }),
     logger: makeLogger(),
   });
 }

@@ -150,7 +150,8 @@ export const S = {
     'Consider excluding the plugin folder from that sync to avoid token round-trips between devices.',
 
   // ─── Pre-flight notice for full backups (F1 / S5) ────────────────
-  PREFLIGHT_FULL_TITLE: 'A full backup will start in 5 minutes.',
+  PREFLIGHT_FULL_TITLE: (atHHmm: string): string =>
+    `A full backup will start at ${atHHmm} (in 5 minutes).`,
   PREFLIGHT_FULL_BODY:
     'Full backups take longer than incrementals. You can start it now, postpone for 1 hour, or skip this cycle.',
   PREFLIGHT_START_NOW: 'Start now',
