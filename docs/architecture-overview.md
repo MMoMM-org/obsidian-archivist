@@ -142,14 +142,15 @@ can rebuild any snapshot offline.
 |-------|------|----------------|
 | `Apps/Archivist/<prefix>/` (Dropbox) | Snapshots, blobs, manifests, HEAD, vault_meta | Dropbox cloud |
 | `<vault>/.obsidian/plugins/obsidian-archivist/data.json` | Settings, vault_id, UI state | Obsidian Sync (yes); other vault syncers (yes) |
-| `<vault>/.obsidian/plugins/obsidian-archivist/tokens.json` | OAuth tokens (per-device) | Obsidian Sync (no — adapter.write); other vault syncers (yes — exclude!) |
-| `<vault>/.obsidian/plugins/obsidian-archivist/device.json` | device_id + designated flag | Same as tokens.json |
-| `<vault>/.obsidian/plugins/obsidian-archivist/index.json` | Local index cache (regeneratable) | Same as tokens.json |
+| Obsidian `app.secretStorage` (id `archivist-dropbox-tokens`) | OAuth tokens (per-machine) | Never — lives in the OS keychain via Electron `safeStorage` (macOS Keychain / Windows DPAPI / Linux libsecret). Out of reach of any vault-replicating sync tool. See ADR-21. |
+| `<vault>/.obsidian/plugins/obsidian-archivist/device.json` | device_id + designated flag | Obsidian Sync (no — adapter.write); other vault syncers (yes — exclude if you want per-device state). |
+| `<vault>/.obsidian/plugins/obsidian-archivist/index.json` | Local index cache (regeneratable) | Same as device.json |
 
-The "Same as tokens.json" rows mean: Obsidian Sync ignores them by
-design (they're written via `adapter.write`, not `plugin.saveData`), but
-folder-replicating sync tools don't make that distinction. Configure path
-exclusions accordingly.
+`device.json` and `index.json` are written via `adapter.write` (not
+`plugin.saveData`), so Obsidian Sync ignores them by design. Folder-
+replicating sync tools (iCloud, Syncthing, Dropbox Desktop on the vault
+folder) don't make that distinction — configure path exclusions if you
+want each device to keep its own backup state.
 
 ## Going deeper
 

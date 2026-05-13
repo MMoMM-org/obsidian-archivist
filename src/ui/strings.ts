@@ -140,7 +140,7 @@ export const S = {
   OAUTH_REAUTHENTICATE_BUTTON: 'Re-authenticate',
   OAUTH_TRY_AGAIN_BUTTON: 'Try again',
   OAUTH_TOKEN_DISCLOSURE:
-    'Tokens are stored in plaintext in tokens.json — outside data.json so Obsidian Sync does not propagate them across devices.',
+    'Tokens are kept in Obsidian\'s encrypted secret store (per-OS keychain) — outside data.json and never synced across devices.',
   OAUTH_TOKEN_DISCLOSURE_LINK_LABEL: 'How tokens are stored →',
   OAUTH_DOCS_URL:
     'https://github.com/MMoMM-org/obsidian-archivist#how-tokens-are-stored-read-this',

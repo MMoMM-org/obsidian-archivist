@@ -1,5 +1,6 @@
 import { Notice, Plugin, setIcon } from 'obsidian';
 import { TokenStore } from './infra/TokenStore';
+import { migrateLegacyTokensIfPresent } from './infra/LegacyTokenMigration';
 import { createLogger, type Logger } from './infra/Logger';
 import { OAuthConnectFlow, type OAuthCallbackParams } from './ui/OAuthConnectFlow';
 import { PluginStore } from './infra/PluginStore';
@@ -155,6 +156,9 @@ export default class ArchivistPlugin extends Plugin {
     // Step 2: OAuth + protocol handler
     // ---------------------------------------------------------------------------
     const tokenStore = new TokenStore(this, this.logger);
+    // ADR-21: one-shot migration from legacy tokens.json into SecretStorage.
+    // No-op on fresh installs; removed at target 0.9.0 per phase-13.
+    await migrateLegacyTokensIfPresent(this, tokenStore, this.logger);
     this.oauthFlow = new OAuthConnectFlow({ tokenStore, logger: this.logger });
 
     this.registerObsidianProtocolHandler('archivist-oauth', async (params) => {
@@ -163,8 +167,8 @@ export default class ArchivistPlugin extends Plugin {
           params as unknown as OAuthCallbackParams,
         );
         // Best-effort: fetch the connected account email and persist it into
-        // tokens.json so the settings UI can show "Connected as <email>" both
-        // immediately AND across plugin reloads.
+        // the secret store so the settings UI can show "Connected as <email>"
+        // both immediately AND across plugin reloads.
         const email = await this.oauthFlow!.fetchAccountEmail(tokens.access_token);
         if (email) {
           await tokenStore.save({ ...tokens, dropbox_account_email: email });
@@ -1111,9 +1115,10 @@ export default class ArchivistPlugin extends Plugin {
         releaseOwnership: () => Promise.resolve(),
       },
       dropbox: {
-        // Source of truth for the connected account is tokens.json — survives
-        // plugin reload because it's persisted by OAuthConnectFlow + the
-        // post-callback re-save in the protocol handler above.
+        // Source of truth for the connected account is the secret store
+        // (ADR-21) — survives plugin reload because it's persisted by
+        // OAuthConnectFlow + the post-callback re-save in the protocol
+        // handler above.
         getAccountEmail: async () => {
           const t = await tokenStore.load();
           return t?.dropbox_account_email && t.dropbox_account_email.length > 0
@@ -1394,6 +1399,7 @@ export default class ArchivistPlugin extends Plugin {
     }
     return {};
   }
+
 }
 
 // ---------------------------------------------------------------------------

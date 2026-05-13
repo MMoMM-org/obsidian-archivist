@@ -74,7 +74,8 @@ When implementation requires changes from the specification:
 - **ADR-4**: Rename is first-class in the Inc manifest — `renames: {from, to}[]`.
 - **ADR-5**: GC lock marker file; list content AFTER manifest upload.
 - **ADR-6**: Designated-device with startup HEAD-conflict detection.
-- **ADR-7**: Token in dedicated `tokens.json` (plaintext, OUTSIDE `data.json`) via `app.vault.adapter.write`; README disclosure + chmod 600; `safeStorage` deferred. `data.json` holds only settings + device block.
+- **ADR-7** *(superseded by ADR-21, 2026-05-13)*: Token in dedicated `tokens.json` (plaintext, OUTSIDE `data.json`) via `app.vault.adapter.write`; README disclosure + chmod 600; `safeStorage` deferred. `data.json` holds only settings + device block. Kept as historical record.
+- **ADR-21** *(0.8.0, supersedes ADR-7)*: Dropbox tokens held in Obsidian `SecretStorage` (Electron `safeStorage`–backed) under id `archivist-dropbox-tokens` as a single JSON blob; one-shot migration from legacy `tokens.json` on `onload`; `minAppVersion` bumped to 1.11.4; PRIVACY.md discloses Linux-without-libsecret obfuscation fallback.
 - **ADR-8**: PKCE code-verifier Map (cap 5, TTL 10 min); cleared on `onunload`.
 - **ADR-10**: WebCrypto `crypto.subtle.digest` — cross-platform (desktop + mobile).
 - **ADR-11**: `index.json` OUTSIDE `data.json` — avoids Obsidian Sync churn.
@@ -119,6 +120,7 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 - [x] [Phase 8: Restore Engine & Rename-Aware History](phase-8.md)
 - [x] [Phase 9: Backup Browser, File-History Modal & Restore UI (incl. accessibility)](phase-9.md)
 - [x] [Phase 10: Integration, Soak Tests & Release Readiness](phase-10.md)
+- [ ] [Phase 13: Token Storage Migration to Obsidian SecretStorage](phase-13.md) — 0.8.0, post-V1; ADR-21.
 
 ---
 

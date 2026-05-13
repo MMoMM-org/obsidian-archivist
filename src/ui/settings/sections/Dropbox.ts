@@ -1,4 +1,4 @@
-// Dropbox section (T7.10 — PRD F7 / SDD ADR-7, ADR-9).
+// Dropbox section (T7.10 — PRD F7 / SDD ADR-9 + ADR-21 storage).
 //
 // Both states render a single one-line "Account" actionRow so the state
 // readout (Not connected / Connected as …) and the actions (Connect /
@@ -7,11 +7,11 @@
 //   DISCONNECTED (email === null):
 //     - Empty-state title + body paragraphs (onboarding context)
 //     - Account · Not connected.            [ Connect Dropbox ]
-//     - Plaintext-token disclosure + docs link
+//     - Secret-store disclosure + docs link
 //
 //   CONNECTED (email is a string):
 //     - Account · Connected as <email>      [ Re-authenticate ] [ Disconnect ]
-//     - Plaintext-token disclosure + docs link
+//     - Secret-store disclosure + docs link
 //
 // Disconnect uses Obsidian's `mod-warning` button styling to flag the
 // destructive action without hard-coded colours; the confirm modal wording in

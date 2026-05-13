@@ -2,7 +2,8 @@ import { ArchivistError } from '../model/Errors';
 
 // Gated logger. Path-like fields are redacted by default; users must opt in
 // via Advanced → diagnostic_logging before paths appear in logs (SDD
-// Cross-Cutting/Logging + ADR-7 disclosure gate).
+// Cross-Cutting/Logging + the README disclosure pattern that applied to
+// ADR-7's tokens.json and now applies to ADR-21's SecretStorage usage).
 
 export interface LogPayload {
   [key: string]: unknown;

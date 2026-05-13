@@ -85,6 +85,15 @@ export class TFolder extends TAbstractFile {
 // ---------------------------------------------------------------------------
 
 export class Vault {
+  /**
+   * Vault-relative path to Obsidian's `.obsidian` config directory. The real
+   * Obsidian Vault sets this to the user's configured config-dir name (defaults
+   * to `.obsidian`); plugin code uses it as the fallback when `manifest.dir`
+   * is unset. Pinning the default here means tests that compute paths via
+   * `${vault.configDir}/plugins/<id>` get a stable, sensible value.
+   */
+  configDir = '.obsidian';
+
   /** Tracked TFile instances for getFiles(). */
   private _files: TFile[] = [];
 
@@ -255,6 +264,50 @@ export class FileSystemAdapter {
 }
 
 // ---------------------------------------------------------------------------
+// SecretStorage (Phase 13 addition — ADR-21)
+// ---------------------------------------------------------------------------
+// Mirrors the observed behaviour of Obsidian's `app.secretStorage` (since
+// 1.11.4, Electron `safeStorage`–backed) — empirically probed on macOS
+// 2026-05-13. The contract that matters for TokenStore:
+//   • setSecret(id, '') leaves the id in listSecrets() with an empty value;
+//     it is NOT a remove (the public API has no removeSecret as of 1.11.4).
+//   • getSecret(id) returns the literal stored string. For an id that has
+//     been set to '', that is ''. For an id that was never set, it is null.
+//   • Id is constrained to lowercase alphanumeric with optional dashes;
+//     invalid ids throw (per `obsidian.d.ts:5478` jsdoc).
+// Tests that need a clean slate call `app.secretStorage._reset()` between cases.
+
+const SECRET_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+export class SecretStorage {
+  private _secrets: Map<string, string> = new Map();
+
+  setSecret(id: string, secret: string): void {
+    if (!SECRET_ID_RE.test(id)) {
+      throw new Error(
+        `Invalid secret id "${id}": must be lowercase alphanumeric with optional dashes.`,
+      );
+    }
+    this._secrets.set(id, secret);
+  }
+
+  getSecret(id: string): string | null {
+    return this._secrets.has(id) ? this._secrets.get(id)! : null;
+  }
+
+  listSecrets(): string[] {
+    return [...this._secrets.keys()];
+  }
+
+  // ---- Test helpers --------------------------------------------------------
+
+  /** Clear all secrets — drop both keys and values. */
+  _reset(): void {
+    this._secrets.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 
@@ -267,6 +320,11 @@ export class App {
    * detection needs it — see src/services/PredecessorDetector.ts.
    */
   plugins: { enabledPlugins: Set<string> } = { enabledPlugins: new Set<string>() };
+  /**
+   * Phase 13 addition (ADR-21): Obsidian's encrypted secret store (since
+   * 1.11.4). Used by TokenStore for Dropbox OAuth tokens.
+   */
+  secretStorage: SecretStorage = new SecretStorage();
 }
 
 // ---------------------------------------------------------------------------

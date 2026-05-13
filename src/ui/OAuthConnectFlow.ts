@@ -276,8 +276,8 @@ export class OAuthConnectFlow {
    * use the latter and call `requestUrl` directly.
    *
    * Wired by `main.ts` after `handleCallback` succeeds and from the onload
-   * backfill path; the email is persisted into tokens.json so it survives a
-   * plugin reload.
+   * backfill path; the email is persisted via `tokenStore.save()` into
+   * `app.secretStorage` (ADR-21) so it survives a plugin reload.
    */
   async fetchAccountEmail(accessToken: string): Promise<string | null> {
     try {
@@ -310,7 +310,7 @@ export class OAuthConnectFlow {
   /**
    * Revoke server-side (best-effort) then hard-clear local tokens.
    *
-   * Algorithm (ADR-9):
+   * Algorithm (ADR-9, storage per ADR-21):
    *   1. Load current tokens. If none, log `disconnect_noop` and return —
    *      idempotent.
    *   2. Best-effort POST to `/oauth2/token/revoke` with
@@ -318,17 +318,20 @@ export class OAuthConnectFlow {
    *      logged at warn (`disconnect_revoke_failed`) and do NOT block step 3.
    *      The UI should surface "server-side revoke failed — consider
    *      revoking at dropbox.com".
-   *   3. `tokenStore.clear()`, then verify via `tokenStore.load()` that
-   *      tokens.json is absent. If load() still returns tokens (e.g. the
-   *      adapter silently swallowed an EPERM on remove), throw
-   *      `AuthError('DISCONNECT_LOCAL_CLEAR_FAILED')` — the user must delete
-   *      the file manually. No automatic retry is attempted (SEC-H2).
+   *   3. `tokenStore.clear()` (overwrites the secret with `''` per ADR-21
+   *      since SecretStorage has no `removeSecret` as of Obsidian 1.11.4),
+   *      then verify via `tokenStore.load()` that the secret reads as
+   *      absent. If `load()` still returns tokens (would only happen if
+   *      `setSecret` silently failed AND the prior value somehow survived),
+   *      throw `AuthError('DISCONNECT_SECRET_CLEAR_FAILED')`. No automatic
+   *      retry is attempted (SEC-H2); the user must clear the secret via
+   *      Obsidian's Settings UI.
    *
    * Disconnect NEVER touches Dropbox backup data — it does not call
    * `files/delete_v2` or any other Dropbox files endpoint.
    *
-   * @throws AuthError('DISCONNECT_LOCAL_CLEAR_FAILED') when tokens.json could
-   *   not be removed from local disk.
+   * @throws AuthError('DISCONNECT_SECRET_CLEAR_FAILED') when the Dropbox
+   *   credentials could not be cleared from Obsidian's secret store.
    */
   async disconnect(): Promise<void> {
     const tokens = await this.tokenStore.load();
@@ -355,9 +358,8 @@ export class OAuthConnectFlow {
     }
 
     // Step 3 — local clear is the authoritative completion step. Catch any
-    // throw from clear() but still verify via load() — TokenStore.clear()
-    // intentionally swallows adapter errors (tokens_clear_failed warn), so
-    // we confirm removal here rather than trust the return.
+    // throw from clear() but still verify via load() — defense-in-depth in
+    // case a future SecretStorage backend silently fails to overwrite.
     let clearThrew: unknown;
     try {
       await this.tokenStore.clear();
@@ -367,12 +369,12 @@ export class OAuthConnectFlow {
 
     const post = await this.tokenStore.load().catch(() => null);
     if (post !== null) {
-      this.logger.error('disconnect_local_clear_failed', {
+      this.logger.error('disconnect_secret_clear_failed', {
         error: clearThrew instanceof Error ? clearThrew.message : String(clearThrew),
       });
       throw new AuthError(
-        'DISCONNECT_LOCAL_CLEAR_FAILED',
-        'Disconnect incomplete — tokens.json could not be deleted. Please delete it manually.',
+        'DISCONNECT_SECRET_CLEAR_FAILED',
+        'Disconnect incomplete — Dropbox credentials could not be cleared from Obsidian\'s secret store. Open Obsidian Settings → Secrets to remove them manually.',
         false,
         clearThrew,
       );

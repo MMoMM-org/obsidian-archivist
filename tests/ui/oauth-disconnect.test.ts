@@ -6,7 +6,7 @@
 //   - Revoke errors (HTTP non-2xx or network failure) do NOT block local clear;
 //     a warn log with stable key `disconnect_revoke_failed` is emitted.
 //   - Local clear failure (e.g. EPERM) HARD-fails disconnect with
-//     AuthError('DISCONNECT_LOCAL_CLEAR_FAILED'); no automatic retry.
+//     AuthError('DISCONNECT_SECRET_CLEAR_FAILED'); no automatic retry.
 //   - data.json is NEVER touched on disconnect — no saveData/loadData calls,
 //     no adapter.write to data.json.
 //   - No Dropbox backup data touched — disconnect never reaches any
@@ -272,7 +272,7 @@ describe('OAuthConnectFlow.disconnect — revoke errors are non-fatal', () => {
 });
 
 describe('OAuthConnectFlow.disconnect — local-clear hard fail', () => {
-  it('disconnect_local_clear_failure_throws_DISCONNECT_LOCAL_CLEAR_FAILED', async () => {
+  it('disconnect_local_clear_failure_throws_DISCONNECT_SECRET_CLEAR_FAILED', async () => {
     const logger = makeLogger();
     // TokenStore.clear swallows errors by design — so here we force the
     // tokenStore adapter to PERSIST the file even after clear() (mimicking
@@ -285,16 +285,16 @@ describe('OAuthConnectFlow.disconnect — local-clear hard fail', () => {
 
     await expect(flow.disconnect()).rejects.toMatchObject({
       name: 'AuthError',
-      code: 'DISCONNECT_LOCAL_CLEAR_FAILED',
+      code: 'DISCONNECT_SECRET_CLEAR_FAILED',
       retryable: false,
     });
 
     // And an error-level log with the same stable key.
     const error = logger.error as unknown as ReturnType<typeof vi.fn>;
     const call = error.mock.calls.find(
-      (c) => c[0] === 'disconnect_local_clear_failed',
+      (c) => c[0] === 'disconnect_secret_clear_failed',
     );
-    expect(call, 'expected disconnect_local_clear_failed error entry').toBeDefined();
+    expect(call, 'expected disconnect_secret_clear_failed error entry').toBeDefined();
   });
 
   it('disconnect_local_clear_failure_throws_AuthError_instance', async () => {
@@ -308,7 +308,7 @@ describe('OAuthConnectFlow.disconnect — local-clear hard fail', () => {
       (e: unknown) => e,
     );
     expect(caught).toBeInstanceOf(AuthError);
-    expect((caught as AuthError).code).toBe('DISCONNECT_LOCAL_CLEAR_FAILED');
+    expect((caught as AuthError).code).toBe('DISCONNECT_SECRET_CLEAR_FAILED');
     expect((caught as AuthError).retryable).toBe(false);
   });
 
@@ -320,7 +320,7 @@ describe('OAuthConnectFlow.disconnect — local-clear hard fail', () => {
     const { flow, httpPost } = makeFlow({ tokenStore });
 
     await expect(flow.disconnect()).rejects.toMatchObject({
-      code: 'DISCONNECT_LOCAL_CLEAR_FAILED',
+      code: 'DISCONNECT_SECRET_CLEAR_FAILED',
     });
 
     // clear called exactly once; no silent retry loop.
