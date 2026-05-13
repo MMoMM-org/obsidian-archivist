@@ -1,3 +1,10 @@
+## [0.7.9](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.8...0.7.9) (2026-05-13)
+
+
+### Bug Fixes
+
+* **manifest:** remove email from author field ([#39](https://github.com/MMoMM-org/obsidian-archivist/issues/39)) ([4bf6583](https://github.com/MMoMM-org/obsidian-archivist/commit/4bf6583e8e1f2d93daaf0b57ace44a45707b85cb))
+
 ## [0.7.8](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.7...0.7.8) (2026-05-10)
 
 
