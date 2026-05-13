@@ -1,5 +1,6 @@
 import { Notice, Plugin, setIcon } from 'obsidian';
 import { TokenStore } from './infra/TokenStore';
+import { migrateLegacyTokensIfPresent } from './infra/LegacyTokenMigration';
 import { createLogger, type Logger } from './infra/Logger';
 import { OAuthConnectFlow, type OAuthCallbackParams } from './ui/OAuthConnectFlow';
 import { PluginStore } from './infra/PluginStore';
@@ -155,6 +156,9 @@ export default class ArchivistPlugin extends Plugin {
     // Step 2: OAuth + protocol handler
     // ---------------------------------------------------------------------------
     const tokenStore = new TokenStore(this, this.logger);
+    // ADR-21: one-shot migration from legacy tokens.json into SecretStorage.
+    // No-op on fresh installs; removed at target V0.9.0 per phase-13.
+    await migrateLegacyTokensIfPresent(this, tokenStore, this.logger);
     this.oauthFlow = new OAuthConnectFlow({ tokenStore, logger: this.logger });
 
     this.registerObsidianProtocolHandler('archivist-oauth', async (params) => {
@@ -1394,6 +1398,7 @@ export default class ArchivistPlugin extends Plugin {
     }
     return {};
   }
+
 }
 
 // ---------------------------------------------------------------------------

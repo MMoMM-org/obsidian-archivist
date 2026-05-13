@@ -85,6 +85,15 @@ export class TFolder extends TAbstractFile {
 // ---------------------------------------------------------------------------
 
 export class Vault {
+  /**
+   * Vault-relative path to Obsidian's `.obsidian` config directory. The real
+   * Obsidian Vault sets this to the user's configured config-dir name (defaults
+   * to `.obsidian`); plugin code uses it as the fallback when `manifest.dir`
+   * is unset. Pinning the default here means tests that compute paths via
+   * `${vault.configDir}/plugins/<id>` get a stable, sensible value.
+   */
+  configDir = '.obsidian';
+
   /** Tracked TFile instances for getFiles(). */
   private _files: TFile[] = [];
 
