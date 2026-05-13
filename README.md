@@ -100,16 +100,25 @@ If you see Archivist contacting any other host, that's a bug — please file it.
 
 ## How tokens are stored (read this)
 
-Archivist stores your Dropbox **access token** and **refresh token** in plaintext in a file named `tokens.json` next to the plugin's `data.json`, inside your vault's `.obsidian/plugins/obsidian-archivist/` folder. **Tokens are NOT encrypted at rest.**
+Archivist stores your Dropbox **access token** and **refresh token** in Obsidian's encrypted secret store (`app.secretStorage`, introduced in Obsidian 1.11.4 and backed by Electron's `safeStorage`). They are kept under the id `archivist-dropbox-tokens` as a single JSON-encoded blob. They are **not** written to `data.json`, **not** written to disk as plaintext, and **not** synced by Obsidian Sync.
 
-This is a deliberate trade-off. Obsidian's plugin API does not expose a system-keychain integration on desktop, and rolling our own would add complexity without meaningfully changing the threat model — anything with read access to your vault folder already has access to your notes.
+**Where the encryption keys live** (varies by OS):
+
+| OS | Master key location | At-rest encryption |
+|---|---|---|
+| **macOS** | Login Keychain, entry **"Obsidian Safe Storage"** (`application password`) | Real — AES via the keychain-resident key. The encrypted blob lives in `~/Library/Application Support/obsidian/`; a casual read of it yields ciphertext. |
+| **Windows** | User-scoped DPAPI | Real — tied to your Windows user account. A different account on the same machine cannot decrypt. |
+| **Linux** | libsecret / GNOME Keyring / KWallet | Real **if** a secret service is available. **If it isn't, Electron falls back to basic obfuscation — not real encryption.** Linux users without a configured keyring should rely on full-disk encryption instead. |
 
 **Best practices**:
 
-- **Don't share `data.json`, `tokens.json`, or your vault's `.obsidian/` folder with anyone.** Treat them as you would any password file.
-- **Multi-device sync — what to exclude.** Per-device state (the OAuth tokens, the device UUID, the local backup index, the pending-changes queue) lives in **sidecar files** that Obsidian Sync deliberately ignores. So if you only use Obsidian Sync, you don't need any path exclusion — only `data.json` (settings + vault_id) syncs across, which is what you want. **But** other vault-syncing tools (iCloud, Syncthing, the Dropbox Desktop app syncing your vault folder, etc.) replicate **everything** under the vault, sidecars included. Those tools will sync your tokens and device-id between machines — both unsafe and incorrect. **For non-Obsidian-Sync setups, exclude `.obsidian/plugins/obsidian-archivist/` from sync on every device, then authorize each device's Dropbox connection separately.**
+- **Don't share `data.json` or your vault's `.obsidian/` folder** with anyone — even though tokens aren't in there anymore, your settings, vault id, and per-device backup state still are.
+- **In-Obsidian threat model**: any other plugin running in the same Obsidian instance can read your token by calling `app.secretStorage.getSecret('archivist-dropbox-tokens')`. Obsidian does not isolate secrets per plugin. Only install plugins you trust.
+- **Multi-device sync**: Tokens are per-machine — each device authenticates separately, by design. Obsidian Sync replicates only `data.json` (settings + vault id), which is intentional. Other vault-syncing tools (iCloud, Syncthing, Dropbox Desktop) will replicate `.obsidian/plugins/obsidian-archivist/` files (the local backup index, the pending-changes queue) but **not** your tokens, since those live in your OS keychain.
 - **If you suspect a token leak**, click *Disconnect Dropbox* in Settings (this revokes the token server-side) and reconnect. You can also revoke from <https://www.dropbox.com/account/connected_apps>.
 - **If you sync the `Apps/Archivist/` folder locally** (e.g. via the Dropbox Desktop app's selective-sync) consider excluding it if disk space is tight — the backup data has nothing useful for live work, only for the standalone CLI's break-glass recovery.
+
+**Upgrading from V1.0**: V1.0 stored tokens in `<vault>/.obsidian/plugins/obsidian-archivist/tokens.json` (plaintext + `chmod 0o600` on desktop). On your first start with V1.1 Archivist reads that file once, writes its contents into the encrypted secret store, and deletes it. No re-authentication is required. If you want to confirm the legacy file is gone, check the plugin's folder after restarting.
 
 ## Already using Aut-O-Backups?
 
@@ -198,7 +207,7 @@ When filing a bug, please include:
 2. Archivist version (`manifest.json` in the plugin folder).
 3. Operating system + version.
 4. A reproduction recipe if possible.
-5. **Don't paste your `tokens.json` or `data.json`** — they contain credentials.
+5. **Don't paste your `data.json`** — it contains your vault id and settings. (Your Dropbox tokens are in Obsidian's encrypted secret store, not in any file in the plugin folder; on V1.0 installs that haven't restarted under V1.1 yet, also avoid pasting any `tokens.json` that may still be present.)
 
 Security issues: please email the maintainer (see `package.json` author field) instead of filing a public issue.
 

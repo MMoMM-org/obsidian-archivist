@@ -1,6 +1,6 @@
 # Privacy Policy — Archivist for Obsidian
 
-_Last updated: 2026-04-23. This is a pre-release stub; it will be expanded before V1 public release._
+_Last updated: 2026-05-13. The "Security of local credentials" section was rewritten for ADR-21: Archivist now uses Obsidian's encrypted secret store (Electron `safeStorage`) instead of an on-disk `tokens.json`. Earlier versions of this policy described the V1.0 plaintext-file behavior._
 
 ## TL;DR
 
@@ -10,7 +10,7 @@ Archivist is an offline-first, zero-telemetry Obsidian community plugin. Your va
 
 - **Your vault content** (Markdown files, attachments, etc.) is hashed with SHA-256 and uploaded via the Dropbox API to `/Apps/Archivist/<your-vault-prefix>/` in **your** Dropbox account. Nothing leaves your device other than to reach your Dropbox.
 - **Backup metadata** (file paths, sizes, modification timestamps, snapshot manifests) is stored in the same folder in JSON form.
-- **Authentication tokens** (Dropbox OAuth access token and refresh token) are stored in plain text in the plugin's local data folder (`<vault>/.obsidian/plugins/obsidian-archivist/tokens.json`). See "Security of local credentials" below.
+- **Authentication tokens** (Dropbox OAuth access and refresh tokens) are stored in Obsidian's encrypted secret store (`app.secretStorage`, introduced in Obsidian 1.11.4 and backed by Electron's `safeStorage`). They are **not** written to `data.json`, **not** written to disk as plaintext, and **not** synced by Obsidian Sync. See "Security of local credentials" below for platform-specific encryption guarantees.
 
 ## What Archivist does NOT do
 
@@ -33,15 +33,22 @@ You can revoke access at any time via Dropbox's own app settings page (https://w
 
 ## Security of local credentials
 
-Your Dropbox refresh token is stored in plaintext at `<vault>/.obsidian/plugins/obsidian-archivist/tokens.json`. On desktop, Archivist sets file permissions to 600 (owner-read-only) where the platform allows it. This file is **not** stored in `data.json` specifically so that Obsidian Sync does NOT synchronize it across your devices — each device authenticates separately.
+Archivist stores your Dropbox tokens via Obsidian's `SecretStorage` API (`app.secretStorage`, since Obsidian 1.11.4), under the id `archivist-dropbox-tokens`. Obsidian delegates the actual encryption to Electron's `safeStorage`, and the at-rest guarantee varies by platform:
 
-If your plugin data folder is itself synced by another tool (iCloud Drive, Obsidian Sync configured for plugin data, Dropbox Desktop syncing your whole home directory, …), that tool will see your refresh token. Archivist warns you once if it detects such a path; we cannot defeat it for you. A local attacker with filesystem read access can use a stolen refresh token to access your backup data until you revoke it on Dropbox.
+- **macOS**: A long-lived master key is created in your login Keychain under the entry **"Obsidian Safe Storage"** (kind: `application password`) the first time you launch Obsidian. The encrypted credential blob lives in Obsidian's app-support directory (`~/Library/Application Support/obsidian/`). Decryption requires the master key, which only the Obsidian application bundle has ACL access to; a casual read of the blob from another process or a backup yields ciphertext.
+- **Windows**: The master key is encrypted via the user-scoped Windows Data Protection API (DPAPI). The blob is unreadable from a different Windows user account and from a different machine, even with administrative rights, without the original account's login credentials.
+- **Linux**: Encryption depends on a working freedesktop secret service (libsecret / GNOME Keyring / KWallet). When that's available, your tokens are encrypted at rest the same way. **When it's not available, Electron's `safeStorage` falls back to basic obfuscation — NOT real encryption.** Linux users without a configured secret service should rely on full-disk encryption to compensate, or be aware that their token is recoverable from disk by anyone who can read their Obsidian app-support directory.
+
+Two important caveats:
+
+- **In-Obsidian process boundary**: Any other plugin running inside the same Obsidian instance can read your token by calling `app.secretStorage.getSecret('archivist-dropbox-tokens')`. Obsidian does not isolate secrets per plugin. Only install plugins from sources you trust, and review the source of plugins that handle sensitive data.
+- **Sustained local attacker**: Malware running as your user can in principle extract both the master key (via the keychain API or DPAPI as your user) and the encrypted blob, then decrypt offline. If you suspect a compromise, click **Disconnect Dropbox** in Settings to revoke the refresh token server-side — that immediately renders any leaked copy useless.
 
 ## Disconnect and data retention
 
 - Clicking **Disconnect** in Archivist Settings:
   1. Calls Dropbox's `oauth2/token/revoke` endpoint to invalidate the token server-side.
-  2. Deletes the local `tokens.json`.
+  2. Clears the credentials from Obsidian's secret store by overwriting them with an empty value. (Obsidian's `SecretStorage` API has no per-secret delete operation as of version 1.11.4. The id `archivist-dropbox-tokens` therefore remains visible in **Settings → Secrets** until you remove it from there; the value is empty.)
   3. Does **NOT** delete any backup data in your Dropbox — that is your data and your decision.
 - If you want to delete your backup history, go to `/Apps/Archivist/` in Dropbox and delete it yourself. Archivist does not do this automatically.
 - Uninstalling the plugin does not delete your Dropbox backups.
