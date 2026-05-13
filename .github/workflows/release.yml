@@ -31,18 +31,24 @@ jobs:
 
             - run: npm test
 
-            # Generate a cryptographic provenance attestation for the release
-            # assets BEFORE semantic-release uploads them. The attestation is
-            # stored on GitHub and lets users verify the artifacts were built
-            # from this commit via `gh attestation verify`.
-            - name: Attest build provenance
-              uses: actions/attest-build-provenance@v2
-              with:
-                  subject-path: |
-                      main.js
-                      styles.css
-
             - name: Release
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: npx semantic-release
+
+            # Attest the bytes that semantic-release actually uploaded.
+            # semantic-release's exec/prepareCmd reruns `node version-bump.mjs
+            # && npm run build`, which rewrites build/main.js, build/styles.css
+            # and build/manifest.json with the bumped version BEFORE the github
+            # plugin uploads them. Attesting after the Release step signs those
+            # exact bytes; users can verify via `gh attestation verify <file>
+            # --owner MMoMM-org`. If no release is cut (chore/ci commits),
+            # this still runs and attests the pre-release build artifacts —
+            # harmless, since nothing is published.
+            - name: Attest build provenance
+              uses: actions/attest-build-provenance@v2
+              with:
+                  subject-path: |
+                      build/main.js
+                      build/styles.css
+                      build/manifest.json
