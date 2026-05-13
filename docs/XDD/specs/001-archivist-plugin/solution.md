@@ -286,7 +286,7 @@ Coverage:       npm run test:coverage
   - **Commit protocol: blobs → manifest → HEAD** — crash-safe; orphan blobs tolerated, orphan manifests fatal.
   - **Designated-device** ownership with startup conflict-detection — simplest model that rules out two-device races for V1.
   - **Rename is first-class** in the manifest schema — preserves File History continuity across renames (primary use case).
-  - **Token storage in dedicated `tokens.json` (outside `data.json`) with disclosure** — keeps tokens off the Obsidian-Sync path (ADR-7, consistent with ADR-11 for `index.json`); `electron.safeStorage` migration path reserved for V2.
+  - **Token storage in Obsidian `SecretStorage` (Electron `safeStorage`–backed)** — ADR-21 supersedes ADR-7's `tokens.json`; tokens encrypted at rest on macOS (login Keychain master key + AES-encrypted blob in app-support dir) and Windows (DPAPI); Linux without libsecret falls back to obfuscation (disclosed in `PRIVACY.md`).
   - **MarkdownRenderer-only preview** — eliminates the XSS/Electron-RCE risk class.
 
 ## Building Block View
@@ -468,12 +468,13 @@ data.json:           # saveData()/loadData() - Obsidian-managed; IS synced by Ob
   ui:
     predecessor_notice_dismissed: boolean (default false)
 
-tokens.json:         # written via adapter.write, OUTSIDE data.json — NOT Obsidian-Synced (per ADR-7)
-  schema_version: "1.0"
-  access_token: string (nullable)          # PLAINTEXT — disclosed in README
-  refresh_token: string (nullable)         # PLAINTEXT — disclosed in README
-  access_token_expires_at: ISO-8601 (nullable)
-  dropbox_account_email: string (nullable) # display-only
+# Tokens are NOT a file on disk in V1.1 — held in app.secretStorage (per ADR-21).
+# Single secret id `archivist-dropbox-tokens` storing a JSON-encoded blob:
+#   { schema_version: "1.0", access_token, refresh_token, access_token_expires_at, dropbox_account_email }
+# A legacy `tokens.json` may appear transiently during one-shot migration from
+# V1.0 installs; it is read once on first onload after upgrade, written into
+# SecretStorage, and deleted. Migration code removed at V0.9.0 (≥2 patch
+# releases after V1.1 ships).
 
 index.json:          # written via adapter.write, OUTSIDE data.json — NOT Obsidian-Synced
   schema_version: "1.0"
@@ -494,7 +495,7 @@ pending_changes.json:  # persistent event queue
       observed_at: ISO-8601
 
 device.json: merged into data.json.device (no separate file)
-auth: split OUT of data.json into tokens.json (ADR-7)
+auth: held in app.secretStorage (ADR-21, supersedes ADR-7)
 ```
 
 **Remote (Dropbox `Apps/Archivist/<VAULT_PREFIX>/`):**
@@ -1311,7 +1312,7 @@ Not applicable — single-component plugin.
   - Rejected: dynamic 48h-silent takeover — deferred to V2 (PRD W2).
   - Confirmed (auto).
 
-- [x] **ADR-7: Token storage in a dedicated `tokens.json` file (plaintext, outside `data.json`) with explicit disclosure; chmod 600 on desktop.**
+- [x] **ADR-7 (Superseded by ADR-21, 2026-05-13): Token storage in a dedicated `tokens.json` file (plaintext, outside `data.json`) with explicit disclosure; chmod 600 on desktop.**
   - Decision: tokens live at `<plugin-data>/tokens.json`, written via `app.vault.adapter.write` — NOT inside `data.json`.
   - Rationale: Obsidian Sync synchronizes plugin `data.json` across devices by default; putting tokens there silently spreads them to every device the user signs into. Predecessor plugin `obsidian-dropbox-backups` already uses a separate hidden file (`.__dropbox_backups_token_store__`) for this reason. Consistency with ADR-11 (same reasoning for `index.json`).
   - Consequence: `data.json` holds only settings + `device` block (intentionally Obsidian-Sync-eligible: device_id and designated flag are per-device state, not secrets); `tokens.json` holds `{access_token, refresh_token, access_token_expires_at, dropbox_account_email}`; `index.json` and `pending_changes.json` remain as defined in the storage section.
@@ -1321,6 +1322,7 @@ Not applicable — single-component plugin.
     - **Obsidian's `loadData`/`saveData`**: writes to `data.json` — same problem.
     - **`electron.safeStorage` (Electron keychain)**: adds Electron-version coupling and a platform guard (no mobile equivalent); deferred to V2.
   - Data-Storage-Changes section (above) updated to reflect the split; `TokenStore` implementation (Phase 3) reads/writes `tokens.json` directly via adapter.
+  - Status: **Superseded by ADR-21 (2026-05-13).** Kept as historical record of the V1.0 decision. The "safeStorage migration reserved for V2" carry-forward debt was closed by ADR-21 ahead of V2 once Obsidian 1.11.4 shipped the `SecretStorage` API.
   - Confirmed (auto) — updated after reviewing predecessor's pattern.
 
 - [x] **ADR-8 (revised 2026-04-23): PKCE code-verifier stored in a bounded Map with TTL. Cap 5, TTL 10 min. REJECT at cap — do not evict.**
@@ -1414,6 +1416,41 @@ Not applicable — single-component plugin.
   - Trade-offs: the CLI duplicates the manifest-merge logic (cannot share code with the plugin bundle since the plugin imports from `obsidian`). Kept tiny (< 500 lines) — the merge algorithm is the only non-trivial piece. Integration tests in Phase 10 verify byte-for-byte parity with the plugin's in-app restore on a shared fixture.
   - Distribution: the script is committed to the repo AND included as an asset on every GitHub Release — so a user whose only surviving artifact is the release zip can still recover.
   - Confirmed (auto).
+
+- [x] **ADR-21 (2026-05-13): Token storage migrated from on-disk `tokens.json` to Obsidian `SecretStorage` (Electron `safeStorage`–backed) for V1.1.**
+  - Decision: Replace `<plugin-data>/tokens.json` storage with `app.secretStorage` (introduced in Obsidian 1.11.4). Tokens are persisted as a single JSON-encoded string under secret id `archivist-dropbox-tokens`. Bumps `manifest.json` `minAppVersion` from `1.5.0` to `1.11.4`. Supersedes ADR-7.
+  - Rationale: ADR-7's `tokens.json` is plaintext on disk protected only by best-effort `chmod 0o600` (silently skipped on Mobile, Windows, and non-`FileSystemAdapter` vaults). Obsidian's `SecretStorage` is backed by Electron's `safeStorage`: a long-lived per-installation master key in the platform credential store, and AES-encrypted blobs persisted in Obsidian's app-support directory. On macOS the master key lives in the login Keychain as an "Obsidian Safe Storage" `application password` entry, created once at first Obsidian launch; subsequent reads/writes use warm IPC + symmetric AES (no per-call Keychain Security-framework round-trip and no per-call prompt — the Obsidian bundle ID already has ACL access). This closes the at-rest plaintext exposure that `tokens.json` carries today.
+  - Verified Behavior (probed in Obsidian developer console on macOS, 2026-05-13):
+    - Master-key entry "Obsidian Safe Storage" present in macOS login Keychain as `application password`, modified 2026-03-13 (pre-existing — created on first Obsidian launch on this machine, reused across all sessions).
+    - `setSecret('archivist-probe-persistent', 'ARCHIVIST_PROBE_K7H4QX9_GREPME_DO_NOT_USE')` produces no Keychain prompt. Full filesystem grep across `~/Library/Application Support/obsidian/`, `~/Library/Caches/md.obsidian`, and the vault's `.obsidian/` finds no plaintext sentinel → contents are encrypted on disk, not plaintext.
+    - Restart survival confirmed: after full Obsidian quit + relaunch, `getSecret(id)` returns the sentinel verbatim → persistence is on disk and decryptable only with the master key.
+    - Timing: first `setSecret` 0.50 ms; steady-state mean 0.42 ms; `getSecret` ≈ 0 ms — no UI-thread block, no `queueMicrotask` wrap required.
+    - `setSecret(id, '')` leaves the id in `listSecrets()`; subsequent `getSecret(id)` returns the literal empty string (not `null`). `getSecret` on a never-set id returns `null`. → `TokenStore.load()` treats BOTH `''` and `null` as "no token".
+  - Consequence:
+    - `src/infra/TokenStore.ts` rewritten around `app.secretStorage.getSecret/setSecret/listSecrets`; no `fs.chmod`, no `adapter.read/write/remove` for token paths, no `tokensPath` resolution, no `FileSystemAdapter` guard.
+    - One-shot migration on `onload()` before any token read: if `getSecret('archivist-dropbox-tokens')` returns `null` or `''` AND legacy `tokens.json` exists, read the JSON, write to SecretStorage, delete the legacy file, log `tokens_migrated`. The migration path is removed at target V0.9.0 (≥ 2 patch releases after V1.1 ships).
+    - "Disconnect Dropbox" overwrites the secret with the empty string (the SecretStorage API offers no `removeSecret` as of 1.11.4); `load()` treats `''` as absent. Full removal of the encrypted blob requires Obsidian Settings UI; not exposed to the plugin.
+    - `manifest.json` `minAppVersion` becomes `1.11.4`; users on older Obsidian releases will not see the plugin in the in-app browser. Acceptable given current registry status (Archivist not yet listed in `obsidianmd/obsidian-releases/community-plugins.json`; effective userbase ≈ 1 maintainer).
+    - Multi-vault scoping is not specified in `obsidian.d.ts` and was not probed. The master key is per-Obsidian-installation (Marcus's keychain entry pre-dates today's test vault by ~2 months — confirms install-level, not vault-level). The encrypted-blob namespace is unknown; V1.1 assumes single-vault and uses a stable secret id (`archivist-dropbox-tokens`). If a multi-vault user reports collisions, the id moves to a vault-scoped form (e.g. `archivist-${vaultIdHash}-dropbox-tokens`) in a follow-up.
+    - Platform variance:
+      - **macOS**: master key in login Keychain (verified). At-rest encryption is real.
+      - **Windows**: master key encrypted via user-scoped DPAPI (per Electron `safeStorage` docs). At-rest encryption is real but tied to the Windows user account — backups restored to a different account cannot decrypt.
+      - **Linux**: depends on `safeStorage.isEncryptionAvailable()` — true only if libsecret (or compatible) is available. **Without libsecret, Electron falls back to basic obfuscation, NOT encryption.** Linux users without a working secret service get no at-rest improvement over ADR-7. `PRIVACY.md` must disclose this explicitly so a Linux user understands what their installation actually provides.
+  - Trade-offs:
+    - **In-process threat model unchanged.** Any other Obsidian plugin running in the same renderer can call `app.secretStorage.getSecret('archivist-dropbox-tokens')` and read the plaintext token. SecretStorage protects at-rest (disk reads, backups, malware that doesn't impersonate the Obsidian bundle), not in-Obsidian-process. Same property as ADR-7's `tokens.json` (any plugin can `vault.adapter.read('.../tokens.json')` today). No regression, no new improvement on this axis.
+    - **Linux without libsecret**: see Consequence above. ADR-21's claimed improvement does not materialize there; ADR-7's plaintext was, in practice, equivalent to what Linux users get with safeStorage's obfuscation fallback.
+    - No `removeSecret` API as of 1.11.4 → programmatic clear is overwrite-with-empty; the id stays in `listSecrets()`. The user-facing "secret is gone" property holds (load returns null on empty), but the keychain master key + encrypted-blob slot persist until the user clears via Obsidian Settings UI. Documented behavior, not a defect.
+    - Loses on-disk inspectability of the previous token file. Tokens are recoverable via the standard re-auth flow; acceptable.
+    - Soft pin to Obsidian ≥ 1.11.4 means users on older builds cannot install. Acceptable per current registry status; revisit when registry submission is filed.
+  - Rejected alternatives:
+    - **Keep `tokens.json` + envelope encryption with a user-provided passphrase**: introduces a UX surface (passphrase prompt on every restart) and a new failure mode (forgotten passphrase = lost auth). Out of proportion for the present V1.1 step.
+    - **One SecretStorage entry per field** (`archivist-access-token`, `archivist-refresh-token`, …): non-atomic writes; a crash mid-update could desync fields. Rejected in favor of a single JSON-encoded blob.
+    - **Direct Electron `safeStorage`**: only accessible from the main process; Obsidian plugins run in the renderer. `SecretStorage` is Obsidian's official renderer-accessible wrapper around the same mechanism.
+    - **Defer to V2 (ADR-7's original carry-forward debt)**: rejected — the API now exists and is empirically encrypted-at-rest on the maintainer's platform; deferring loses nothing and costs an unnecessary release of plaintext storage.
+  - Supersedes: ADR-7 (token storage in `tokens.json` with `chmod 0o600`). ADR-7 stays in the SDD as historical record with a `Superseded by ADR-21` marker.
+  - Migration removed at: target V0.9.0 (two patch releases after V1.1).
+  - Implementation phase: `plan/phase-13.md`.
+  - Confirmed (user, 2026-05-13 — drafted in `plan/phase-13.md`, behavioral probe verified the same day).
 
 ## Quality Requirements
 
@@ -1528,9 +1565,10 @@ No existing code; this is a net-new repository. The "known issues" come from the
 None at spec time (greenfield). Debt will be tracked from Phase 1 onward.
 
 Carry-forward debt to V2:
-- Token plaintext storage (ADR-7) → migrate to `electron.safeStorage`.
 - No client-side encryption (ADR-15) → evaluate optional envelope encryption if user demand materializes.
 - Vault prefix migration on rename (ADR-18) → automate.
+
+*Closed ahead of V2: ADR-7's plaintext token storage → ADR-21 migrated to `SecretStorage` once Obsidian 1.11.4 shipped the API (2026-05-13).*
 
 ### Implementation Gotchas
 
@@ -1566,7 +1604,8 @@ Carry-forward debt to V2:
 | Garbage Collection (GC) | Deletion of content blobs no longer referenced by any retained manifest. | Runs after retention passes. |
 | Quiet period | A post-startup window during which no backups run, to let sync tools settle. | 10 min grace + 2 min no-event. |
 | `data.json` | Obsidian-managed plugin state file (read/written via `loadData`/`saveData`); IS synchronized by Obsidian Sync across devices. | Holds settings + per-device `device` block + UI dismissal flags — intentionally device-shareable. |
-| `tokens.json` | Plugin-data file holding Dropbox access + refresh tokens (plaintext, chmod 600 on desktop); NOT in `data.json`. | Written via `app.vault.adapter.write`; ADR-7. |
+| `tokens.json` | (Legacy, removed from steady state in V1.1.) Plugin-data file that held Dropbox tokens under ADR-7. Replaced by `app.secretStorage` under id `archivist-dropbox-tokens` per ADR-21. May exist transiently during one-shot migration from V1.0; deleted after first successful read on V1.1's first `onload`. | ADR-7 (historical) → ADR-21. |
+| `app.secretStorage` | Obsidian's `SecretStorage` API (since 1.11.4), backed by Electron `safeStorage` — encrypted blob in app-support dir, master key in OS credential store (macOS login Keychain, Windows DPAPI, Linux libsecret if available). Holds Dropbox tokens under id `archivist-dropbox-tokens` as a single JSON-encoded blob (`{ schema_version, access_token, refresh_token, access_token_expires_at, dropbox_account_email }`). | ADR-21; `TokenStore.load/save/clear` wrap `getSecret/setSecret`. |
 | `index.json` | Plugin-data file holding the local hash/mtime/size index per vault path; NOT in `data.json`. | Source of truth for "what this backup device saw last"; ADR-11. |
 | `pending_changes.json` | Plugin-data file holding the persistent event queue + `committed_through` cursor. | Enables crash-safe resumption of backup cycles. |
 | Backup owner | Synonym for **designated device** (narrative alias in PRD; canonical term is "designated device"). | The one device that actually writes to Dropbox. |
