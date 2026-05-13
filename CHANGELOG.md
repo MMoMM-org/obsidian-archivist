@@ -1,3 +1,10 @@
+## [0.8.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.0...0.8.1) (2026-05-13)
+
+
+### Bug Fixes
+
+* **ci:** attest released build/ artifacts after semantic-release ([#43](https://github.com/MMoMM-org/obsidian-archivist/issues/43)) ([9606734](https://github.com/MMoMM-org/obsidian-archivist/commit/960673481d6edd4bce8a9e5533e02672784af967)), closes [#42](https://github.com/MMoMM-org/obsidian-archivist/issues/42)
+
 # [0.8.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.9...0.8.0) (2026-05-13)
 
 
