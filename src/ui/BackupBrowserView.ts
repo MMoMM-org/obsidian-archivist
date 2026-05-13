@@ -815,7 +815,7 @@ export class BackupBrowserView extends ItemView {
     this.filesSearchLiveEl = null;
     this._cachedTree = null;
     if (this.searchDebounceTimer !== null) {
-      activeWindow.clearTimeout(this.searchDebounceTimer);
+      window.clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
     }
     this.contentEl.empty();
@@ -1019,9 +1019,9 @@ export class BackupBrowserView extends ItemView {
     input.addEventListener('input', () => {
       const next = input.value;
       if (this.searchDebounceTimer !== null) {
-        activeWindow.clearTimeout(this.searchDebounceTimer);
+        window.clearTimeout(this.searchDebounceTimer);
       }
-      this.searchDebounceTimer = activeWindow.setTimeout(() => {
+      this.searchDebounceTimer = window.setTimeout(() => {
         this.searchDebounceTimer = null;
         this._applySearchQuery(next);
       }, 150);
@@ -1036,7 +1036,7 @@ export class BackupBrowserView extends ItemView {
         e.stopPropagation();
         input.value = '';
         if (this.searchDebounceTimer !== null) {
-          activeWindow.clearTimeout(this.searchDebounceTimer);
+          window.clearTimeout(this.searchDebounceTimer);
           this.searchDebounceTimer = null;
         }
         this._applySearchQuery('');

@@ -125,10 +125,10 @@ export interface SchedulerFSMDeps {
   /** Injectable for tests — defaults to Date.now(). */
   now?: () => number;
   /**
-   * Timer functions. Required so the FSM never calls bare `setTimeout`/
-   * `clearTimeout` — Obsidian's `obsidianmd/prefer-active-window-timers`
-   * forbids it (popout-window cleanup). Production passes `activeWindow.*`;
-   * tests pass thin wrappers around node's globals so vi.useFakeTimers works.
+   * Timer functions. Injected so production can pass `window.setTimeout`/
+   * `window.clearTimeout` (Obsidian's `obsidianmd/prefer-window-timers` rule)
+   * while tests pass thin wrappers around node's globals so vi.useFakeTimers
+   * works.
    */
   setTimeoutFn: SetTimeoutFn;
   clearTimeoutFn: ClearTimeoutFn;

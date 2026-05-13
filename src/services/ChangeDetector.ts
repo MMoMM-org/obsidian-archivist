@@ -20,8 +20,10 @@ import type { ChangeType } from '../model/QueueEntry';
 import { sha256hex } from '../infra/Hasher';
 import { matchAny } from '../util/glob';
 
-// Aliased reference so the obsidianmd/prefer-active-window-timers lint rule
-// does not flag the default yieldFn — same pattern as retry.ts.
+// Aliased reference so the obsidianmd/prefer-window-timers lint rule does not
+// flag the default yieldFn — same cross-env pattern as retry.ts (this util
+// also runs under Node in tests, where `window` is not defined). Call sites
+// can inject their own yieldFn when popout-window compatibility matters.
 const setT: typeof setTimeout = setTimeout;
 
 const YIELD_FILE_INTERVAL = 500;
