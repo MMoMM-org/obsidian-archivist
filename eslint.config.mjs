@@ -22,8 +22,11 @@ export default [
   // Base JS recommended
   js.configs.recommended,
 
-  // TypeScript recommended (unified typescript-eslint package)
-  ...tseslint.configs.recommended,
+  // TypeScript recommended (unified typescript-eslint package).
+  // Type-checked variant adds rules like no-unsafe-assignment that the
+  // Obsidian plugin-review bot enforces — catching these locally before
+  // they show up in review.
+  ...tseslint.configs.recommendedTypeChecked,
 
   // Obsidian-specific rules (flat-config shape — array of config objects)
   ...(Array.isArray(obsidianmd.configs?.recommended)
