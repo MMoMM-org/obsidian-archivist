@@ -106,8 +106,10 @@ export class ManifestCache implements ManifestLoader {
     this.manifestById.set(id, parsed);
     if (this.manifestById.size > MANIFEST_CACHE_MAX_ENTRIES) {
       // Evict the oldest entry (Map iteration order is insertion order).
-      const oldestKey: string | undefined = this.manifestById.keys().next().value;
-      if (oldestKey !== undefined) this.manifestById.delete(oldestKey);
+      for (const oldestKey of this.manifestById.keys()) {
+        this.manifestById.delete(oldestKey);
+        break;
+      }
     }
     return parsed;
   }
