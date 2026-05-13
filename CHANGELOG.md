@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.9...0.8.0) (2026-05-13)
+
+
+### Features
+
+* migrate Dropbox tokens to Obsidian SecretStorage (ADR-21) ([#41](https://github.com/MMoMM-org/obsidian-archivist/issues/41)) ([f251f55](https://github.com/MMoMM-org/obsidian-archivist/commit/f251f55ce1afbdd4c032044a9484c13ecc3522a0)), closes [hi#severity](https://github.com/hi/issues/severity)
+
 ## [0.7.9](https://github.com/MMoMM-org/obsidian-archivist/compare/0.7.8...0.7.9) (2026-05-13)
 
 
