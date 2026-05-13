@@ -24,7 +24,7 @@ phase: 13
 - Tokens move from `<plugin-data>/tokens.json` (plaintext + best-effort `chmod 0o600`) into `app.secretStorage` (OS-keychain–backed).
 - Single secret id `archivist-dropbox-tokens` holding a JSON-encoded `Tokens` blob — atomic write, single identity check, simple migration.
 - `manifest.json` `minAppVersion` bumps `1.5.0` → `1.11.4`. Acceptable since the plugin is not yet listed in the official Obsidian community-plugin registry (`obsidianmd/obsidian-releases/community-plugins.json`); effective user base = 1.
-- One-shot migration from the legacy `tokens.json` runs on the first `onload()` after upgrade. After two patch releases (target V0.9.0) the migration code is removed.
+- One-shot migration from the legacy `tokens.json` runs on the first `onload()` after upgrade. After two patch releases (target 0.9.0) the migration code is removed.
 
 **Dependencies**: Phase 3 (TokenStore, OAuth flow, DropboxClient — currently the only consumers of the storage).
 
@@ -33,7 +33,7 @@ phase: 13
 ## Canonical Records
 
 - **ADR-21** (canonical) lives in `solution.md` — search for "ADR-21 (2026-05-13)" (inserted after ADR-19, before the Quality Requirements section).
-- **ADR-7** is marked *Superseded by ADR-21* in `solution.md` and kept as historical record of the V1.0 decision.
+- **ADR-7** is marked *Superseded by ADR-21* in `solution.md` and kept as historical record of the 0.7.x decision.
 - **Decisions Log** row in `001-archivist-plugin/README.md` dated 2026-05-13.
 
 ## Applied SDD Edits (T13.1, 2026-05-13)
@@ -76,9 +76,9 @@ On `onload()` (in `src/main.ts`, before `tokenStore.load()` is called by any con
    - File missing → genuine first-run; nothing to do; user goes through OAuth.
    - File present and parseable → JSON-encode the validated `Tokens` shape, `setSecret('archivist-dropbox-tokens', encoded)`, then `adapter.remove(legacyPath)`. Log `tokens_migrated` at info. If `adapter.remove` fails, log `tokens_migrate_legacy_cleanup_failed` at warn but DO NOT block — the migration succeeded; the file is orphaned and harmless after the secret-store path takes over.
    - File present and corrupt → log `tokens_corrupt` (existing key), `adapter.remove`, user re-authenticates. Same recovery path as today.
-4. After two patch releases (V0.9.0), the legacy-file branch is deleted entirely. Tracked as a follow-up issue at the time of V1.1 cutover.
+4. After two patch releases (0.9.0), the legacy-file branch is deleted entirely. Tracked as a follow-up issue at the time of 0.8.0 cutover.
 
-No dual-read in steady state. No "fallback to disk" after migration. Single source of truth from V1.1 onward.
+No dual-read in steady state. No "fallback to disk" after migration. Single source of truth from 0.8.0 onward.
 
 ---
 
@@ -154,7 +154,7 @@ Establishes one new ADR, replaces the storage backend behind `TokenStore`, and t
      - `README.md`: rewrite the "Token storage" / "Security" / "Troubleshooting" snippets to describe SecretStorage; remove file-permission language; add a note about the one-time Keychain prompt on macOS.
      - `PRIVACY.md`: replace lines 13, 36, 44; reference the OS Keychain on each platform; explain that the user can remove the secret via Obsidian Settings UI.
      - `docs/troubleshooting/dropbox-corruption.md`: scrub any `tokens.json` path references.
-  4. Validate: `grep -n "tokens.json" README.md PRIVACY.md docs/` returns only historical/migration references (e.g. "tokens previously stored in tokens.json (V1.0); migrated to SecretStorage in V1.1"); no stale guidance.
+  4. Validate: `grep -n "tokens.json" README.md PRIVACY.md docs/` returns only historical/migration references (e.g. "tokens previously stored in tokens.json (0.7.x); migrated to SecretStorage in 0.8.0"); no stale guidance.
   5. Success: External documentation matches the new contract; no instruction asks users to look for `tokens.json` going forward.
 
 - [ ] **T13.7 Phase Validation + E2E manual walkthrough** `[activity: validate]`
@@ -167,24 +167,24 @@ Establishes one new ADR, replaces the storage backend behind `TokenStore`, and t
 
 ### Manual E2E Checklist (T13.7 step 3)
 
-Run in order on a real Obsidian ≥ 1.11.4. Tick each box and append the observed outcome on the same line so a future reader (or the next maintainer) can audit the V1.1 cutover.
+Run in order on a real Obsidian ≥ 1.11.4. Tick each box and append the observed outcome on the same line so a future reader (or the next maintainer) can audit the 0.8.0 cutover.
 
-- [ ] **Fresh install — connect path.** Install Archivist V1.1 in an Obsidian vault that has never been authenticated to Dropbox. Open Settings → Archivist → Dropbox → Connect Dropbox. Complete the OAuth flow.
+- [ ] **Fresh install — connect path.** Install Archivist 0.8.0 in an Obsidian vault that has never been authenticated to Dropbox. Open Settings → Archivist → Dropbox → Connect Dropbox. Complete the OAuth flow.
   - Expected: no macOS Keychain prompt (the "Obsidian Safe Storage" master key already exists from prior Obsidian use; probed 2026-05-13). No `tokens.json` is created at `<vault>/.obsidian/plugins/archivist/`. The settings tab updates to "Connected as <email>".
   - Observed: _____
 - [ ] **Fresh install — restart survival.** Quit Obsidian fully and reopen. Reopen Settings → Archivist → Dropbox.
   - Expected: still "Connected as <email>" without re-authentication. The Settings → Secrets panel (if open) lists `archivist-dropbox-tokens`.
   - Observed: _____
-- [ ] **Legacy migration.** Quit Obsidian. Install Archivist V1.0 (e.g. tag 0.7.9) into a separate test vault, authenticate, then quit Obsidian and verify `tokens.json` exists at `<vault>/.obsidian/plugins/archivist/`. Replace the plugin assets in place with the V1.1 build. Reopen Obsidian.
+- [ ] **Legacy migration.** Quit Obsidian. Install Archivist 0.7.x (e.g. tag 0.7.9) into a separate test vault, authenticate, then quit Obsidian and verify `tokens.json` exists at `<vault>/.obsidian/plugins/archivist/`. Replace the plugin assets in place with the 0.8.0 build. Reopen Obsidian.
   - Expected: on first onload, the migration writes the secret and removes `tokens.json` — verify the file is gone and `archivist-dropbox-tokens` is present in Obsidian's Settings → Secrets. The connected-account email still shows in Archivist's settings tab without re-authenticating. Console log `tokens_migrated` is emitted at info.
   - Observed: _____
-- [ ] **Disconnect.** From the V1.1 test vault, click *Disconnect Dropbox* in Settings → Archivist.
+- [ ] **Disconnect.** From the 0.8.0 test vault, click *Disconnect Dropbox* in Settings → Archivist.
   - Expected: confirm modal → Disconnect → status becomes "Not connected" without errors. In Obsidian Settings → Secrets, `archivist-dropbox-tokens` remains listed but with an empty value (per ADR-21 Consequence: no `removeSecret` API). Reconnect works on the next OAuth flow and re-populates the secret.
   - Observed: _____
-- [ ] **Uninstall / reinstall.** From the V1.1 test vault, disable + uninstall the plugin via Settings → Community plugins. Reinstall.
+- [ ] **Uninstall / reinstall.** From the 0.8.0 test vault, disable + uninstall the plugin via Settings → Community plugins. Reinstall.
   - Expected: the keychain master key persists (it's per-Obsidian-installation, not per-plugin); the previously-set secret survives the uninstall *unless* Obsidian itself wipes secrets on plugin removal. Document observed behaviour — this is the only ADR-21 Consequence claim we have not pre-verified.
   - Observed: _____
-- [ ] **No regression in the soak / integration suite (optional).** If you maintain a "soak vault" that runs the plugin for an extended period: a 1-hour run should produce the same backup/restore behaviour as pre-V1.1, with no new error log keys appearing. (Skip if you don't keep one.)
+- [ ] **No regression in the soak / integration suite (optional).** If you maintain a "soak vault" that runs the plugin for an extended period: a 1-hour run should produce the same backup/restore behaviour as pre-0.8.0, with no new error log keys appearing. (Skip if you don't keep one.)
   - Observed: _____
 
 ---
@@ -193,8 +193,8 @@ Run in order on a real Obsidian ≥ 1.11.4. Tick each box and append the observe
 
 - **Validation status**: Q2 and Q3 were probed on macOS 2026-05-13 (results in the Open Design Questions table). Q2 returned `''` for cleared secrets → `TokenStore.load()` maps both `''` and `null` to "absent" as planned. Q3 returned sub-millisecond steady-state with no Keychain prompt → no `queueMicrotask` wrap needed. Windows/Linux behavior is documented in ADR-21 Trade-offs but not empirically validated; revisit if a user reports issues on those platforms.
 - **Multi-vault assumption**: documented in ADR-21 Consequence as "single-vault by maintainer assumption". If a user reports a cross-vault token collision, ADR-21 is revisited; the namespace constant moves to per-vault (e.g. `archivist-${vaultId}-dropbox-tokens`).
-- **Registry submission timing**: this migration should ship BEFORE Marcus submits the plugin to `obsidianmd/obsidian-releases` — otherwise users on Obsidian < 1.11.4 would install V1.0 (plaintext tokens) and then be unable to upgrade past V1.1's `minAppVersion` gate without first upgrading Obsidian itself. Recommended ordering: V1.1 ship → soak 1 week → submit to registry with `minAppVersion: 1.11.4`.
-- **Migration removal**: after V0.9.0 ships, the legacy-file branch in `main.ts` is deleted in a follow-up PR with the title `chore(tokens): drop legacy tokens.json migration path` and a one-line note in CHANGELOG referencing ADR-21.
+- **Registry submission timing**: this migration should ship BEFORE Marcus submits the plugin to `obsidianmd/obsidian-releases` — otherwise users on Obsidian < 1.11.4 would install 0.7.x (plaintext tokens) and then be unable to upgrade past 0.8.0's `minAppVersion` gate without first upgrading Obsidian itself. Recommended ordering: 0.8.0 ship → soak 1 week → submit to registry with `minAppVersion: 1.11.4`.
+- **Migration removal**: after 0.9.0 ships, the legacy-file branch in `main.ts` is deleted in a follow-up PR with the title `chore(tokens): drop legacy tokens.json migration path` and a one-line note in CHANGELOG referencing ADR-21.
 
 ---
 

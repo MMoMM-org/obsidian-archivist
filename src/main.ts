@@ -157,7 +157,7 @@ export default class ArchivistPlugin extends Plugin {
     // ---------------------------------------------------------------------------
     const tokenStore = new TokenStore(this, this.logger);
     // ADR-21: one-shot migration from legacy tokens.json into SecretStorage.
-    // No-op on fresh installs; removed at target V0.9.0 per phase-13.
+    // No-op on fresh installs; removed at target 0.9.0 per phase-13.
     await migrateLegacyTokensIfPresent(this, tokenStore, this.logger);
     this.oauthFlow = new OAuthConnectFlow({ tokenStore, logger: this.logger });
 

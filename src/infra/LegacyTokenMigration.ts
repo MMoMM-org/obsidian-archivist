@@ -1,9 +1,9 @@
 // One-shot migration from ADR-7's on-disk `tokens.json` into ADR-21's
-// `app.secretStorage`. Runs once on the first `onload` after upgrade from V1.0;
-// idempotent on subsequent loads because the legacy file is gone and the
-// secret is populated.
+// `app.secretStorage`. Runs once on the first `onload` after upgrade from
+// 0.7.x; idempotent on subsequent loads because the legacy file is gone and
+// the secret is populated.
 //
-// Removed entirely at target V0.9.0 (≥ 2 patch releases after V1.1 ships) per
+// Removed entirely at target 0.9.0 (≥ 2 patch releases after 0.8.0 ships) per
 // ADR-21. Tracked in `docs/XDD/specs/001-archivist-plugin/plan/phase-13.md`.
 
 import type { Plugin } from 'obsidian';

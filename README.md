@@ -118,7 +118,7 @@ Archivist stores your Dropbox **access token** and **refresh token** in Obsidian
 - **If you suspect a token leak**, click *Disconnect Dropbox* in Settings (this revokes the token server-side) and reconnect. You can also revoke from <https://www.dropbox.com/account/connected_apps>.
 - **If you sync the `Apps/Archivist/` folder locally** (e.g. via the Dropbox Desktop app's selective-sync) consider excluding it if disk space is tight — the backup data has nothing useful for live work, only for the standalone CLI's break-glass recovery.
 
-**Upgrading from V1.0**: V1.0 stored tokens in `<vault>/.obsidian/plugins/obsidian-archivist/tokens.json` (plaintext + `chmod 0o600` on desktop). On your first start with V1.1 Archivist reads that file once, writes its contents into the encrypted secret store, and deletes it. No re-authentication is required. If you want to confirm the legacy file is gone, check the plugin's folder after restarting.
+**Upgrading from earlier versions**: 0.7.x and earlier stored tokens in `<vault>/.obsidian/plugins/obsidian-archivist/tokens.json` (plaintext + `chmod 0o600` on desktop). On your first start with 0.8.0 Archivist reads that file once, writes its contents into the encrypted secret store, and deletes it. No re-authentication is required. If you want to confirm the legacy file is gone, check the plugin's folder after restarting.
 
 ## Already using Aut-O-Backups?
 
@@ -207,7 +207,7 @@ When filing a bug, please include:
 2. Archivist version (`manifest.json` in the plugin folder).
 3. Operating system + version.
 4. A reproduction recipe if possible.
-5. **Don't paste your `data.json`** — it contains your vault id and settings. (Your Dropbox tokens are in Obsidian's encrypted secret store, not in any file in the plugin folder; on V1.0 installs that haven't restarted under V1.1 yet, also avoid pasting any `tokens.json` that may still be present.)
+5. **Don't paste your `data.json`** — it contains your vault id and settings. (Your Dropbox tokens are in Obsidian's encrypted secret store, not in any file in the plugin folder; on 0.7.x installs that haven't restarted under 0.8.0 yet, also avoid pasting any `tokens.json` that may still be present.)
 
 Security issues: please email the maintainer (see `package.json` author field) instead of filing a public issue.
 

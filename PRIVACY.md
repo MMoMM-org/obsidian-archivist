@@ -1,6 +1,6 @@
 # Privacy Policy — Archivist for Obsidian
 
-_Last updated: 2026-05-13. The "Security of local credentials" section was rewritten for ADR-21: Archivist now uses Obsidian's encrypted secret store (Electron `safeStorage`) instead of an on-disk `tokens.json`. Earlier versions of this policy described the V1.0 plaintext-file behavior._
+_Last updated: 2026-05-13. The "Security of local credentials" section was rewritten for ADR-21: Archivist now uses Obsidian's encrypted secret store (Electron `safeStorage`) instead of an on-disk `tokens.json`. Earlier versions of this policy (covering Archivist 0.7.x and earlier) described the plaintext-file behavior._
 
 ## TL;DR
 
