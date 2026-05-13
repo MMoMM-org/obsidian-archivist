@@ -367,6 +367,8 @@
 	padding: 4px 8px;
 	font-size: var(--font-ui-small);
 	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: 4px;
 }
 
 .archivist-dir-icon,
@@ -454,8 +456,10 @@
 }
 
 /* When a path subtitle is rendered, drop the border off the filename — the
-   subtitle below carries it so the two rows read as one header block. */
-.archivist-browser .archivist-preview > .archivist-preview-filename:has(+ .archivist-preview-path) {
+   subtitle below carries it so the two rows read as one header block.
+   Modifier class set in renderPreviewHeader / renderDirPreviewHeader to avoid
+   `:has(+ ...)` (broad selector invalidation). */
+.archivist-browser .archivist-preview > .archivist-preview-filename--with-path {
 	padding-bottom: 2px;
 	border-bottom: none;
 }
@@ -520,11 +524,6 @@
 }
 
 /* ─── Directory header selection state + dir-restore preview ─────── */
-
-.archivist-dir-header {
-	cursor: pointer;
-	border-radius: 4px;
-}
 
 .archivist-dir-header:hover {
 	background-color: var(--background-modifier-hover);

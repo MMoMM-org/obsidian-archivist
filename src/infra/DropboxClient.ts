@@ -711,11 +711,10 @@ async function extractBytes(result: FileDownloadResult): Promise<Uint8Array> {
 // work; if a caller aborts, the next attempt will short-circuit on the
 // AbortSignal already wired through retry().
 //
-// Aliased through `setT` to mirror retry.ts: the obsidianmd lint rule prefers
-// `activeWindow.setTimeout` for popout-window compatibility, but the gate
-// runs in the same renderer context as retry.ts and inherits the same
-// trade-off — caller-supplied `sleep` is the supported escape hatch for
-// callers that need popout-aware timers.
+// Aliased through `setT` to mirror retry.ts: the obsidianmd lint rule
+// (`prefer-window-timers`) wants `window.setTimeout`, but the gate runs in
+// both the Obsidian renderer and Node test env. Caller-supplied `sleep` is
+// the supported escape hatch for callers that need popout-aware timers.
 const setT: typeof setTimeout = setTimeout;
 function defaultGateSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setT(resolve, ms));

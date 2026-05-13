@@ -178,8 +178,13 @@ function formatSnapshotDate(d: Date): string {
 function renderPreviewHeader(container: HTMLElement, path: string): void {
   const slash = path.lastIndexOf('/');
   const basename = slash >= 0 ? path.slice(slash + 1) : path;
-  container.createEl('h3', { text: basename, cls: 'archivist-preview-filename' });
-  if (slash >= 0) {
+  const hasPath = slash >= 0;
+  // Modifier class avoids `:has(+ ...)` in CSS (stylelint-no-has, perf).
+  const filenameCls = hasPath
+    ? 'archivist-preview-filename archivist-preview-filename--with-path'
+    : 'archivist-preview-filename';
+  container.createEl('h3', { text: basename, cls: filenameCls });
+  if (hasPath) {
     container.createEl('p', { text: path, cls: 'archivist-preview-path' });
   }
 }
@@ -576,11 +581,15 @@ function renderDirPreviewHeader(
 ): void {
   const slash = prefix.lastIndexOf('/');
   const basename = slash >= 0 ? prefix.slice(slash + 1) : prefix;
+  const hasPath = slash >= 0;
+  const filenameCls = hasPath
+    ? 'archivist-preview-filename archivist-preview-filename--with-path'
+    : 'archivist-preview-filename';
   container.createEl('h3', {
     text: `${basename} — ${S.BROWSER_DIR_FILE_COUNT(fileCount)}`,
-    cls: 'archivist-preview-filename',
+    cls: filenameCls,
   });
-  if (slash >= 0) {
+  if (hasPath) {
     container.createEl('p', { text: prefix, cls: 'archivist-preview-path' });
   }
 }
@@ -806,7 +815,7 @@ export class BackupBrowserView extends ItemView {
     this.filesSearchLiveEl = null;
     this._cachedTree = null;
     if (this.searchDebounceTimer !== null) {
-      activeWindow.clearTimeout(this.searchDebounceTimer);
+      window.clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
     }
     this.contentEl.empty();
@@ -1010,9 +1019,9 @@ export class BackupBrowserView extends ItemView {
     input.addEventListener('input', () => {
       const next = input.value;
       if (this.searchDebounceTimer !== null) {
-        activeWindow.clearTimeout(this.searchDebounceTimer);
+        window.clearTimeout(this.searchDebounceTimer);
       }
-      this.searchDebounceTimer = activeWindow.setTimeout(() => {
+      this.searchDebounceTimer = window.setTimeout(() => {
         this.searchDebounceTimer = null;
         this._applySearchQuery(next);
       }, 150);
@@ -1027,7 +1036,7 @@ export class BackupBrowserView extends ItemView {
         e.stopPropagation();
         input.value = '';
         if (this.searchDebounceTimer !== null) {
-          activeWindow.clearTimeout(this.searchDebounceTimer);
+          window.clearTimeout(this.searchDebounceTimer);
           this.searchDebounceTimer = null;
         }
         this._applySearchQuery('');

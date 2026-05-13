@@ -549,11 +549,10 @@ export default class ArchivistPlugin extends Plugin {
       },
       preflightHost: noticeCenter,
       logger: this.logger,
-      // Bind to activeWindow so timers are torn down with pop-out windows
-      // (obsidianmd/prefer-active-window-timers). Handles round-trip through
-      // the opaque TimerHandle; cast back to number for activeWindow.clearTimeout.
-      setTimeoutFn: (fn, ms) => activeWindow.setTimeout(fn, ms),
-      clearTimeoutFn: (h) => activeWindow.clearTimeout(h as number),
+      // Cast back to number for window.clearTimeout — the FSM works with an
+      // opaque TimerHandle type so tests can stub it.
+      setTimeoutFn: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeoutFn: (h) => window.clearTimeout(h as number),
     });
     this.fsm = fsm;
     this._fsm = fsm;
@@ -1370,7 +1369,7 @@ export default class ArchivistPlugin extends Plugin {
     // Step 19: Tick interval
     // ---------------------------------------------------------------------------
     this.registerInterval(
-      activeWindow.setInterval(() => {
+      window.setInterval(() => {
         fsm.tick();
         refreshTooltips();
       }, 60_000),

@@ -3,12 +3,6 @@ import tseslint from 'typescript-eslint';
 import obsidianmd from 'eslint-plugin-obsidianmd';
 import localPlugin from './tools/eslint/index.mjs';
 
-// NOTE: eslint-plugin-obsidianmd@0.2.4 documents its flat config as
-// `...obsidianmd.configs.recommended` (spread — meaning it returns an array).
-// If the first `npm install` after this migration throws "spread of non-iterable"
-// or similar, change the spread below to a direct object reference and remove the `...`.
-// Check: node -e "const p=require('eslint-plugin-obsidianmd'); console.log(Array.isArray(p.default?.configs?.recommended))"
-
 export default [
   // Ignore patterns (replaces .eslintrc ignorePatterns)
   {
