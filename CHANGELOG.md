@@ -1,3 +1,10 @@
+## [0.8.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.1...0.8.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* **manifest-cache:** avoid unsafe any + enable type-checked lint ([#44](https://github.com/MMoMM-org/obsidian-archivist/issues/44)) ([aecd1a4](https://github.com/MMoMM-org/obsidian-archivist/commit/aecd1a4dafb78e0cca5b46a2a69f53c3331030ae))
+
 ## [0.8.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.0...0.8.1) (2026-05-13)
 
 
