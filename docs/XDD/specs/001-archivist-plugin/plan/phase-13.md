@@ -159,15 +159,33 @@ Establishes one new ADR, replaces the storage backend behind `TokenStore`, and t
 
 - [ ] **T13.7 Phase Validation + E2E manual walkthrough** `[activity: validate]`
 
-  1. Run all phase-13 tests + full suite (`npm test`, `npm run lint`, `npm run typecheck`, `npm run build`).
-  2. Spec compliance: `grep -n "ADR-7\|ADR-21\|SecretStorage\|tokens\.json" -r src tests docs` — all hits explained by ADR-21 or historical/migration code.
-  3. Manual E2E on a real Obsidian ≥ 1.11.4 (Marcus's vault):
-     - **Fresh install**: install plugin, connect via OAuth, verify Keychain prompt appears, verify `tokens.json` is NOT created, restart Obsidian, verify auth survives.
-     - **Migration**: stage a v0.7.x install with a real `tokens.json`, upgrade to V1.1, restart, verify the file is gone, verify auth survives, verify `archivist-dropbox-tokens` exists in Obsidian Settings → Secrets.
-     - **Disconnect**: trigger "Disconnect Dropbox", verify the secret is empty/null, verify re-auth works.
-     - **Re-install scenario**: uninstall plugin, reinstall — secret persists in keychain (Obsidian keeps secrets per-vault by default); document observed behavior in this section as the validation result for the multi-vault assumption (ADR-21 Consequence).
-  4. Lock `phase-13.md` frontmatter to `status: completed`.
-  5. Success: Plugin behaves per ADR-21 across all three paths; no regression in DropboxClient refresh/single-flight/proactive-refresh tests; documentation matches behavior.
+  1. **Automated gates — DONE 2026-05-13.** `npm run typecheck` clean; `npm run lint` clean (after `manifest.json:minAppVersion` bump to 1.11.4 in T13.3 — the `obsidianmd/no-unsupported-api` rule pins API surface against minAppVersion); `npm test` reports 94 test files / 1295 tests pass (up from 1260 pre-phase: +22 SecretStorage-mock self-tests, +15 TokenStore tests, +13 LegacyTokenMigration tests, -16 retired ADR-7 disk/chmod tests, +1 net from manifest test rewrite); `npm run build` produces a clean bundle.
+  2. **Spec-compliance grep — DONE 2026-05-13.** `grep -rn "ADR-7\|ADR-21\|SecretStorage\|tokens\.json\|safeStorage\|secretStorage" src/` yields 28 hits across `main.ts`, `TokenStore.ts`, `LegacyTokenMigration.ts`, `OAuthConnectFlow.ts`, `PluginStore.ts`, `Logger.ts`, `ui/settings/sections/Dropbox.ts`. Each is either: (a) a current-behaviour citation to ADR-21 / `app.secretStorage`, (b) the one-shot migration code in `LegacyTokenMigration.ts`, or (c) an ADR-7 historical reference clearly annotated as superseded. Zero stale "current behaviour" mentions of the legacy `tokens.json`.
+  3. **Manual E2E on a real Obsidian ≥ 1.11.4 (Marcus's test vault)** — PENDING. Run the checklist in `docs/XDD/specs/001-archivist-plugin/plan/phase-13.md#manual-e2e-checklist` (below) and record outcomes inline.
+  4. Lock `phase-13.md` frontmatter to `status: completed` only after step 3 produces no surprises.
+  5. Success: Plugin behaves per ADR-21 across fresh-install / migration / disconnect / reinstall paths; no regression in DropboxClient refresh/single-flight/proactive-refresh tests; documentation matches behavior.
+
+### Manual E2E Checklist (T13.7 step 3)
+
+Run in order on a real Obsidian ≥ 1.11.4. Tick each box and append the observed outcome on the same line so a future reader (or the next maintainer) can audit the V1.1 cutover.
+
+- [ ] **Fresh install — connect path.** Install Archivist V1.1 in an Obsidian vault that has never been authenticated to Dropbox. Open Settings → Archivist → Dropbox → Connect Dropbox. Complete the OAuth flow.
+  - Expected: no macOS Keychain prompt (the "Obsidian Safe Storage" master key already exists from prior Obsidian use; probed 2026-05-13). No `tokens.json` is created at `<vault>/.obsidian/plugins/archivist/`. The settings tab updates to "Connected as <email>".
+  - Observed: _____
+- [ ] **Fresh install — restart survival.** Quit Obsidian fully and reopen. Reopen Settings → Archivist → Dropbox.
+  - Expected: still "Connected as <email>" without re-authentication. The Settings → Secrets panel (if open) lists `archivist-dropbox-tokens`.
+  - Observed: _____
+- [ ] **Legacy migration.** Quit Obsidian. Install Archivist V1.0 (e.g. tag 0.7.9) into a separate test vault, authenticate, then quit Obsidian and verify `tokens.json` exists at `<vault>/.obsidian/plugins/archivist/`. Replace the plugin assets in place with the V1.1 build. Reopen Obsidian.
+  - Expected: on first onload, the migration writes the secret and removes `tokens.json` — verify the file is gone and `archivist-dropbox-tokens` is present in Obsidian's Settings → Secrets. The connected-account email still shows in Archivist's settings tab without re-authenticating. Console log `tokens_migrated` is emitted at info.
+  - Observed: _____
+- [ ] **Disconnect.** From the V1.1 test vault, click *Disconnect Dropbox* in Settings → Archivist.
+  - Expected: confirm modal → Disconnect → status becomes "Not connected" without errors. In Obsidian Settings → Secrets, `archivist-dropbox-tokens` remains listed but with an empty value (per ADR-21 Consequence: no `removeSecret` API). Reconnect works on the next OAuth flow and re-populates the secret.
+  - Observed: _____
+- [ ] **Uninstall / reinstall.** From the V1.1 test vault, disable + uninstall the plugin via Settings → Community plugins. Reinstall.
+  - Expected: the keychain master key persists (it's per-Obsidian-installation, not per-plugin); the previously-set secret survives the uninstall *unless* Obsidian itself wipes secrets on plugin removal. Document observed behaviour — this is the only ADR-21 Consequence claim we have not pre-verified.
+  - Observed: _____
+- [ ] **No regression in the soak / integration suite (optional).** If you maintain a "soak vault" that runs the plugin for an extended period: a 1-hour run should produce the same backup/restore behaviour as pre-V1.1, with no new error log keys appearing. (Skip if you don't keep one.)
+  - Observed: _____
 
 ---
 

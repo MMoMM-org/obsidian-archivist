@@ -1,6 +1,7 @@
 // PluginStore — durable storage for settings, index, and event queue.
 //
-// Storage layout (ADR-7, ADR-11):
+// Storage layout (ADR-11 for index.json + sidecars; tokens have moved out
+// to app.secretStorage per ADR-21 and are no longer this module's concern):
 //   data.json              → plugin.loadData/saveData (Obsidian-managed, Sync-eligible)
 //                            Holds: settings, top-level vault_id, ui flags
 //   index.json             → adapter.write at <plugin-data-dir>/index.json (NOT synced)

@@ -276,8 +276,8 @@ export class OAuthConnectFlow {
    * use the latter and call `requestUrl` directly.
    *
    * Wired by `main.ts` after `handleCallback` succeeds and from the onload
-   * backfill path; the email is persisted into tokens.json so it survives a
-   * plugin reload.
+   * backfill path; the email is persisted via `tokenStore.save()` into
+   * `app.secretStorage` (ADR-21) so it survives a plugin reload.
    */
   async fetchAccountEmail(accessToken: string): Promise<string | null> {
     try {

@@ -167,8 +167,8 @@ export default class ArchivistPlugin extends Plugin {
           params as unknown as OAuthCallbackParams,
         );
         // Best-effort: fetch the connected account email and persist it into
-        // tokens.json so the settings UI can show "Connected as <email>" both
-        // immediately AND across plugin reloads.
+        // the secret store so the settings UI can show "Connected as <email>"
+        // both immediately AND across plugin reloads.
         const email = await this.oauthFlow!.fetchAccountEmail(tokens.access_token);
         if (email) {
           await tokenStore.save({ ...tokens, dropbox_account_email: email });
@@ -1115,9 +1115,10 @@ export default class ArchivistPlugin extends Plugin {
         releaseOwnership: () => Promise.resolve(),
       },
       dropbox: {
-        // Source of truth for the connected account is tokens.json — survives
-        // plugin reload because it's persisted by OAuthConnectFlow + the
-        // post-callback re-save in the protocol handler above.
+        // Source of truth for the connected account is the secret store
+        // (ADR-21) — survives plugin reload because it's persisted by
+        // OAuthConnectFlow + the post-callback re-save in the protocol
+        // handler above.
         getAccountEmail: async () => {
           const t = await tokenStore.load();
           return t?.dropbox_account_email && t.dropbox_account_email.length > 0
