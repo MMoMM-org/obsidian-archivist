@@ -681,7 +681,7 @@ export class ArchivistError extends Error {
     public readonly cause?: unknown
   ) { super(message); }
 }
-export class AuthError extends ArchivistError {}                 // OAUTH_STATE_MISMATCH, TOKEN_REVOKED, TOO_MANY_PENDING_FLOWS, DISCONNECT_LOCAL_CLEAR_FAILED
+export class AuthError extends ArchivistError {}                 // OAUTH_STATE_MISMATCH, TOKEN_REVOKED, TOO_MANY_PENDING_FLOWS, DISCONNECT_SECRET_CLEAR_FAILED (renamed from DISCONNECT_LOCAL_CLEAR_FAILED in V1.1 — ADR-21)
 export class NetworkError extends ArchivistError {}              // transient; retryable
 export class RateLimitError extends ArchivistError {
   constructor(code: string, message: string, public readonly retryAfterSeconds: number, cause?: unknown) {
