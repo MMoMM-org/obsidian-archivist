@@ -935,6 +935,138 @@ describe('SchedulerFSM — recoverOnStartup catch-up', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Runtime catch-up — tick() promotes missed scheduled slots inside a session.
+// recoverOnStartup() covers boot; this covers (a) sleeps that crossed a
+// scheduled instant within a single session, and (b) the sub-second clock-edge
+// in nextWeeklyFullAt where computeNextScheduledFullAt jumps to the FOLLOWING
+// scheduled slot once `now` is past today's by even 1 ms — both of which
+// previously left the missed slot silently dropped until the next reload.
+// ---------------------------------------------------------------------------
+
+describe('SchedulerFSM — tick() runtime catch-up', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('promotes a missed scheduled slot to catch-up when tick lands past the scheduled instant', () => {
+    // 2026-05-17 is a Sunday. lastFull was the previous Friday.
+    // Schedule: weekly Sunday 03:00. By 10:37 Sunday the 03:00 slot has
+    // passed; computeNextScheduledFullAt now points to NEXT Sunday, so
+    // without the runtime sweep today's slot would be silently dropped.
+    const lastFull = new Date('2026-05-15T11:22:00').getTime();
+    const now = new Date('2026-05-17T10:37:00').getTime();
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 0, quiet_after_event_minutes: 0 },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(1);
+    expect(h.fsm.getState()).toBe('READY');
+
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(h.fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'catchup' });
+  });
+
+  it('runtime catch-up dismisses the orphaned preflight via the host', () => {
+    // Same scenario as above, but exercise that the host's dismissPreflight
+    // is invoked. (NoticeCenter's notice already auto-expires at the
+    // scheduled instant via the timeout introduced earlier in this branch;
+    // the FSM call is defensive.)
+    const lastFull = new Date('2026-05-15T11:22:00').getTime();
+    const now = new Date('2026-05-17T10:37:00').getTime();
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 0, quiet_after_event_minutes: 0 },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(1);
+
+    h.fsm.tick();
+    expect(h.preflightHost.dismissCalls).toBe(1);
+  });
+
+  it('does NOT promote when the user explicitly skipped this cycle', () => {
+    // User clicks "Skip this cycle" during the preflight. The scheduled
+    // slot then comes and goes; the runtime sweep must respect that
+    // choice and NOT resurrect the slot as a catch-up.
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 5 * 60 * 1000 };
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 0, quiet_after_event_minutes: 0 },
+      // lastFull a few minutes after the prior weekly slot — mirrors how
+      // real FULL commits land (a few seconds/minutes after the scheduled
+      // instant, since the backup takes time). nextFromLast then resolves
+      // cleanly to today's `scheduled` so the skip-vs-catchup check has
+      // something concrete to compare against.
+      lastFullCommitAt: scheduled - 7 * 24 * 3600 * 1000 + 5 * 60 * 1000,
+      now: () => nowRef.value,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(1);
+
+    // Fire preflight, then skip.
+    h.fsm.tick();
+    h.preflightHost.shown[0].onSkip();
+
+    // Advance past the scheduled instant — the slot is now "in the past"
+    // from a clock-edge perspective.
+    nowRef.value = scheduled + 60 * 1000;
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('READY');
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+
+  it('does NOT promote when a Start-now FULL ran within the preflight lead before the scheduled instant', () => {
+    // The user clicks "Start now" inside the preflight window; the FULL
+    // commits a few minutes BEFORE the natural scheduled instant. Once the
+    // natural instant ticks by, the runtime sweep must recognise that
+    // FULL as having served the slot — firing another catch-up would be
+    // a wasted duplicate. (A FULL run far earlier, e.g. 2 days before
+    // the slot, is NOT close enough and stays catch-up eligible — see
+    // the first test in this block which covers exactly that case.)
+    const scheduled = new Date('2026-04-26T03:00:00').getTime();
+    const nowRef = { value: scheduled - 4 * 60 * 1000 }; // 02:56 — full just ran
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 0, quiet_after_event_minutes: 0 },
+      lastFullCommitAt: scheduled - 4 * 60 * 1000, // FULL committed at 02:56
+      now: () => nowRef.value,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(1);
+
+    // Advance well past the natural scheduled instant.
+    nowRef.value = scheduled + 13 * 60 * 1000;
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('READY');
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+
+  it('does NOT re-flag once catchupPending is already set (idempotent on repeated ticks)', () => {
+    const lastFull = new Date('2026-05-15T11:22:00').getTime();
+    const now = new Date('2026-05-17T10:37:00').getTime();
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 0, quiet_after_event_minutes: 0 },
+      lastFullCommitAt: lastFull,
+      now: () => now,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(1);
+
+    h.fsm.tick();
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    // After the run completes successfully, catchup clears.
+    h.fsm.onBackupSuccess();
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+    // Next tick must not re-flag (lastFull is now `now`, slot is in future).
+    h.setLastFullCommitAt(now);
+    h.fsm.tick();
+    expect(h.fsm.hasPendingCatchup()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // T7.2 — Pending backup tracking
 // ---------------------------------------------------------------------------
 

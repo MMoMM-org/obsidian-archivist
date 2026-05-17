@@ -91,9 +91,10 @@ export interface PreflightHost {
   showPreflight(actions: PreflightActions, scheduledAt: number): void;
   /**
    * Dismiss any active preflight notice. Optional so lightweight test stubs
-   * can satisfy the contract without implementing it. Called by the FSM when
-   * the scheduled full has actually completed (so the sticky notice doesn't
-   * linger past the event it was warning about).
+   * can satisfy the contract without implementing it. Called by the FSM
+   * after a successful full to clear the notice immediately when the user
+   * clicked "Start now" before the auto-expiry; in the normal scheduled
+   * path the notice auto-expires at the scheduled instant anyway.
    */
   dismissPreflight?(): void;
 }
@@ -324,8 +325,11 @@ export class SchedulerFSM {
       this.skippedCycle = null;
       this.preflightFiredFor = null;
       if (this.pendingBackup.reason === 'catchup') this.catchupPending = false;
-      // The sticky preflight notice has no auto-timeout. Once the full it
-      // warned about has actually run, dismiss it so it doesn't linger.
+      // Belt-and-braces dismiss: the preflight notice already auto-expires at
+      // the scheduled instant, but onBackupSuccess can fire after a manual
+      // "Start now" — well before the auto-expiry — so we still call hide()
+      // here to clear the notice immediately. Hiding an already-expired
+      // notice is a no-op.
       this.deps.preflightHost.dismissPreflight?.();
     }
     this.pendingBackup = null;
@@ -346,6 +350,29 @@ export class SchedulerFSM {
   tick(): void {
     if (this.state !== 'READY' && this.state !== 'ERROR') return;
     if (!this.deps.isDesignated()) return;
+
+    // Promote any missed scheduled slot to a catch-up. recoverOnStartup()
+    // covers boot; this covers two single-session gaps that boot logic
+    // can't see:
+    //   (a) the computer slept across a scheduled instant — setInterval
+    //       timers pause during sleep, so the scheduled tick never fired;
+    //   (b) the clock-edge in nextWeeklyFullAt — once `now` is past
+    //       today's scheduled time by even one millisecond, computeNext-
+    //       ScheduledFullAt jumps to NEXT week, so step 2 below would
+    //       otherwise silently drop today's slot.
+    // No-op when catchupPending is already set, when the slot is still in
+    // the future, or when the user explicitly skipped this cycle.
+    if (!this.catchupPending && this.isScheduledFullOverdue()) {
+      this.catchupPending = true;
+      this.deps.logger.info('catchup_flagged_runtime', { now: this.now() });
+      // Clear the preflight bookkeeping for the (now missed) slot so the
+      // FSM state isn't carrying a stale reference; the visible notice
+      // auto-expired at the scheduled instant via NoticeCenter, but call
+      // dismissPreflight defensively in case a host implementation still
+      // holds it.
+      this.preflightFiredFor = null;
+      this.deps.preflightHost.dismissPreflight?.();
+    }
 
     const now = this.now();
 
@@ -414,14 +441,38 @@ export class SchedulerFSM {
       return;
     }
 
-    const nextFromLast = this.nextFullAfter(new Date(lastFull));
-    if (nextFromLast.getTime() <= this.now()) {
+    if (this.isScheduledFullOverdue()) {
       this.catchupPending = true;
       this.deps.logger.info('catchup_flagged', {
         last_full_at: lastFull,
-        next_from_last: nextFromLast.getTime(),
+        next_from_last: this.nextFullAfter(new Date(lastFull)).getTime(),
       });
     }
+  }
+
+  /**
+   * Has a scheduled FULL slot passed since the last successful FULL, without
+   * the user explicitly skipping it? Shared by recoverOnStartup() (boot) and
+   * tick() (runtime sweep). Returns false on fresh install — recoverOnStartup
+   * treats that as its own dedicated branch.
+   */
+  private isScheduledFullOverdue(): boolean {
+    const lastFull = this.deps.getLastFullCommitAt();
+    if (lastFull === null) return false;
+    const nextFromLast = this.nextFullAfter(new Date(lastFull)).getTime();
+    if (nextFromLast > this.now()) return false;
+    // Honour explicit user choice — "Skip this cycle" must not be undone by
+    // the runtime sweep.
+    if (this.skippedCycle === nextFromLast) return false;
+    // Treat a FULL that committed within the preflight lead window before a
+    // scheduled slot as having served that slot. Covers the "Start now"
+    // path: the user clicks the preflight button, the FULL runs a few
+    // minutes BEFORE `scheduled`, and once the natural instant ticks by we
+    // would otherwise resurrect that slot as a duplicate catch-up. A FULL
+    // that lands MORE than the preflight lead before the slot (e.g. 2 days
+    // before) is not close enough to count and stays catch-up eligible.
+    if (nextFromLast - lastFull <= PREFLIGHT_LEAD_MS) return false;
+    return true;
   }
 
   // ---------------------------------------------------------------------------

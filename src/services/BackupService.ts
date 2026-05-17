@@ -47,6 +47,28 @@ const LARGE_FILE_CHUNK_BYTES = 150 * 1024 * 1024;       // 150 MB
 const DEFAULT_UPLOAD_PARALLELISM = 2;
 
 /**
+ * Emit an info-level "progress: N/total blobs" line every N blob uploads
+ * during a FULL. Lets the user watch progress in the dev console without
+ * turning on diagnostic mode (which would log every single blob path).
+ * Chosen empirically: 100 keeps the log readable for thousand-file vaults
+ * while still firing several times during a long upload.
+ */
+const PROGRESS_LOG_EVERY = 100;
+
+/**
+ * Local 24h HH:MM:SS for diagnostic-log lifecycle lines. Users reading the
+ * dev console paste log excerpts that lose Chrome's gutter timestamps; the
+ * inline time makes "Starting" / "done" pairs self-describing. Reads the
+ * real wall clock — intentionally NOT the injected `this.now()` so adding
+ * lifecycle log lines doesn't burn through tests' fixed timestamp arrays.
+ * Logs are display-only and never feed into manifests or commits.
+ */
+function hhmmssNow(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+/**
  * Hard ceiling on the once-per-session chain-integrity walk. Each step
  * is a Dropbox round-trip; at ~200 ms per call, 100 caps the worst-case
  * startup cost at ~20 s. Retention defaults bound the chain to "a few
@@ -305,7 +327,7 @@ export class BackupService {
   async runFull(opts?: { exclusionsApplied?: string[] | null }): Promise<{ filesWritten: number }> {
     const exclusionsApplied = opts?.exclusionsApplied ?? null;
     const createdAt = this.now();
-    this.logger.info('Starting full backup');
+    this.logger.info(`Starting full backup at ${hhmmssNow()}`);
     this.progress?.start({ kind: 'full' });
 
     try {
@@ -332,8 +354,25 @@ export class BackupService {
 
       // --- Step 1: Upload new content blobs (CAS, idempotent) ---
       const newBlobs = this.collectNewBlobs(fileData);
-      this.progress?.setPhase('uploading', newBlobs.size);
-      await this.uploadBlobs(newBlobs, parallelism, (delta) => this.progress?.advance(delta));
+      const totalBlobs = newBlobs.size;
+      this.progress?.setPhase('uploading', totalBlobs);
+      // Periodic progress line so the user sees the upload making headway in
+      // the dev console even when individual blob writes are debug-gated.
+      // Threshold + last-emitted counter keep the cadence at one log per
+      // PROGRESS_LOG_EVERY blobs regardless of upload parallelism.
+      let blobsUploaded = 0;
+      let blobsSinceLastLog = 0;
+      await this.uploadBlobs(newBlobs, parallelism, (delta) => {
+        this.progress?.advance(delta);
+        blobsUploaded += delta;
+        blobsSinceLastLog += delta;
+        if (blobsSinceLastLog >= PROGRESS_LOG_EVERY) {
+          this.logger.info(
+            `full backup progress: ${blobsUploaded}/${totalBlobs} blobs at ${hhmmssNow()}`,
+          );
+          blobsSinceLastLog = 0;
+        }
+      });
 
       // --- Build manifest ---
       const manifest = buildFullManifest({
@@ -382,7 +421,7 @@ export class BackupService {
       }
 
       const fileCount = Object.keys(manifest.files).length;
-      this.logger.info('full backup done');
+      this.logger.info(`full backup done at ${hhmmssNow()}`);
       this.logger.info(`${fileCount} files written`);
       return { filesWritten: fileCount };
     } finally {
@@ -522,7 +561,7 @@ export class BackupService {
 
     // We have actual work — announce the start. (Late on purpose: a no-op
     // tick stays silent except for the single "Inc backup: no changes" line.)
-    this.logger.info('Starting inc backup');
+    this.logger.info(`Starting inc backup at ${hhmmssNow()}`);
     this.progress?.start({ kind: 'inc' });
 
     try {
@@ -635,7 +674,7 @@ export class BackupService {
       this.progress?.advance(1);
 
       const fileCount = Object.keys(manifest.files).length;
-      this.logger.info('inc backup done');
+      this.logger.info(`inc backup done at ${hhmmssNow()}`);
       this.logger.info(`${fileCount} files written`);
       return { filesWritten: fileCount };
     } finally {
