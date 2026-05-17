@@ -6,6 +6,8 @@
 
 Your vault's quiet historian. Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.
 
+**Status: pre-1.0.** Backup and restore are too important to call "done" prematurely. Archivist works well in my own daily use, but I want broader real-world use before stamping 1.0. Until then, please keep a second, independent backup of your vault (a periodic zip works fine).
+
 ## What it does
 
 Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a schedule you control, and lets you walk back through every version of every note. When something goes wrong — an accidental delete, a botched merge, a mystery overwrite — you find the version you wanted in the **Backup Browser** or the **Show history of current file** modal, click *Restore*, and the file comes back exactly as it was.
