@@ -18,18 +18,20 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 - Power users who want **per-file version history**, not just whole-vault snapshots.
 - Anyone who's been bitten by syncing tools and wants a separate, audit-able backup channel.
 
-A note of caution. **Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
-
-I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
-
-For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
-
 ## What's different about it
 
 - **Content-addressed storage**: identical files dedupe automatically. Renaming a 50 MB attachment costs zero new bytes.
 - **Hierarchical retention**: high-frequency snapshots in the last 24 h, daily for a month, monthly for years — without you tuning anything.
 - **Local-first**: your tokens and indexes live in the vault. The plugin opens exactly three network hosts (listed below) and never phones home elsewhere.
 - **Standalone Restore CLI**: a zero-dependency Node script ships in every release. If the plugin or Obsidian ever goes south, you can still recover any file from your Dropbox folder using only `node`.
+
+## A note of caution
+
+**Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
+
+I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
+
+For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
 
 ## Screenshots
 
