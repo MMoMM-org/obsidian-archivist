@@ -12,7 +12,7 @@ Your vault's quiet historian. Versioned vault backups to Dropbox with content-ad
 
 Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a schedule you control, and lets you walk back through every version of every note. When something goes wrong — an accidental delete, a botched merge, a mystery overwrite — you find the version you wanted in the **Backup Browser** or the **Show history of current file** modal, click *Restore*, and the file comes back exactly as it was.
 
-**Who it's for**
+## Who it's for
 
 - Obsidian users who already pay for Dropbox and want backups that are *theirs* (no third-party service holding your notes).
 - Power users who want **per-file version history**, not just whole-vault snapshots.
@@ -24,7 +24,7 @@ I use this plugin personally on my own vault with roughly 6000+ files and I'm no
 
 For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
 
-**What's different about it**
+## What's different about it
 
 - **Content-addressed storage**: identical files dedupe automatically. Renaming a 50 MB attachment costs zero new bytes.
 - **Hierarchical retention**: high-frequency snapshots in the last 24 h, daily for a month, monthly for years — without you tuning anything.
