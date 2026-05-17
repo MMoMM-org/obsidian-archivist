@@ -45,6 +45,15 @@ function handleBackupNow(deps: BackupNowCommandDeps, kind: 'inc' | 'full'): void
   const result = deps.fsm.triggerBackupNow(kind);
   switch (result) {
     case 'started':
+      // Confirm the manual trigger took. Without this the only signal that
+      // the command did anything is the ribbon icon flipping to a busy
+      // state — easy to miss, especially for a FULL that the user is
+      // explicitly forcing for recovery. The matching success/failure
+      // toast still fires later from NoticeCenter on completion.
+      deps.notify(
+        kind === 'full' ? S.BACKUP_NOW_FULL_STARTED : S.BACKUP_NOW_INC_STARTED,
+        { timeout: 4_000 },
+      );
       return;
     case 'already_running':
       deps.notify(S.BACKUP_NOW_IN_PROGRESS, { timeout: 4_000 });

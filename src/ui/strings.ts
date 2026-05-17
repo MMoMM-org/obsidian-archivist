@@ -423,6 +423,8 @@ export const S = {
   BACKUP_NOW_IN_PROGRESS: 'Backup already in progress.',
   BACKUP_NOW_NOT_DESIGNATED:
     'This device is not the designated backup device. Designate it in settings to back up from here.',
+  BACKUP_NOW_INC_STARTED: 'Incremental backup started.',
+  BACKUP_NOW_FULL_STARTED: 'Full backup started.',
 
   // ─── Error copy (error center in settings) ───────────────────────
   ERROR_NETWORK: 'Network error — will retry automatically.',

@@ -84,6 +84,7 @@ function makeNotify(): { fn: NotifyFn; calls: NotifyCall[] } {
   const calls: NotifyCall[] = [];
   const fn: NotifyFn = (message: string, opts?: NotifyOptions) => {
     calls.push({ message, timeout: opts?.timeout });
+    return { hide: () => {} };
   };
   return { fn, calls };
 }
@@ -110,7 +111,7 @@ describe('registerBackupNowCommand', () => {
     expect(typeof full!.callback).toBe('function');
   });
 
-  it('invoking the inc command from READY starts an incremental backup (transition to BACKUP_RUNNING)', () => {
+  it('invoking the inc command from READY starts an incremental backup and shows BACKUP_NOW_INC_STARTED', () => {
     const fsm = makeFSM();
     const { plugin, captured } = makePluginStub();
     const { fn: notify, calls: notifyCalls } = makeNotify();
@@ -120,10 +121,13 @@ describe('registerBackupNowCommand', () => {
 
     expect(fsm.getState()).toBe('BACKUP_RUNNING');
     expect(fsm.getPendingBackup()).toEqual({ type: 'inc' });
-    expect(notifyCalls).toHaveLength(0);
+    // Confirmation toast: without it the only signal the command did
+    // anything is the ribbon icon flipping — too easy to miss.
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0].message).toBe(S.BACKUP_NOW_INC_STARTED);
   });
 
-  it('invoking the full command from READY starts a full backup', () => {
+  it('invoking the full command from READY starts a full backup and shows BACKUP_NOW_FULL_STARTED', () => {
     const fsm = makeFSM();
     const { plugin, captured } = makePluginStub();
     const { fn: notify, calls: notifyCalls } = makeNotify();
@@ -133,7 +137,8 @@ describe('registerBackupNowCommand', () => {
 
     expect(fsm.getState()).toBe('BACKUP_RUNNING');
     expect(fsm.getPendingBackup()).toEqual({ type: 'full', reason: 'scheduled' });
-    expect(notifyCalls).toHaveLength(0);
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0].message).toBe(S.BACKUP_NOW_FULL_STARTED);
   });
 
   it('invoking while already BACKUP_RUNNING shows BACKUP_NOW_IN_PROGRESS', () => {
@@ -142,11 +147,15 @@ describe('registerBackupNowCommand', () => {
     const { fn: notify, calls: notifyCalls } = makeNotify();
 
     registerBackupNowCommand({ plugin, fsm, notify });
-    captured.command!.callback!(); // first invoke — starts
-    captured.command!.callback!(); // second invoke — already running
+    // Pick the inc command explicitly — captured.command holds whichever
+    // was registered last (full), not necessarily what we want to invoke.
+    const incCallback = captured.byId.get('archivist-backup-now')!.callback!;
+    incCallback(); // first invoke — starts (emits BACKUP_NOW_INC_STARTED)
+    incCallback(); // second invoke — already running
 
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].message).toBe(S.BACKUP_NOW_IN_PROGRESS);
+    expect(notifyCalls).toHaveLength(2);
+    expect(notifyCalls[0].message).toBe(S.BACKUP_NOW_INC_STARTED);
+    expect(notifyCalls[1].message).toBe(S.BACKUP_NOW_IN_PROGRESS);
   });
 
   it('invoking when !designated shows BACKUP_NOW_NOT_DESIGNATED', () => {
