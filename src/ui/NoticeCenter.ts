@@ -80,7 +80,13 @@ export interface NoticeCenterDeps {
 const ERROR_DEDUP_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_TOAST_TIMEOUT_MS = 5_000;
 const ERROR_TOAST_TIMEOUT_MS = 8_000;
-const PERSISTENT_TIMEOUT = 0; // sticky in Obsidian Notice
+/**
+ * Lower bound on the preflight notice timeout when `showPreflight` is called
+ * unusually close to (or past) the scheduled instant — e.g. the FSM wakes
+ * inside the 5-min window after a long gap. Keeps the notice visible just
+ * long enough for the user to notice it instead of flashing on screen.
+ */
+const PREFLIGHT_MIN_TIMEOUT_MS = 1_000;
 
 function formatHHmm(epochMs: number): string {
   const d = new Date(epochMs);
@@ -98,10 +104,13 @@ export class NoticeCenter implements PreflightHost {
   private bannerSubscribers: BannerSubscriber[] = [];
   private errorBurstActive = false;
   /**
-   * Handle for the currently visible preflight notice, if any. The notice is
-   * sticky (timeout: 0), so we keep this reference to dismiss it from
-   * button handlers and from `dismissPreflight()` (called by the FSM when
-   * the scheduled full has run).
+   * Handle for the currently visible preflight notice, if any. The notice
+   * auto-dismisses at the scheduled instant (timeout = scheduledAt − now),
+   * so when the scheduled full actually runs and either succeeds or fails
+   * silently in the background, the notice doesn't outlive the event it
+   * warned about. The handle is still kept so button handlers, a follow-up
+   * `showPreflight()`, and the FSM's `dismissPreflight()` (called from
+   * `onBackupSuccess`) can hide the notice early.
    */
   private currentPreflightHandle: NoticeHandle | null = null;
 
@@ -212,9 +221,15 @@ export class NoticeCenter implements PreflightHost {
       cb();
     };
 
+    // Auto-dismiss at the scheduled instant: by that point the FSM has either
+    // started the backup itself (success → onBackupSuccess dismisses) OR the
+    // run failed / never started and the lingering sticky notice would just
+    // confuse the user. Clamp to a small minimum so a late-firing preflight
+    // (e.g. tick races inside the lead window) still has a visible lifetime.
+    const ttlMs = Math.max(scheduledAt - this.now(), PREFLIGHT_MIN_TIMEOUT_MS);
     const body = `${S.PREFLIGHT_FULL_TITLE(formatHHmm(scheduledAt))}\n\n${S.PREFLIGHT_FULL_BODY}`;
     this.currentPreflightHandle = this.deps.notify(body, {
-      timeout: PERSISTENT_TIMEOUT,
+      timeout: ttlMs,
       buttons: [
         { label: S.PREFLIGHT_START_NOW, onClick: wrap(actions.onStartNow) },
         { label: S.PREFLIGHT_POSTPONE_1H, onClick: wrap(actions.onPostpone1h) },

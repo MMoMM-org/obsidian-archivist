@@ -91,9 +91,10 @@ export interface PreflightHost {
   showPreflight(actions: PreflightActions, scheduledAt: number): void;
   /**
    * Dismiss any active preflight notice. Optional so lightweight test stubs
-   * can satisfy the contract without implementing it. Called by the FSM when
-   * the scheduled full has actually completed (so the sticky notice doesn't
-   * linger past the event it was warning about).
+   * can satisfy the contract without implementing it. Called by the FSM
+   * after a successful full to clear the notice immediately when the user
+   * clicked "Start now" before the auto-expiry; in the normal scheduled
+   * path the notice auto-expires at the scheduled instant anyway.
    */
   dismissPreflight?(): void;
 }
@@ -324,8 +325,11 @@ export class SchedulerFSM {
       this.skippedCycle = null;
       this.preflightFiredFor = null;
       if (this.pendingBackup.reason === 'catchup') this.catchupPending = false;
-      // The sticky preflight notice has no auto-timeout. Once the full it
-      // warned about has actually run, dismiss it so it doesn't linger.
+      // Belt-and-braces dismiss: the preflight notice already auto-expires at
+      // the scheduled instant, but onBackupSuccess can fire after a manual
+      // "Start now" — well before the auto-expiry — so we still call hide()
+      // here to clear the notice immediately. Hiding an already-expired
+      // notice is a no-op.
       this.deps.preflightHost.dismissPreflight?.();
     }
     this.pendingBackup = null;

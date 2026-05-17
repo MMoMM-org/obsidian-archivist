@@ -307,18 +307,37 @@ describe('NoticeCenter.showPreflight', () => {
   // regardless of TZ (uses Date#getHours, which returns the local hour).
   const SCHEDULED_AT = new Date(2026, 4, 10, 14, 35).getTime();
 
-  it('renders a sticky notice with 3 labeled buttons when enabled', () => {
-    const { center, notifyCalls } = makeCenter();
+  it('renders a notice with 3 labeled buttons that auto-expires at the scheduled instant', () => {
+    // Fix `now` exactly 5 min before SCHEDULED_AT so the timeout is the full
+    // lead window. The auto-expiry replaces the previous sticky-forever
+    // behavior so a lingering preflight never outlives the event it warned
+    // about (e.g. when the full silently fails or never starts).
+    const now = SCHEDULED_AT - 5 * 60 * 1000;
+    const { center, notifyCalls } = makeCenter({ now: () => now });
     const { actions } = makeActions();
     center.showPreflight(actions, SCHEDULED_AT);
 
     expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].timeout).toBe(0); // sticky
+    expect(notifyCalls[0].timeout).toBe(5 * 60 * 1000);
     expect(notifyCalls[0].buttons.map((b) => b.label)).toEqual([
       S.PREFLIGHT_START_NOW,
       S.PREFLIGHT_POSTPONE_1H,
       S.PREFLIGHT_SKIP,
     ]);
+  });
+
+  it('clamps the timeout to a small positive minimum when scheduledAt has already passed', () => {
+    // FSM races / wakeups can call showPreflight at-or-after the scheduled
+    // instant. A timeout of 0 in Obsidian is sticky — exactly what the new
+    // behavior is meant to avoid — so the minimum keeps the notice visible
+    // briefly without making it persistent.
+    const now = SCHEDULED_AT + 1000;
+    const { center, notifyCalls } = makeCenter({ now: () => now });
+    const { actions } = makeActions();
+    center.showPreflight(actions, SCHEDULED_AT);
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0].timeout).toBeGreaterThan(0);
   });
 
   it('renders the scheduled time in the message body', () => {
