@@ -1,3 +1,10 @@
+## [0.8.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.2...0.8.3) (2026-05-17)
+
+
+### Bug Fixes
+
+* **scheduler:** rescue missed scheduled FULLs + better lifecycle signals ([#45](https://github.com/MMoMM-org/obsidian-archivist/issues/45)) ([1fca22b](https://github.com/MMoMM-org/obsidian-archivist/commit/1fca22b2d3a3393005446bef0ed8c28a8cd61d5e))
+
 ## [0.8.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.1...0.8.2) (2026-05-13)
 
 
