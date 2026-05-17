@@ -179,21 +179,27 @@ This is your **break-glass recovery tool**. The full walkthrough — where to ge
 
 ## Installation
 
-### Community Plugins (after listing)
+### Community Plugins (recommended)
 1. Open Obsidian Settings → Community Plugins
-2. Search for "Archivist"
-3. Install and enable
+2. Click **Browse**, search for **Archivist**
+3. Click **Install**, then **Enable**
 
 ### Manual
+For air-gapped installs or pinning to a specific version.
+
 1. Download `main.js`, `manifest.json`, `styles.css`, and `restore.mjs` from the [latest release](https://github.com/MMoMM-org/obsidian-archivist/releases/latest)
-2. Create folder `<vault>/.obsidian/plugins/obsidian-archivist/`
+2. Create folder `<vault>/.obsidian/plugins/archivist/`
 3. Copy `main.js`, `manifest.json`, and `styles.css` into that folder
 4. Keep `restore.mjs` somewhere safe — it's your break-glass recovery tool
 5. Restart Obsidian and enable the plugin
 
-### BRAT (Beta)
+### BRAT (unreleased main builds)
+For testing changes ahead of the next official release — useful if you're chasing a fix that has merged to `main` but hasn't been tagged yet. Not recommended for everyday use; the Community Plugins channel covers that.
+
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 2. Add beta plugin: `MMoMM-org/obsidian-archivist`
+
+**Already running via BRAT?** You can switch to the official channel without losing settings, backup history, or Dropbox connection: disable Archivist in Obsidian, remove it from BRAT's Beta Plugin List (decline if BRAT offers to delete the plugin files — your `data.json`, `index.json`, etc. live there), then install Archivist from Community Plugins. The plugin ID is identical in both channels, so all local data and SecretStorage tokens survive the switch.
 
 ## Release notes
 
