@@ -6,28 +6,32 @@
 
 Your vault's quiet historian. Versioned vault backups to Dropbox with content-addressed storage, hierarchical retention, and file-level restore.
 
+**Status: pre-1.0.** Backup and restore are too important to call "done" prematurely. Archivist works well in my own daily use, but I want broader real-world use before stamping 1.0. Until then, please keep a second, independent backup of your vault (a periodic zip works fine).
+
 ## What it does
 
 Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a schedule you control, and lets you walk back through every version of every note. When something goes wrong — an accidental delete, a botched merge, a mystery overwrite — you find the version you wanted in the **Backup Browser** or the **Show history of current file** modal, click *Restore*, and the file comes back exactly as it was.
 
-**Who it's for**
+## Who it's for
 
 - Obsidian users who already pay for Dropbox and want backups that are *theirs* (no third-party service holding your notes).
 - Power users who want **per-file version history**, not just whole-vault snapshots.
 - Anyone who's been bitten by syncing tools and wants a separate, audit-able backup channel.
 
-A note of caution. **Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
-
-I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
-
-For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
-
-**What's different about it**
+## What's different about it
 
 - **Content-addressed storage**: identical files dedupe automatically. Renaming a 50 MB attachment costs zero new bytes.
 - **Hierarchical retention**: high-frequency snapshots in the last 24 h, daily for a month, monthly for years — without you tuning anything.
 - **Local-first**: your tokens and indexes live in the vault. The plugin opens exactly three network hosts (listed below) and never phones home elsewhere.
 - **Standalone Restore CLI**: a zero-dependency Node script ships in every release. If the plugin or Obsidian ever goes south, you can still recover any file from your Dropbox folder using only `node`.
+
+## A note of caution
+
+**Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
+
+I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
+
+For a deeper look at how the storage layout works (and why it's not just files in folders), see [docs/architecture-overview.md](docs/architecture-overview.md).
 
 ## Screenshots
 
@@ -177,21 +181,27 @@ This is your **break-glass recovery tool**. The full walkthrough — where to ge
 
 ## Installation
 
-### Community Plugins (after listing)
+### Community Plugins (recommended)
 1. Open Obsidian Settings → Community Plugins
-2. Search for "Archivist"
-3. Install and enable
+2. Click **Browse**, search for **Archivist**
+3. Click **Install**, then **Enable**
 
 ### Manual
+For air-gapped installs or pinning to a specific version.
+
 1. Download `main.js`, `manifest.json`, `styles.css`, and `restore.mjs` from the [latest release](https://github.com/MMoMM-org/obsidian-archivist/releases/latest)
-2. Create folder `<vault>/.obsidian/plugins/obsidian-archivist/`
+2. Create folder `<vault>/.obsidian/plugins/archivist/`
 3. Copy `main.js`, `manifest.json`, and `styles.css` into that folder
 4. Keep `restore.mjs` somewhere safe — it's your break-glass recovery tool
 5. Restart Obsidian and enable the plugin
 
-### BRAT (Beta)
+### BRAT (unreleased main builds)
+For testing changes ahead of the next official release — useful if you're chasing a fix that has merged to `main` but hasn't been tagged yet. Not recommended for everyday use; the Community Plugins channel covers that.
+
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
 2. Add beta plugin: `MMoMM-org/obsidian-archivist`
+
+**Already running via BRAT?** You can switch to the official channel without losing settings, backup history, or Dropbox connection: disable Archivist in Obsidian, remove it from BRAT's Beta Plugin List (decline if BRAT offers to delete the plugin files — your `data.json`, `index.json`, etc. live there), then install Archivist from Community Plugins. The plugin ID is identical in both channels, so all local data and SecretStorage tokens survive the switch.
 
 ## Release notes
 
