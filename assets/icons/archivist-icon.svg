@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Obsidian Archivist">
+  <!--
+    Canonical Archivist brand icon. Reuses the ribbon motif (folder with a
+    backward arrow = "version history of a vault") but rendered as a filled
+    tile so it reads well on light Dropbox OAuth screens AND on Obsidian's
+    plugin listing card without depending on theme colours.
+
+    Render targets: 64, 128, 256, 512 PNGs via the assets/icons/render.mjs
+    script in this directory.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#5B3FB8"/>
+    </linearGradient>
+    <linearGradient id="folder" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E8DDFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded background tile. iOS-style corner radius (≈22% of side). -->
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#bg)"/>
+
+  <!-- Folder body with tab, centred. Filled white-ish on the purple tile. -->
+  <path d="M58 92
+           L58 188
+           a14 14 0 0 0 14 14
+           L184 202
+           a14 14 0 0 0 14 -14
+           L198 110
+           a14 14 0 0 0 -14 -14
+           L122 96
+           L100 76
+           L72 78
+           a14 14 0 0 0 -14 14 z"
+        fill="url(#folder)"
+        stroke="#3C2A75"
+        stroke-width="6"
+        stroke-linejoin="round"/>
+
+  <!-- Backward arrow inside the folder: shaft + chevron. Solid purple,
+       rounded ends so it stays readable at 64×64. -->
+  <g fill="none" stroke="#3C2A75" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M170 152 L110 152"/>
+    <path d="M132 128 L110 152 L132 176"/>
+  </g>
+</svg>
