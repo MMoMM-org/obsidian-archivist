@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Archivist">
   <!--
-    Dropbox app icon source. Brand-purple tile + Lucide `archive` (the same
-    icon community.obsidian.md renders next to the plugin name, so users
-    recognise it on the OAuth consent screen).
+    Dropbox app icon source. Brand-purple tile + Lucide `cloud-backup`
+    (cloud silhouette with a restore-loop arrow — communicates "cloud
+    backup with restore" in one mark, matching Archivist's actual job).
 
     Lucide path data from lucide-static v1.17.0 (ISC). Original viewBox is
     24×24 with stroke-width=2; here it's scaled by 6 and translated to
@@ -20,15 +20,15 @@
   <!-- Rounded brand tile. iOS-style corner radius (~22% of side). -->
   <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#tile)"/>
 
-  <!-- Lucide `archive` (translate 56,56 + scale 6 ⇒ 144×144 icon, centred). -->
+  <!-- Lucide `cloud-backup` (translate 56,56 + scale 6 ⇒ 144×144 icon, centred). -->
   <g transform="translate(56 56) scale(6)"
      fill="none"
      stroke="#FFFFFF"
      stroke-width="2"
      stroke-linecap="round"
      stroke-linejoin="round">
-    <rect width="20" height="5" x="2" y="3" rx="1"/>
-    <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>
-    <path d="M10 12h4"/>
+    <path d="M21 15.251A4.5 4.5 0 0 0 17.5 8h-1.79A7 7 0 1 0 3 13.607"/>
+    <path d="M7 11v4h4"/>
+    <path d="M8 19a5 5 0 0 0 9-3 4.5 4.5 0 0 0-4.5-4.5 4.82 4.82 0 0 0-3.41 1.41L7 15"/>
   </g>
 </svg>

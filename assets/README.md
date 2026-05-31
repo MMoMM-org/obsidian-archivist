@@ -7,7 +7,7 @@ All icons and logos in this folder are **original work, MIT-licensed** alongside
 | Path | Format | Use |
 |------|--------|-----|
 | `../src/ui/icons/ribbon.svg` | 20×20 SVG, `currentColor` only | Obsidian ribbon icon. Lives in `src/` because it's bundled into the plugin and theme-respecting. |
-| `icons/archivist-icon.svg` | 256×256 SVG, hard-coded brand colours + Lucide `archive` (ISC) | Source for the Dropbox app icon — the same Lucide icon community.obsidian.md renders next to the plugin name, on a brand-purple tile so it reads on Dropbox's light OAuth consent screen. |
+| `icons/archivist-icon.svg` | 256×256 SVG, hard-coded brand colours + Lucide `cloud-backup` (ISC) | Source for the Dropbox app icon — cloud silhouette with a restore-loop arrow ("cloud backup with restore"), on a brand-purple tile. |
 | `icons/dropbox-app-64.png` | 64×64 PNG with alpha | Dropbox developer console — small app-icon slot. Rendered from `archivist-icon.svg`. |
 | `icons/dropbox-app-256.png` | 256×256 PNG with alpha | Dropbox developer console — large app-icon slot. Rendered from `archivist-icon.svg`. |
 | `icons/render.sh` | Bash script | Re-rasterises both Dropbox PNGs from `archivist-icon.svg`. Run: `bash assets/icons/render.sh`. |
@@ -17,7 +17,7 @@ All icons and logos in this folder are **original work, MIT-licensed** alongside
 - **Motif**: a folder with a backward-pointing arrow inside, meaning "version history of a vault." Simple, monochrome-friendly so it works with arbitrary Obsidian themes.
 - **Constraint**: the ribbon SVG MUST use `currentColor` (no hard-coded fill or stroke colors). Verified by `grep -i 'fill="#\|stroke="#' src/ui/icons/ribbon.svg` returning nothing.
 - **Smallest effective size**: 16×16. The ribbon SVG was authored at 20×20 viewBox so it scales cleanly to 16×16 without strokes collapsing.
-- **Dropbox app icon** (`icons/archivist-icon.svg` → `dropbox-app-64.png` + `dropbox-app-256.png`) uses **Lucide `archive`** (ISC-licensed, lucide-static v1.17.0) on a fixed brand-purple tile (`#8B5CF6` → `#5B3FB8` gradient, white strokes). The icon choice deliberately matches what community.obsidian.md already shows next to "Archivist" in its plugin listing — so users see a familiar shape on the Dropbox OAuth consent screen rather than an unfamiliar custom mark. The tile (instead of a bare Lucide line drawing) gives the icon visual weight against Dropbox's light surface. Different rules from the ribbon SVG — that's intentional, not a violation of the constraint above.
+- **Dropbox app icon** (`icons/archivist-icon.svg` → `dropbox-app-64.png` + `dropbox-app-256.png`) uses **Lucide `cloud-backup`** (ISC-licensed, lucide-static v1.17.0) on a fixed brand-purple tile (`#8B5CF6` → `#5B3FB8` gradient, white strokes). The icon — cloud silhouette with a restore-loop arrow underneath — communicates "cloud backup with restore" in a single mark, which matches Archivist's actual job better than a generic `archive` box. The tile (instead of a bare Lucide line drawing) gives the icon visual weight against Dropbox's light OAuth consent screen. Different rules from the ribbon SVG — that's intentional, not a violation of the constraint above.
 
 ## Re-rendering the Dropbox icons
 
