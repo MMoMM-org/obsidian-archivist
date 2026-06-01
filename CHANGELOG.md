@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.3...0.9.0) (2026-06-01)
+
+
+### Features
+
+* **brand:** Dropbox app icon (Lucide cloud-backup on brand tile, 64 + 256) ([#56](https://github.com/MMoMM-org/obsidian-archivist/issues/56)) ([326e64e](https://github.com/MMoMM-org/obsidian-archivist/commit/326e64e6861ef557c828b7630d8fa9aed199bd47)), closes [#8B5CF6](https://github.com/MMoMM-org/obsidian-archivist/issues/8B5CF6) [#5B3FB8](https://github.com/MMoMM-org/obsidian-archivist/issues/5B3FB8)
+
 ## [0.8.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.2...0.8.3) (2026-05-17)
 
 
