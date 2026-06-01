@@ -1,3 +1,10 @@
+## [0.9.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.9.0...0.9.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **browser:** refresh preview when snapshot changes ([#57](https://github.com/MMoMM-org/obsidian-archivist/issues/57)) ([#59](https://github.com/MMoMM-org/obsidian-archivist/issues/59)) ([c8e334e](https://github.com/MMoMM-org/obsidian-archivist/commit/c8e334e89136e6c710143ace33fb06b304fb3d9f))
+
 # [0.9.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.8.3...0.9.0) (2026-06-01)
 
 
