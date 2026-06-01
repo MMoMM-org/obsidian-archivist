@@ -453,6 +453,7 @@ function renderFilesColumn(
   tree: FileTreeNode,
   selectedPath: string | null,
   selectedDir: string | null,
+  modifiedPaths: ReadonlySet<string>,
   handlers: FilesColumnHandlers,
 ): void {
   container.empty();
@@ -462,7 +463,7 @@ function renderFilesColumn(
   // because only file rows were collected.
   const navRows: HTMLElement[] = [];
   const navEntries: NavEntry[] = [];
-  renderFileTreeNode(container, tree, selectedPath, selectedDir, handlers, navRows, navEntries);
+  renderFileTreeNode(container, tree, selectedPath, selectedDir, modifiedPaths, handlers, navRows, navEntries);
 
   wireArrowNav(navRows, (row, entry) => {
     if (entry.kind === 'file') handlers.onSelectFile(entry.path);
@@ -476,6 +477,7 @@ function renderFileTreeNode(
   node: FileTreeNode,
   selectedPath: string | null,
   selectedDir: string | null,
+  modifiedPaths: ReadonlySet<string>,
   handlers: FilesColumnHandlers,
   navRows: HTMLElement[],
   navEntries: NavEntry[],
@@ -518,12 +520,20 @@ function renderFileTreeNode(
         child,
         selectedPath,
         selectedDir,
+        modifiedPaths,
         handlers,
         navRows,
         navEntries,
       );
     } else {
-      const fileEl = container.createDiv({ cls: 'archivist-file-row' });
+      // Issue #57 follow-up: paint file rows whose content changed in this
+      // snapshot (different hash vs. parent, or new since the parent). The
+      // class hooks into a CSS rule that recolours both icon and filename.
+      const isModified = modifiedPaths.has(child.fullPath);
+      const rowCls = isModified
+        ? 'archivist-file-row archivist-file-row--modified'
+        : 'archivist-file-row';
+      const fileEl = container.createDiv({ cls: rowCls });
       fileEl.setAttribute('tabindex', '-1');
       fileEl.setAttribute('role', 'option');
       fileEl.setAttribute('aria-selected', child.fullPath === selectedPath ? 'true' : 'false');
@@ -685,6 +695,11 @@ export class BackupBrowserView extends ItemView {
   private selectedPath: string | null = null;
   private selectedDir: string | null = null;
   private fileState: Record<string, FileEntry> = {};
+  // Issue #57 follow-up: paths whose hash differs from the parent snapshot's
+  // (or that didn't exist in the parent at all). Recomputed in
+  // _selectSnapshot. Empty for root snapshots (parent_id === null) and when
+  // the parent state cannot be materialized.
+  private modifiedPaths: ReadonlySet<string> = new Set<string>();
   // Files-column search state. Persists across snapshot changes — searching
   // for the same file across snapshots is the obvious use case, and clearing
   // the query on every snapshot click would frustrate that workflow.
@@ -921,6 +936,13 @@ export class BackupBrowserView extends ItemView {
     // (file click / dir click / search debounce) read this.cachedTree
     // instead of reconstructing.
     this._cachedTree = buildFileTree(state);
+
+    // Issue #57 follow-up: diff against the parent snapshot to mark files
+    // that changed in THIS snapshot. Root snapshots and unreachable parents
+    // fall back to "nothing marked" rather than failing the whole view.
+    this.modifiedPaths = await this._computeModifiedPaths(snap, state, capturedSnap);
+    if (this._closed || this.selectedSnapshot !== capturedSnap) return;
+
     this._renderFilesColumn(this._cachedTree);
     this.filesListEl.setAttribute('aria-busy', 'false');
 
@@ -948,6 +970,32 @@ export class BackupBrowserView extends ItemView {
     return this._cachedTree;
   }
 
+  /**
+   * Issue #57 follow-up: determine which paths in `state` changed in the
+   * given snapshot (different hash vs. parent, or new since the parent).
+   * Returns an empty set for root snapshots (no parent) and on any error
+   * loading the parent state — a broken chain shouldn't block the view.
+   */
+  private async _computeModifiedPaths(
+    snap: SnapshotIndexEntry,
+    state: Record<string, FileEntry>,
+    capturedSnap: SnapshotIndexEntry,
+  ): Promise<ReadonlySet<string>> {
+    if (snap.parent_id === null) return new Set<string>();
+    let parentState: Record<string, FileEntry>;
+    try {
+      parentState = await this.deps.restoreService.materializeVaultStateAt(snap.parent_id);
+    } catch {
+      return new Set<string>();
+    }
+    if (this._closed || this.selectedSnapshot !== capturedSnap) return new Set<string>();
+    const modified = new Set<string>();
+    for (const [path, entry] of Object.entries(state)) {
+      if (parentState[path]?.hash !== entry.hash) modified.add(path);
+    }
+    return modified;
+  }
+
   private _renderFilesColumn(tree: FileTreeNode): void {
     const query = this.searchQuery.trim();
     if (query === '') {
@@ -958,6 +1006,7 @@ export class BackupBrowserView extends ItemView {
         tree,
         this.selectedPath,
         this.selectedDir,
+        this.modifiedPaths,
         {
           onSelectFile: (path) => { void this._selectFile(path); },
           onSelectDir: (prefix) => { void this._selectDir(prefix); },
@@ -989,6 +1038,7 @@ export class BackupBrowserView extends ItemView {
       pruned,
       this.selectedPath,
       this.selectedDir,
+      this.modifiedPaths,
       {
         onSelectFile: (path) => { void this._selectFile(path); },
         onSelectDir: (prefix) => { void this._selectDir(prefix); },

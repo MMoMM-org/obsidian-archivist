@@ -422,6 +422,21 @@
 	color: var(--text-accent);
 }
 
+/*
+ * Issue #57 follow-up: paint icon + filename orange for files whose content
+ * changed in the currently-viewed snapshot (different hash than the parent
+ * snapshot, or new since the parent). Background highlight on hover/select
+ * still indicates focus; the orange persists so the "modified" cue isn't
+ * lost while interacting. Rules sit below the hover/select rules so equal
+ * specificity falls our way.
+ */
+.archivist-file-row--modified,
+.archivist-file-row--modified .archivist-file-icon,
+.archivist-file-row--modified:hover .archivist-file-icon,
+.archivist-file-row--modified[aria-selected="true"] .archivist-file-icon {
+	color: var(--color-orange);
+}
+
 .archivist-file-name {
 	flex: 1 1 auto;
 	white-space: nowrap;

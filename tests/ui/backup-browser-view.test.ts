@@ -728,6 +728,149 @@ describe('BackupBrowserView file selection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section 9b: BackupBrowserView — modified-in-this-snapshot indicator
+// ---------------------------------------------------------------------------
+//
+// Issue #57 follow-up: file rows whose hash differs from the parent
+// snapshot's (or that didn't exist in the parent) get the
+// `archivist-file-row--modified` class, which the stylesheet paints orange.
+
+describe('BackupBrowserView modified-in-snapshot indicator', () => {
+  it('marks a file whose hash differs from the parent snapshot', async () => {
+    const parent = makeSnapshot({ id: 'snap-parent', created_at: '2026-04-24T08:00:00Z' });
+    const child = makeSnapshot({
+      id: 'snap-child',
+      created_at: '2026-04-24T09:00:00Z',
+      parent_id: 'snap-parent',
+    });
+    const parentState: Record<string, FileEntry> = {
+      'changed.md': { hash: 'old-hash', size: 10, mtime: 0 },
+      'unchanged.md': { hash: 'same', size: 10, mtime: 0 },
+    };
+    const childState: Record<string, FileEntry> = {
+      'changed.md': { hash: 'new-hash', size: 12, mtime: 1 },
+      'unchanged.md': { hash: 'same', size: 10, mtime: 0 },
+    };
+
+    const materialize = vi.fn().mockImplementation((id: string) =>
+      Promise.resolve(id === 'snap-child' ? childState : parentState),
+    );
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([child, parent]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(child);
+
+    const rows = findAllByClass(view.contentEl, 'archivist-file-row');
+    const changedRow = rows.find((r) => collectText(r).includes('changed.md'));
+    const unchangedRow = rows.find((r) => collectText(r).includes('unchanged.md'));
+    expect(changedRow?.className).toContain('archivist-file-row--modified');
+    expect(unchangedRow?.className).not.toContain('archivist-file-row--modified');
+  });
+
+  it('marks a file that did not exist in the parent snapshot (added)', async () => {
+    const parent = makeSnapshot({ id: 'snap-parent', created_at: '2026-04-24T08:00:00Z' });
+    const child = makeSnapshot({
+      id: 'snap-child',
+      created_at: '2026-04-24T09:00:00Z',
+      parent_id: 'snap-parent',
+    });
+    const parentState: Record<string, FileEntry> = {};
+    const childState: Record<string, FileEntry> = {
+      'brand-new.md': { hash: 'h', size: 1, mtime: 0 },
+    };
+
+    const materialize = vi.fn().mockImplementation((id: string) =>
+      Promise.resolve(id === 'snap-child' ? childState : parentState),
+    );
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([child, parent]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(child);
+
+    const rows = findAllByClass(view.contentEl, 'archivist-file-row');
+    const newRow = rows.find((r) => collectText(r).includes('brand-new.md'));
+    expect(newRow?.className).toContain('archivist-file-row--modified');
+  });
+
+  it('marks no files for a root snapshot (parent_id === null)', async () => {
+    const root = makeSnapshot({ id: 'snap-root', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['a.md', 'b.md']);
+
+    const materialize = vi.fn().mockResolvedValue(state);
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([root]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(root);
+
+    // No parent to diff against, so materialize is called exactly once.
+    expect(materialize).toHaveBeenCalledTimes(1);
+    const rows = findAllByClass(view.contentEl, 'archivist-file-row');
+    for (const row of rows) {
+      expect(row.className).not.toContain('archivist-file-row--modified');
+    }
+  });
+
+  it('falls back to no markers when the parent snapshot cannot be loaded', async () => {
+    const parent = makeSnapshot({ id: 'snap-parent', created_at: '2026-04-24T08:00:00Z' });
+    const child = makeSnapshot({
+      id: 'snap-child',
+      created_at: '2026-04-24T09:00:00Z',
+      parent_id: 'snap-parent',
+    });
+    const childState = makeVaultState(['only.md']);
+
+    const materialize = vi.fn().mockImplementation((id: string) =>
+      id === 'snap-child'
+        ? Promise.resolve(childState)
+        : Promise.reject(new ChainError('CHAIN_BROKEN', 'parent gone')),
+    );
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([child, parent]),
+      },
+      restoreService: {
+        materializeVaultStateAt: materialize,
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(child);
+
+    // View must not crash and no rows are marked when the parent is unreachable.
+    const rows = findAllByClass(view.contentEl, 'archivist-file-row');
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    for (const row of rows) {
+      expect(row.className).not.toContain('archivist-file-row--modified');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Section 10: BackupBrowserView — deleted-file restore
 // ---------------------------------------------------------------------------
 
