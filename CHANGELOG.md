@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.9.1...0.10.0) (2026-06-01)
+
+
+### Features
+
+* **browser:** mark files modified in this snapshot ([#60](https://github.com/MMoMM-org/obsidian-archivist/issues/60)) ([dd26138](https://github.com/MMoMM-org/obsidian-archivist/commit/dd26138722171f22300e48985ebd427e8e1a1e14))
+
 ## [0.9.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.9.0...0.9.1) (2026-06-01)
 
 
