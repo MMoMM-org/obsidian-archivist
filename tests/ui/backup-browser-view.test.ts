@@ -651,6 +651,80 @@ describe('BackupBrowserView file selection', () => {
     const text = collectText(previewCol!);
     expect(text).toContain(S.BROWSER_RESTORE_IN_PLACE);
   });
+
+  // Issue #57: switching snapshots while a file is selected used to leave the
+  // old snapshot's content in the preview until the user re-clicked the file.
+  it('re-fetches content from the new snapshot when a file is selected and snapshot changes', async () => {
+    const snapA = makeSnapshot({ id: 'snap-a', created_at: '2026-04-24T09:00:00Z' });
+    const snapB = makeSnapshot({ id: 'snap-b', created_at: '2026-04-24T08:00:00Z' });
+    const stateA = makeVaultState(['shared.md']);
+    const stateB = makeVaultState(['shared.md']);
+
+    const fetchContent = vi.fn().mockImplementation((snapId: string) =>
+      Promise.resolve(new TextEncoder().encode(`from ${snapId}`)),
+    );
+
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snapA, snapB]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn()
+          .mockResolvedValueOnce(stateA)
+          .mockResolvedValueOnce(stateB),
+        fetchContent,
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snapA);
+    await view._selectFile('shared.md');
+    expect(fetchContent).toHaveBeenLastCalledWith('snap-a', 'shared.md');
+
+    // Switching to snap-b must re-fetch shared.md from snap-b without the
+    // user clicking the file row again.
+    await view._selectSnapshot(snapB);
+    expect(fetchContent).toHaveBeenLastCalledWith('snap-b', 'shared.md');
+  });
+
+  // Issue #57: if the previously-selected file does not exist in the new
+  // snapshot, the preview must reset so the user isn't looking at stale
+  // content from the old snapshot.
+  it('clears preview when previously-selected file is absent from the new snapshot', async () => {
+    const snapA = makeSnapshot({ id: 'snap-a', created_at: '2026-04-24T09:00:00Z' });
+    const snapB = makeSnapshot({ id: 'snap-b', created_at: '2026-04-24T08:00:00Z' });
+    const stateA = makeVaultState(['only-in-a.md']);
+    const stateB = makeVaultState(['only-in-b.md']);
+
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snapA, snapB]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn()
+          .mockResolvedValueOnce(stateA)
+          .mockResolvedValueOnce(stateB),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content from A')),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snapA);
+    await view._selectFile('only-in-a.md');
+
+    // Sanity: preview shows the file's basename before the snapshot switch.
+    let previewCol = findByClass(view.contentEl, 'archivist-preview');
+    expect(collectText(previewCol!)).toContain('only-in-a.md');
+
+    await view._selectSnapshot(snapB);
+
+    previewCol = findByClass(view.contentEl, 'archivist-preview');
+    const text = collectText(previewCol!);
+    // The old file's name (which acts as the preview header) must be gone —
+    // no stale content from snapshot A should remain visible.
+    expect(text).not.toContain('only-in-a.md');
+    expect(text).toContain(S.BROWSER_COL_PREVIEW);
+  });
 });
 
 // ---------------------------------------------------------------------------

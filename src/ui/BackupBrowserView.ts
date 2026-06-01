@@ -854,6 +854,12 @@ export class BackupBrowserView extends ItemView {
     // If the user clicks another snapshot before materializeVaultStateAt
     // resolves, this.selectedSnapshot will have moved on — bail out.
     const capturedSnap = snap;
+    // Issue #57: preserve the previously-selected file path across the
+    // snapshot switch so we can re-load its content from the new snapshot
+    // once the state is materialized. Without this, stale content from the
+    // previous snapshot stayed in the preview column until the user
+    // re-clicked the file.
+    const previousPath = this.selectedPath;
     this.selectedSnapshot = snap;
     this.selectedPath = null;
     this.selectedDir = null;
@@ -917,6 +923,18 @@ export class BackupBrowserView extends ItemView {
     this._cachedTree = buildFileTree(state);
     this._renderFilesColumn(this._cachedTree);
     this.filesListEl.setAttribute('aria-busy', 'false');
+
+    // Issue #57: refresh the preview to match the new snapshot. If the
+    // previously-selected file exists in this snapshot too, re-select it so
+    // the preview shows the new snapshot's version of that file. Otherwise
+    // reset the preview column so the user isn't left looking at content
+    // from the previous snapshot.
+    if (previousPath !== null && state[previousPath] !== undefined) {
+      await this._selectFile(previousPath);
+    } else if (previousPath !== null) {
+      this.previewColEl.empty();
+      this.previewColEl.createEl('h3', { text: S.BROWSER_COL_PREVIEW });
+    }
   }
 
   /**
