@@ -32,6 +32,7 @@ import {
   registerOpenBackupBrowserCommand,
   registerShowHistoryCommand,
   registerRepairCommands,
+  registerRetentionCommands,
   registerVerifyVaultOwnershipCommand,
 } from './ui/Commands';
 import { ArchivistSettingTab } from './ui/SettingsTab';
@@ -1083,6 +1084,12 @@ export default class ArchivistPlugin extends Plugin {
     registerRepairCommands({
       plugin: this,
       repair: repairService,
+      notify,
+      logger: this.logger,
+    });
+    registerRetentionCommands({
+      plugin: this,
+      retention: retentionService,
       notify,
       logger: this.logger,
     });

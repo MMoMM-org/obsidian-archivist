@@ -685,4 +685,117 @@ describe('RetentionService', () => {
       expect(result.failed_deletes.sort()).toEqual([IDS.F1, IDS.F2].sort());
     });
   });
+
+  describe('dryRun', () => {
+    it('returns no_op_fresh when local index is missing', async () => {
+      const pluginStore = makeFakePluginStore(null);
+      const svc = makeService({ pluginStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.state).toBe('no_op_fresh');
+      expect(result.total_snapshots).toBe(0);
+      expect(result.would_prune).toEqual([]);
+      expect(result.would_keep).toEqual([]);
+    });
+
+    it('returns no_op_fresh when the snapshot index has no snapshots', async () => {
+      const pluginStore = makeFakePluginStore(makeLocalIndex());
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.state).toBe('no_op_fresh');
+    });
+
+    it('returns no_op_all_kept when retention policy keeps every snapshot', async () => {
+      const entries = [
+        makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z'),
+        makeIndexEntry(IDS.RECENT2, '2026-04-24T10:00:00.000Z'),
+      ];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        // 14-day never-prune window keeps both recent snapshots.
+        makeSettings({ never_prune_window_days: 14, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.state).toBe('no_op_all_kept');
+      expect(result.total_snapshots).toBe(2);
+      expect(result.would_prune).toEqual([]);
+      expect(result.would_keep.map((r) => r.id).sort()).toEqual([IDS.RECENT1, IDS.RECENT2].sort());
+    });
+
+    it('returns evaluated with the would-be-pruned snapshots when policy excludes some', async () => {
+      const entries = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.F2, '2026-01-02T10:00:00.000Z'),
+        makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z'),
+      ];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        // Disable every tier so only the chain-integrity ancestors survive
+        // (F2 is no one's parent, F1 isn't either — both would be pruned).
+        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.state).toBe('evaluated');
+      expect(result.total_snapshots).toBe(3);
+      expect(result.would_prune.length).toBeGreaterThan(0);
+      expect(result.would_prune.length + result.would_keep.length).toBe(3);
+      // Each row carries id / type / created_at / tier so the UI can format
+      // an informative summary without re-reading the snapshot index.
+      for (const row of [...result.would_prune, ...result.would_keep]) {
+        expect(row.id).toMatch(/^2026-/);
+        expect(row.type).toBe('full');
+        expect(typeof row.created_at).toBe('string');
+        expect(row.tier === null || ['never_prune', 'daily', 'monthly'].includes(row.tier as string)).toBe(true);
+      }
+    });
+
+    it('does not delete anything from Dropbox even with prune candidates', async () => {
+      const entries = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.F2, '2026-01-02T10:00:00.000Z'),
+      ];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const dropbox = makeFakeDropbox();
+      const svc = makeService({ pluginStore, snapshotIndexStore, dropbox });
+
+      await svc.dryRun(NOW);
+
+      expect(dropbox.deleteV2).not.toHaveBeenCalled();
+      expect(snapshotIndexStore.removeCalls).toEqual([]);
+    });
+
+    it('bypasses the 24h throttle and does not update last_retention_at', async () => {
+      const entries = [makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z')];
+      // Last retention only 1h ago — runIfDue would skip here, dryRun must not.
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex({ last_retention_at: ONE_HOUR_AGO.toISOString() }),
+        makeSettings({ never_prune_window_days: 14, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.state).toBe('no_op_all_kept');
+      // last_retention_at must remain untouched so the next scheduled
+      // runIfDue is unaffected by a manual dry-run preview.
+      expect(pluginStore.saveIndexCalls).toEqual([]);
+    });
+  });
 });

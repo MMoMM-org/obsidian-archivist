@@ -11,6 +11,7 @@
 import type { Plugin } from 'obsidian';
 import type { SchedulerFSM } from '../services/SchedulerFSM';
 import type { RepairService } from '../services/RepairService';
+import type { RetentionService } from '../services/RetentionService';
 import type { VaultIdentity } from '../services/VaultIdentity';
 import type { Logger } from '../infra/Logger';
 import type { NotifyFn } from './NoticeCenter';
@@ -213,6 +214,62 @@ async function runGcOrphanContent(deps: RepairCommandsDeps): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     deps.notify(S.GC_FAILED(msg), { timeout: 10_000 });
     deps.logger.warn('gc_orphan_content_command_failed', { error: msg });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Retention dry-run command — exposes RetentionService.dryRun() to the
+// command palette so the user can preview what retention would prune
+// without actually deleting anything. Useful both for confidence-building
+// before the daily auto-run and for testing on vaults that haven't aged
+// past the never_prune window.
+// ---------------------------------------------------------------------------
+
+export interface RetentionCommandsDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  retention: Pick<RetentionService, 'dryRun'>;
+  notify: NotifyFn;
+  logger: Logger;
+}
+
+const RETENTION_DRY_RUN_COMMAND_ID = 'archivist-retention-dry-run';
+
+export function registerRetentionCommands(deps: RetentionCommandsDeps): void {
+  deps.plugin.addCommand({
+    id: RETENTION_DRY_RUN_COMMAND_ID,
+    name: S.CMD_RETENTION_DRY_RUN,
+    callback: () => { void runRetentionDryRun(deps); },
+  });
+}
+
+async function runRetentionDryRun(deps: RetentionCommandsDeps): Promise<void> {
+  deps.notify(S.RETENTION_DRY_RUN_RUNNING, { timeout: 4_000 });
+  try {
+    const result = await deps.retention.dryRun();
+    // Always log details — power users with diagnostic logging on can see
+    // which exact snapshot ids would be pruned and which would be kept.
+    deps.logger.info('retention_dry_run_completed', {
+      state: result.state,
+      total: result.total_snapshots,
+      would_prune_count: result.would_prune.length,
+      would_keep_count: result.would_keep.length,
+      would_prune: result.would_prune,
+    });
+
+    if (result.state === 'no_op_fresh') {
+      deps.notify(S.RETENTION_DRY_RUN_NO_SNAPSHOTS, { timeout: 8_000 });
+    } else if (result.state === 'no_op_all_kept') {
+      deps.notify(S.RETENTION_DRY_RUN_ALL_KEPT(result.total_snapshots), { timeout: 8_000 });
+    } else {
+      deps.notify(
+        S.RETENTION_DRY_RUN_WOULD_PRUNE(result.would_prune.length, result.total_snapshots),
+        { timeout: 12_000 },
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.RETENTION_DRY_RUN_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('retention_dry_run_failed', { error: msg });
   }
 }
 

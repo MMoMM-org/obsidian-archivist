@@ -14,7 +14,7 @@ import type { LocalIndex } from '../model/Index';
 import type { SnapshotManifest } from '../model/Manifest';
 import { isSnapshotManifest } from '../model/Manifest';
 import type { PluginSettings } from '../model/Settings';
-import type { SnapshotIndex } from '../model/SnapshotIndex';
+import type { SnapshotIndex, SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
 import { evaluateTiers } from './retention/evaluator';
 import { augmentWithAncestors } from './retention/chainIntegrity';
@@ -36,6 +36,27 @@ export interface RetentionResult {
   pruned_ids: string[];
   failed_deletes: string[];
   state: RetentionState;
+}
+
+/** Snapshot row in a dry-run result — enough context to explain *why* the
+ *  user is looking at it without exposing internal index objects. */
+export interface RetentionDryRunRow {
+  id: string;
+  type: 'full' | 'inc';
+  created_at: string;
+  tier: SnapshotTier | null;
+}
+
+export type RetentionDryRunState =
+  | 'evaluated'        // ran the diff; would_prune is authoritative
+  | 'no_op_fresh'      // local index missing or empty — nothing to evaluate
+  | 'no_op_all_kept';  // ran the diff; every snapshot is kept
+
+export interface RetentionDryRunResult {
+  state: RetentionDryRunState;
+  total_snapshots: number;
+  would_prune: RetentionDryRunRow[];
+  would_keep: RetentionDryRunRow[];
 }
 
 export interface PluginStoreLike {
@@ -117,6 +138,49 @@ export class RetentionService {
     const state: RetentionState = resolveState(pruned, failed);
 
     return { ran: true, pruned_ids: pruned, failed_deletes: failed, state };
+  }
+
+  /**
+   * Dry-run variant of `runIfDue`: bypasses the 24h throttle and reports
+   * which snapshots WOULD be pruned under the current retention policy
+   * without touching Dropbox or the snapshot index. Used by the
+   * "Preview retention" command so users (and tests) can inspect what
+   * retention would do before letting it actually run.
+   *
+   * Side-effect free: no Dropbox calls beyond what
+   * `loadOrRebuildIndex` already does for the regular run (the index may
+   * still be lazily rebuilt from manifests if the snapshot_index.json is
+   * missing — that's a read-only operation). `last_retention_at` is
+   * intentionally NOT updated, so the next scheduled `runIfDue` is
+   * unaffected by a manual dry-run preview.
+   */
+  async dryRun(now: Date = this.clock()): Promise<RetentionDryRunResult> {
+    const localIndex = await this.pluginStore.loadIndex();
+    if (!localIndex) {
+      return { state: 'no_op_fresh', total_snapshots: 0, would_prune: [], would_keep: [] };
+    }
+
+    const settings = await this.pluginStore.loadSettings();
+    const index = await this.loadOrRebuildIndex();
+    if (!index || index.snapshots.length === 0) {
+      return { state: 'no_op_fresh', total_snapshots: 0, would_prune: [], would_keep: [] };
+    }
+
+    const keepSet = this.computeKeepSet(index, settings, now);
+    const wouldPrune: RetentionDryRunRow[] = [];
+    const wouldKeep: RetentionDryRunRow[] = [];
+    for (const snap of index.snapshots) {
+      const row = toDryRunRow(snap);
+      if (keepSet.has(snap.id)) wouldKeep.push(row);
+      else wouldPrune.push(row);
+    }
+
+    return {
+      state: wouldPrune.length === 0 ? 'no_op_all_kept' : 'evaluated',
+      total_snapshots: index.snapshots.length,
+      would_prune: wouldPrune,
+      would_keep: wouldKeep,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -224,4 +288,14 @@ function resolveState(pruned: string[], failed: string[]): RetentionState {
   if (pruned.length > 0) return 'pruned';
   if (failed.length > 0) return 'all_deletes_failed';
   return 'no_op_all_kept';
+}
+
+/** Project a SnapshotIndexEntry to the leaner shape returned by dryRun. */
+function toDryRunRow(snap: SnapshotIndexEntry): RetentionDryRunRow {
+  return {
+    id: snap.id,
+    type: snap.type,
+    created_at: snap.created_at,
+    tier: snap.tier ?? null,
+  };
 }

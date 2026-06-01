@@ -52,6 +52,18 @@ export const S = {
   CMD_GC_ORPHAN_CONTENT: 'Remove unused backup blobs',
   CMD_CLEAR_GC_LOCK: 'Clear stuck garbage-collection lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Verify backup ownership',
+  CMD_RETENTION_DRY_RUN: 'Preview retention (dry run)',
+
+  // ─── Retention dry-run notifications ─────────────────────────────
+  RETENTION_DRY_RUN_RUNNING: 'Archivist: evaluating retention…',
+  RETENTION_DRY_RUN_NO_SNAPSHOTS:
+    'Archivist: retention preview — no snapshots to evaluate.',
+  RETENTION_DRY_RUN_ALL_KEPT: (total: number): string =>
+    `Archivist: retention preview — all ${total} snapshot${total === 1 ? '' : 's'} would be kept.`,
+  RETENTION_DRY_RUN_WOULD_PRUNE: (prune: number, total: number): string =>
+    `Archivist: retention preview — would delete ${prune} of ${total} snapshot${total === 1 ? '' : 's'}. See debug log for ids.`,
+  RETENTION_DRY_RUN_FAILED: (msg: string): string =>
+    `Archivist: retention preview failed — ${msg}`,
 
   // ─── Verify-vault-ownership notifications ────────────────────────
   VERIFY_OWNERSHIP_RUNNING: 'Archivist: checking Dropbox vault ownership…',
