@@ -112,6 +112,26 @@ export class RetentionService {
       return { ran: false, pruned_ids: [], failed_deletes: [], state: 'skipped_throttle' };
     }
 
+    return this._runEvaluation(localIndex, now);
+  }
+
+  /**
+   * Manual variant of `runIfDue`: bypasses the 24h throttle. Used by the
+   * "Run retention now" command so users (and tests) can force a real
+   * retention pass without waiting for the next scheduled tick. Updates
+   * `last_retention_at` like the regular path, so a subsequent automatic
+   * run is once again gated by the 24h window after this call returns.
+   */
+  async runNow(now: Date = this.clock()): Promise<RetentionResult> {
+    const localIndex = await this.pluginStore.loadIndex();
+    if (!localIndex) {
+      return { ran: false, pruned_ids: [], failed_deletes: [], state: 'no_op_fresh' };
+    }
+    return this._runEvaluation(localIndex, now);
+  }
+
+  /** Common path shared by runIfDue (post-throttle) and runNow. */
+  private async _runEvaluation(localIndex: LocalIndex, now: Date): Promise<RetentionResult> {
     const settings = await this.pluginStore.loadSettings();
     const index = await this.loadOrRebuildIndex();
 

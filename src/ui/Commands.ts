@@ -227,18 +227,24 @@ async function runGcOrphanContent(deps: RepairCommandsDeps): Promise<void> {
 
 export interface RetentionCommandsDeps {
   plugin: Pick<Plugin, 'addCommand'>;
-  retention: Pick<RetentionService, 'dryRun'>;
+  retention: Pick<RetentionService, 'dryRun' | 'runNow'>;
   notify: NotifyFn;
   logger: Logger;
 }
 
 const RETENTION_DRY_RUN_COMMAND_ID = 'archivist-retention-dry-run';
+const RETENTION_RUN_NOW_COMMAND_ID = 'archivist-retention-run-now';
 
 export function registerRetentionCommands(deps: RetentionCommandsDeps): void {
   deps.plugin.addCommand({
     id: RETENTION_DRY_RUN_COMMAND_ID,
     name: S.CMD_RETENTION_DRY_RUN,
     callback: () => { void runRetentionDryRun(deps); },
+  });
+  deps.plugin.addCommand({
+    id: RETENTION_RUN_NOW_COMMAND_ID,
+    name: S.CMD_RETENTION_RUN_NOW,
+    callback: () => { void runRetentionNow(deps); },
   });
 }
 
@@ -270,6 +276,43 @@ async function runRetentionDryRun(deps: RetentionCommandsDeps): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     deps.notify(S.RETENTION_DRY_RUN_FAILED(msg), { timeout: 10_000 });
     deps.logger.warn('retention_dry_run_failed', { error: msg });
+  }
+}
+
+async function runRetentionNow(deps: RetentionCommandsDeps): Promise<void> {
+  deps.notify(S.RETENTION_RUN_RUNNING, { timeout: 4_000 });
+  try {
+    const result = await deps.retention.runNow();
+    // Always log details — power users with diagnostic logging on can see
+    // which exact snapshot ids were pruned (or failed) and confirm the run
+    // matched their dry-run preview.
+    deps.logger.info('retention_run_now_completed', {
+      ran: result.ran,
+      state: result.state,
+      pruned_count: result.pruned_ids.length,
+      failed_count: result.failed_deletes.length,
+      pruned_ids: result.pruned_ids,
+      failed_deletes: result.failed_deletes,
+    });
+
+    if (result.state === 'no_op_fresh') {
+      deps.notify(S.RETENTION_RUN_NO_SNAPSHOTS, { timeout: 8_000 });
+    } else if (result.state === 'no_op_all_kept') {
+      deps.notify(S.RETENTION_RUN_ALL_KEPT, { timeout: 8_000 });
+    } else if (result.state === 'all_deletes_failed') {
+      deps.notify(
+        S.RETENTION_RUN_ALL_DELETES_FAILED(result.failed_deletes.length),
+        { timeout: 12_000 },
+      );
+    } else {
+      // 'pruned' — at least one delete succeeded (some may have failed too,
+      // counts in the log distinguish them).
+      deps.notify(S.RETENTION_RUN_PRUNED(result.pruned_ids.length), { timeout: 12_000 });
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    deps.notify(S.RETENTION_RUN_FAILED(msg), { timeout: 10_000 });
+    deps.logger.warn('retention_run_now_failed', { error: msg });
   }
 }
 

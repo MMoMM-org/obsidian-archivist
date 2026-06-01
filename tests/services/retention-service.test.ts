@@ -798,4 +798,78 @@ describe('RetentionService', () => {
       expect(pluginStore.saveIndexCalls).toEqual([]);
     });
   });
+
+  describe('runNow', () => {
+    it('bypasses the 24h throttle and actually deletes snapshots', async () => {
+      const entries = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.F2, '2026-01-02T10:00:00.000Z'),
+      ];
+      // Last retention only 1h ago — runIfDue would skip, runNow must not.
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex({ last_retention_at: ONE_HOUR_AGO.toISOString() }),
+        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const dropbox = makeFakeDropbox();
+      const svc = makeService({ pluginStore, snapshotIndexStore, dropbox });
+
+      const result = await svc.runNow(NOW);
+
+      expect(result.ran).toBe(true);
+      expect(result.state).toBe('pruned');
+      expect(result.pruned_ids.sort()).toEqual([IDS.F1, IDS.F2].sort());
+      // Actually deleted on Dropbox — runNow is destructive.
+      expect(dropbox.deleteV2).toHaveBeenCalledTimes(2);
+      expect(snapshotIndexStore.removeCalls.sort()).toEqual([IDS.F1, IDS.F2].sort());
+    });
+
+    it('updates last_retention_at like the regular run', async () => {
+      const entries = [makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z')];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex({ last_retention_at: ONE_HOUR_AGO.toISOString() }),
+        makeSettings({ never_prune_window_days: 14, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      await svc.runNow(NOW);
+
+      // last_retention_at must be advanced so a subsequent scheduled run is
+      // once again throttled (no surprise back-to-back runs).
+      expect(pluginStore.saveIndexCalls).toHaveLength(1);
+      expect(pluginStore.saveIndexCalls[0].last_retention_at).toBe(NOW.toISOString());
+    });
+
+    it('triggers the GC sweep when at least one snapshot was pruned', async () => {
+      const entries = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z'),
+      ];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        // Recent kept by recent_hours, F1 pruned.
+        makeSettings({ never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const triggerGcSweep = vi.fn();
+      const svc = makeService({ pluginStore, snapshotIndexStore, triggerGcSweep });
+
+      await svc.runNow(NOW);
+
+      expect(triggerGcSweep).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns no_op_fresh and does not delete when local index is missing', async () => {
+      const pluginStore = makeFakePluginStore(null);
+      const dropbox = makeFakeDropbox();
+      const svc = makeService({ pluginStore, dropbox });
+
+      const result = await svc.runNow(NOW);
+
+      expect(result.ran).toBe(false);
+      expect(result.state).toBe('no_op_fresh');
+      expect(dropbox.deleteV2).not.toHaveBeenCalled();
+    });
+  });
 });

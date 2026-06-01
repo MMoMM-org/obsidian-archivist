@@ -53,6 +53,7 @@ export const S = {
   CMD_CLEAR_GC_LOCK: 'Clear stuck garbage-collection lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Verify backup ownership',
   CMD_RETENTION_DRY_RUN: 'Preview retention (dry run)',
+  CMD_RETENTION_RUN_NOW: 'Run retention now (delete)',
 
   // ─── Retention dry-run notifications ─────────────────────────────
   RETENTION_DRY_RUN_RUNNING: 'Archivist: evaluating retention…',
@@ -64,6 +65,19 @@ export const S = {
     `Archivist: retention preview — would delete ${prune} of ${total} snapshot${total === 1 ? '' : 's'}. See debug log for ids.`,
   RETENTION_DRY_RUN_FAILED: (msg: string): string =>
     `Archivist: retention preview failed — ${msg}`,
+
+  // ─── Retention run-now notifications ─────────────────────────────
+  RETENTION_RUN_RUNNING: 'Archivist: running retention…',
+  RETENTION_RUN_NO_SNAPSHOTS:
+    'Archivist: retention skipped — no snapshots to evaluate.',
+  RETENTION_RUN_ALL_KEPT:
+    'Archivist: retention complete — all snapshots kept under the current policy.',
+  RETENTION_RUN_PRUNED: (pruned: number): string =>
+    `Archivist: retention complete — deleted ${pruned} snapshot${pruned === 1 ? '' : 's'}. See debug log for ids.`,
+  RETENTION_RUN_ALL_DELETES_FAILED: (failed: number): string =>
+    `Archivist: retention failed — could not delete ${failed} marked snapshot${failed === 1 ? '' : 's'}. See debug log.`,
+  RETENTION_RUN_FAILED: (msg: string): string =>
+    `Archivist: retention run failed — ${msg}`,
 
   // ─── Verify-vault-ownership notifications ────────────────────────
   VERIFY_OWNERSHIP_RUNNING: 'Archivist: checking Dropbox vault ownership…',
