@@ -728,6 +728,79 @@ describe('BackupBrowserView file selection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section 9a: BackupBrowserView — snapshot column refresh button
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView snapshot refresh', () => {
+  it('re-fetches snapshots when _refreshSnapshots is called', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const listFn = vi.fn().mockResolvedValue([snap]);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: listFn },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    expect(listFn).toHaveBeenCalledTimes(1);
+
+    await view._refreshSnapshots();
+    expect(listFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves selected snapshot when it is still present in the refreshed list', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['note.md']);
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+      },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectFile('note.md');
+
+    await view._refreshSnapshots();
+
+    // Selection is preserved by id (new object from the refreshed list).
+    expect(view['selectedSnapshot']?.id).toBe('snap-1');
+    expect(view['selectedPath']).toBe('note.md');
+  });
+
+  it('clears selection and dependent state when the selected snapshot disappears', async () => {
+    const oldSnap = makeSnapshot({ id: 'snap-gone', created_at: '2026-04-24T08:00:00Z' });
+    const newSnap = makeSnapshot({ id: 'snap-new', created_at: '2026-04-24T09:00:00Z' });
+    const state = makeVaultState(['note.md']);
+
+    const listFn = vi.fn()
+      .mockResolvedValueOnce([oldSnap])
+      .mockResolvedValueOnce([newSnap]);
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: listFn },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(state),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(oldSnap);
+    await view._selectFile('note.md');
+
+    await view._refreshSnapshots();
+
+    // Old snapshot was pruned; selection state must be torn down so the
+    // user isn't left with file/preview content from a snapshot that's
+    // no longer in the list.
+    expect(view['selectedSnapshot']).toBeNull();
+    expect(view['selectedPath']).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Section 9b: BackupBrowserView — modified-in-this-snapshot indicator
 // ---------------------------------------------------------------------------
 //
@@ -846,7 +919,7 @@ describe('BackupBrowserView modified-in-snapshot indicator', () => {
     const materialize = vi.fn().mockImplementation((id: string) =>
       id === 'snap-child'
         ? Promise.resolve(childState)
-        : Promise.reject(new ChainError('CHAIN_BROKEN', 'parent gone')),
+        : Promise.reject(new ChainError('CHAIN_BROKEN', 'parent gone', false)),
     );
     const deps = makeDeps({
       manifestCache: {

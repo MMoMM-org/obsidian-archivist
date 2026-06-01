@@ -672,6 +672,8 @@ export class BackupBrowserView extends ItemView {
 
   // Columns
   private snapshotsListEl!: HTMLElement;
+  private refreshBtnEl: HTMLButtonElement | null = null;
+  private _refreshing = false;
   private filesListEl!: HTMLElement;
   private filesColHeaderEl!: HTMLElement;
   private previewColEl!: HTMLElement;
@@ -773,7 +775,28 @@ export class BackupBrowserView extends ItemView {
 
     // -- Snapshots column --
     const snapshotsColEl = columnsEl.createDiv({ cls: 'archivist-snapshots' });
-    snapshotsColEl.createEl('h3', { text: S.BROWSER_COL_SNAPSHOTS });
+    const snapshotsHeaderEl = snapshotsColEl.createDiv({
+      cls: 'archivist-snapshots-header',
+    });
+    snapshotsHeaderEl.createEl('h3', { text: S.BROWSER_COL_SNAPSHOTS });
+    // Refresh button: re-fetches the snapshot list without forcing the user
+    // to close and re-open the view. Useful right after a backup run when the
+    // newest snapshot would otherwise only appear on next view open.
+    const refreshBtn = snapshotsHeaderEl.createEl('button', {
+      cls: 'archivist-col-header-action',
+    });
+    refreshBtn.setAttribute('type', 'button');
+    refreshBtn.setAttribute('aria-label', S.BROWSER_REFRESH_SNAPSHOTS);
+    refreshBtn.setAttribute('title', S.BROWSER_REFRESH_SNAPSHOTS);
+    setIcon(refreshBtn, 'refresh-cw');
+    refreshBtn.addEventListener('click', () => { void this._refreshSnapshots(); });
+    refreshBtn.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        void this._refreshSnapshots();
+      }
+    });
+    this.refreshBtnEl = refreshBtn;
     this.snapshotsListEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-list',
       attr: { tabindex: '0', role: 'listbox' },
@@ -863,6 +886,61 @@ export class BackupBrowserView extends ItemView {
   // ---------------------------------------------------------------------------
   // Selection handlers — exposed for tests as _select*
   // ---------------------------------------------------------------------------
+
+  /**
+   * Re-fetch the snapshot list from the manifest cache and re-render the
+   * snapshots column. If the previously-selected snapshot is still present
+   * its selection (and the files/preview columns) are kept; otherwise the
+   * view drops back to a no-selection state so the user isn't left with
+   * stale file/preview content from a snapshot that no longer exists.
+   * Concurrent clicks during the in-flight fetch are coalesced via the
+   * _refreshing flag.
+   */
+  async _refreshSnapshots(): Promise<void> {
+    if (this._refreshing) return;
+    this._refreshing = true;
+    this.refreshBtnEl?.setAttribute('aria-busy', 'true');
+    try {
+      const snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+      if (this._closed) return;
+      this.snapshots = snapshots;
+
+      const stillSelected = this.selectedSnapshot
+        ? snapshots.find((s) => s.id === this.selectedSnapshot!.id) ?? null
+        : null;
+      if (this.selectedSnapshot && !stillSelected) {
+        // Previously-selected snapshot was pruned/removed since last load —
+        // tear down dependent state so the user doesn't see content from a
+        // snapshot that's no longer in the list.
+        this.selectedSnapshot = null;
+        this.selectedPath = null;
+        this.selectedDir = null;
+        this.fileState = {};
+        this._cachedTree = null;
+        this.modifiedPaths = new Set();
+        this.filesListEl.empty();
+        this.previewColEl.empty();
+        this.previewColEl.createEl('h3', { text: S.BROWSER_COL_PREVIEW });
+        if (this.filesColHeaderEl) {
+          this.filesColHeaderEl.setText(S.BROWSER_COL_FILES);
+        }
+      } else if (stillSelected) {
+        this.selectedSnapshot = stillSelected;
+      }
+
+      const now = this.deps.now ? this.deps.now() : new Date();
+      renderSnapshotsColumn(
+        this.snapshotsListEl,
+        snapshots,
+        this.selectedSnapshot?.id ?? null,
+        (snap) => { void this._selectSnapshot(snap); },
+        now,
+      );
+    } finally {
+      this._refreshing = false;
+      this.refreshBtnEl?.setAttribute('aria-busy', 'false');
+    }
+  }
 
   async _selectSnapshot(snap: SnapshotIndexEntry): Promise<void> {
     // Fix 1: capture target snapshot BEFORE the first await.

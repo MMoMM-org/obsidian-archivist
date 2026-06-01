@@ -281,6 +281,7 @@ export const S = {
   // ─── Backup Browser view (F4) ────────────────────────────────────
   BROWSER_TAB_TITLE: 'Backup Browser',
   BROWSER_COL_SNAPSHOTS: 'Snapshots',
+  BROWSER_REFRESH_SNAPSHOTS: 'Refresh snapshots',
   BROWSER_COL_FILES: 'Files at snapshot',
   BROWSER_COL_PREVIEW: 'Preview',
   BROWSER_RESTORE_IN_PLACE: 'Restore in place',
