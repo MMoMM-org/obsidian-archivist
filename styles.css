@@ -223,8 +223,11 @@
 /* Column headers are scoped via descendant selector so their styling does
    NOT bleed into the preview note's own headings (Obsidian renders preview
    markdown including h1/h2/h3 — the column h3 used to inherit those
-   weights/sizes too). */
-.archivist-browser .archivist-snapshots > h3,
+   weights/sizes too). The snapshots column wraps its h3 in a flex header
+   so the refresh icon can sit right-aligned next to the title; the band
+   styling moves to that wrapper. Files/preview keep the simpler direct-
+   child h3 shape. */
+.archivist-browser .archivist-snapshots-header,
 .archivist-browser .archivist-files > h3,
 .archivist-browser .archivist-preview > h3 {
 	margin: 0;
@@ -235,6 +238,59 @@
 	border-bottom: 1px solid var(--background-modifier-border);
 	background-color: var(--background-primary);
 	text-align: left;
+}
+
+.archivist-browser .archivist-snapshots-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.archivist-browser .archivist-snapshots-header > h3 {
+	margin: 0;
+	padding: 0;
+	background: none;
+	border: none;
+	font: inherit;
+	color: inherit;
+}
+
+.archivist-col-header-action {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px;
+	border-radius: 4px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: none;
+}
+
+.archivist-col-header-action:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.archivist-col-header-action:focus-visible {
+	outline: 2px solid var(--text-accent);
+	outline-offset: 1px;
+}
+
+.archivist-col-header-action[aria-busy="true"] {
+	opacity: 0.6;
+	pointer-events: none;
+}
+
+.archivist-col-header-action[aria-busy="true"] svg {
+	animation: archivist-spin 0.8s linear infinite;
+}
+
+@keyframes archivist-spin {
+	from { transform: rotate(0deg); }
+	to   { transform: rotate(360deg); }
 }
 
 .archivist-snapshots-list,
@@ -420,6 +476,21 @@
 
 .archivist-file-row[aria-selected="true"] .archivist-file-icon {
 	color: var(--text-accent);
+}
+
+/*
+ * Issue #57 follow-up: paint icon + filename orange for files whose content
+ * changed in the currently-viewed snapshot (different hash than the parent
+ * snapshot, or new since the parent). Background highlight on hover/select
+ * still indicates focus; the orange persists so the "modified" cue isn't
+ * lost while interacting. Rules sit below the hover/select rules so equal
+ * specificity falls our way.
+ */
+.archivist-file-row--modified,
+.archivist-file-row--modified .archivist-file-icon,
+.archivist-file-row--modified:hover .archivist-file-icon,
+.archivist-file-row--modified[aria-selected="true"] .archivist-file-icon {
+	color: var(--color-orange);
 }
 
 .archivist-file-name {
