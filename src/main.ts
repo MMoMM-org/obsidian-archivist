@@ -378,6 +378,13 @@ export default class ArchivistPlugin extends Plugin {
       deviceId: () => deviceCoordinator.getOrCreateDeviceId(),
     });
 
+    // Late-bound ManifestCache invalidator. ManifestCache is built below
+    // (Step 9), but RetentionService and RepairService — both built here
+    // before ManifestCache — need to flush the cache after they mutate the
+    // snapshot index. The mutable holder lets us wire the callback once
+    // ManifestCache exists without forcing a circular construction order.
+    const manifestCacheInvalidator: { invalidate: (() => void) | null } = { invalidate: null };
+
     const retentionService = new RetentionService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       pluginStore,
@@ -391,22 +398,21 @@ export default class ArchivistPlugin extends Plugin {
           });
         });
       },
+      invalidateManifestCache: () => manifestCacheInvalidator.invalidate?.(),
     });
 
     // RepairService — user-triggerable recovery (rebuild snapshot_index +
     // manual GC + clear stale gc_lock). See
     // `docs/troubleshooting/dropbox-corruption.md`. The cache invalidator
-    // is wired below where ManifestCache is constructed; it's set as a
-    // mutable field so the construction order doesn't force a circular
-    // dep (RepairService is built before ManifestCache).
-    const repairCacheInvalidator: { invalidate: (() => void) | null } = { invalidate: null };
+    // is shared with RetentionService — both mutate the snapshot index and
+    // need to flush ManifestCache so the Backup Browser sees the new state.
     const repairService = new RepairService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       snapshotIndexStore,
       gcService,
       vaultPrefix,
       logger: this.logger,
-      invalidateManifestCache: () => repairCacheInvalidator.invalidate?.(),
+      invalidateManifestCache: () => manifestCacheInvalidator.invalidate?.(),
     });
 
     const maintenanceScheduler = new MaintenanceScheduler({
@@ -440,11 +446,12 @@ export default class ArchivistPlugin extends Plugin {
       logger: this.logger,
     });
     this._manifestCache = manifestCache;
-    // Late-bind the manifest-cache invalidator into the RepairService so
-    // a Repair-Index command flushes the in-process cache; without this,
-    // the Backup Browser would keep showing the phantom row until the
-    // next plugin reload despite the on-Dropbox index being correct.
-    repairCacheInvalidator.invalidate = (): void => manifestCache.invalidate();
+    // Late-bind the manifest-cache invalidator now that ManifestCache
+    // exists. Without this, RetentionService and RepairService can mutate
+    // the on-Dropbox snapshot index but the Backup Browser keeps showing
+    // the stale list (it reads from ManifestCache's in-process copy)
+    // until the plugin reloads.
+    manifestCacheInvalidator.invalidate = (): void => manifestCache.invalidate();
 
     const restoreService = new RestoreService({
       loader: manifestCache,

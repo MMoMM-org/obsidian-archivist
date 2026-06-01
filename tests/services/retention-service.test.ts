@@ -240,6 +240,7 @@ function makeService(opts: {
   pluginStore?: FakePluginStore;
   snapshotIndexStore?: FakeSnapshotIndexStore;
   triggerGcSweep?: () => void;
+  invalidateManifestCache?: () => void;
 }): RetentionService {
   const dropbox = opts.dropbox ?? makeFakeDropbox();
   const pluginStore = opts.pluginStore ?? makeFakePluginStore(makeLocalIndex());
@@ -252,6 +253,7 @@ function makeService(opts: {
     logger: makeFakeLogger(),
     vaultPrefix: VAULT_PREFIX,
     triggerGcSweep: opts.triggerGcSweep,
+    invalidateManifestCache: opts.invalidateManifestCache,
     now: () => NOW,
   };
 
@@ -839,6 +841,40 @@ describe('RetentionService', () => {
       // once again throttled (no surprise back-to-back runs).
       expect(pluginStore.saveIndexCalls).toHaveLength(1);
       expect(pluginStore.saveIndexCalls[0].last_retention_at).toBe(NOW.toISOString());
+    });
+
+    it('invalidates the manifest cache when at least one snapshot was pruned', async () => {
+      const entries = [
+        makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),
+        makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z'),
+      ];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        makeSettings({ never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const invalidateManifestCache = vi.fn();
+      const svc = makeService({ pluginStore, snapshotIndexStore, invalidateManifestCache });
+
+      await svc.runNow(NOW);
+
+      expect(invalidateManifestCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT invalidate the manifest cache when no snapshot was pruned', async () => {
+      const entries = [makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z')];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        // never-prune window keeps everything → no prunes → no invalidate.
+        makeSettings({ never_prune_window_days: 14, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const invalidateManifestCache = vi.fn();
+      const svc = makeService({ pluginStore, snapshotIndexStore, invalidateManifestCache });
+
+      await svc.runNow(NOW);
+
+      expect(invalidateManifestCache).not.toHaveBeenCalled();
     });
 
     it('triggers the GC sweep when at least one snapshot was pruned', async () => {

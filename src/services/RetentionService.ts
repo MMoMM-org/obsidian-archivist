@@ -73,6 +73,13 @@ export interface RetentionServiceDeps {
   vaultPrefix: string;
   /** Fire-and-forget GC trigger. Phase 7 wires MaintenanceScheduler here. */
   triggerGcSweep?: () => void;
+  /**
+   * Optional manifest-cache invalidator. ManifestCache is process-local;
+   * after pruning entries from the snapshot index, callers (e.g. the
+   * Backup Browser) would otherwise still see the stale list until the
+   * plugin reloads. Mirrors RepairService's invalidator hook.
+   */
+  invalidateManifestCache?: () => void;
   /** Injectable clock for testability. */
   now?: () => Date;
 }
@@ -90,6 +97,7 @@ export class RetentionService {
   private readonly logger: Logger;
   private readonly vaultPrefix: string;
   private readonly triggerGcSweep: (() => void) | undefined;
+  private readonly invalidateManifestCache: (() => void) | undefined;
   private readonly clock: () => Date;
 
   constructor(deps: RetentionServiceDeps) {
@@ -99,6 +107,7 @@ export class RetentionService {
     this.logger = deps.logger;
     this.vaultPrefix = deps.vaultPrefix;
     this.triggerGcSweep = deps.triggerGcSweep;
+    this.invalidateManifestCache = deps.invalidateManifestCache;
     this.clock = deps.now ?? (() => new Date());
   }
 
@@ -146,6 +155,17 @@ export class RetentionService {
     await this.persistTimestamp(localIndex, now);
 
     if (pruned.length > 0) {
+      // Drop the in-memory snapshot list ManifestCache holds — otherwise
+      // the Backup Browser keeps showing pruned snapshots until plugin
+      // reload (the cache is process-local, the underlying store is
+      // already updated by pruneSnapshots above).
+      try {
+        this.invalidateManifestCache?.();
+      } catch (err) {
+        this.logger.warn('manifest_cache_invalidate_failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       try {
         void this.triggerGcSweep?.();
       } catch (err) {
