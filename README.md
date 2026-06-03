@@ -21,7 +21,7 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 ## What's different about it
 
 - **Content-addressed storage**: identical files dedupe automatically. Renaming a 50 MB attachment costs zero new bytes.
-- **Hierarchical retention**: high-frequency snapshots in the last 24 h, daily for a month, monthly for years — without you tuning anything.
+- **Hierarchical retention**: high-frequency snapshots in the last 24 h, daily for a month, monthly for years — without you tuning anything. A safety floor (`always_keep_n`, default 3) protects the most-recent snapshots even if you set the tier windows aggressively. Power-user commands *Preview retention (dry run)* and *Run retention now (delete)* let you inspect or force the prune flow on demand.
 - **Local-first**: your tokens and indexes live in the vault. The plugin opens exactly three network hosts (listed below) and never phones home elsewhere.
 - **Standalone Restore CLI**: a zero-dependency Node script ships in every release. If the plugin or Obsidian ever goes south, you can still recover any file from your Dropbox folder using only `node`.
 
