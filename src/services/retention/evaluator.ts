@@ -56,6 +56,23 @@ function newestPerBucket(
   return new Set(Array.from(newest.values()).map((s) => s.id));
 }
 
+/**
+ * Snapshots kept by the always-keep-N floor: the N most-recent snapshots
+ * by created_at, regardless of any tier rules. Acts as a safety floor so
+ * an over-aggressive tier configuration can't accidentally delete every
+ * backup the user has. A value of 0 disables the floor.
+ */
+function applyAlwaysKeepN(
+  snapshots: SnapshotIndexEntry[],
+  settings: RetentionSettings,
+): Set<string> {
+  if (settings.always_keep_n <= 0) return new Set();
+  // Sort by created_at desc — newest first — then take the top N.
+  // Defensive copy: don't mutate the caller's snapshot list ordering.
+  const sorted = [...snapshots].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  return new Set(sorted.slice(0, settings.always_keep_n).map((s) => s.id));
+}
+
 /** Snapshots kept by the never-prune window (age <= never_prune_window_days). */
 function applyNeverPrune(
   snapshots: SnapshotIndexEntry[],
@@ -114,6 +131,7 @@ function applyMonthly(
  * Chain-integrity (transitive ancestor promotion) is NOT applied here — that is T6.2's job.
  *
  * Tiers:
+ *   - Always-keep-N: the N most-recent snapshots by created_at. Safety floor.
  *   - Never-prune: all snapshots within the last never_prune_window_days (inclusive). Always kept.
  *   - Recent: all snapshots within the last recent_hours. Overlaps with never-prune.
  *   - Daily: newest snapshot per local calendar day within the last daily_days days.
@@ -135,6 +153,7 @@ export function evaluateTiers(
   const kept = new Set<string>();
   const addAll = (ids: Set<string>): void => { for (const id of ids) kept.add(id); };
 
+  addAll(applyAlwaysKeepN(snapshots, settings));
   addAll(applyNeverPrune(snapshots, settings, nowMs));
   addAll(applyRecentHours(snapshots, settings, nowMs));
   addAll(applyDaily(snapshots, settings, nowMs));

@@ -24,6 +24,10 @@ describe('Integration — retention-35d soak', () => {
       initialFiles: [{ path: 'vault.md', content: 'root' }],
       settings: {
         retention: {
+          // Disable the safety floor — this test asserts pure tier counts
+          // (35-day-old snapshots being pruned). The floor would keep the
+          // 3 most recent regardless and isn't what we're measuring here.
+          always_keep_n: 0,
           never_prune_window_days: 14,
           recent_hours: 24,
           daily_days: 30,

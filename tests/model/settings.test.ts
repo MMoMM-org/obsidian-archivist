@@ -46,6 +46,36 @@ describe('Settings — guards', () => {
   });
 });
 
+describe('Settings — 1.0 → 1.1 migration (always_keep_n)', () => {
+  it('adds retention.always_keep_n=3 to a 1.0 blob without one', () => {
+    const v10: Record<string, unknown> = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    v10.schema_version = '1.0';
+    // Simulate a 1.0 install: no always_keep_n in retention.
+    const retention10 = v10.retention as Record<string, unknown>;
+    delete retention10.always_keep_n;
+
+    const { settings, migrated } = parseSettings(v10);
+
+    expect(migrated).toBe(true);
+    expect(settings.schema_version).toBe('1.1');
+    // Conservative default — existing installs keep MORE, never fewer.
+    expect(settings.retention.always_keep_n).toBe(3);
+  });
+
+  it('preserves a user-set always_keep_n through the 1.0 → 1.1 migration', () => {
+    const v10: Record<string, unknown> = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    v10.schema_version = '1.0';
+    const retention10 = v10.retention as Record<string, unknown>;
+    // A user who somehow had the field at 1.0 (shouldn't happen in practice,
+    // but the migration must not clobber an existing value).
+    retention10.always_keep_n = 7;
+
+    const { settings } = parseSettings(v10);
+
+    expect(settings.retention.always_keep_n).toBe(7);
+  });
+});
+
 describe('Settings — migration engine (simulated schema bumps)', () => {
   // Simulate a world where CURRENT_SETTINGS_SCHEMA has advanced to '1.2' and
   // two migrations exist. Tests use the options hook so we can exercise the

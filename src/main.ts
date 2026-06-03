@@ -1113,7 +1113,7 @@ export default class ArchivistPlugin extends Plugin {
     const settingsContext: SettingsContext = {
       getSettings: () => cachedRef.settings,
       updateSettings: async (patch) => {
-        const merged = { ...cachedRef.settings, ...patch } as PluginSettings;
+        const merged = { ...cachedRef.settings, ...patch };
         cachedRef.settings = merged;
         await pluginStore.saveSettings(merged);
       },

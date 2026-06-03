@@ -73,7 +73,7 @@ function makeCtx(opts: StubOpts = {}): {
 // ---------------------------------------------------------------------------
 
 describe('renderRetention — fields present', () => {
-  it('registers heading then 4 tier inputs + hard-limit + warn% + estimate row', () => {
+  it('registers heading then safety floor + 4 tier inputs + hard-limit + warn% + estimate row', () => {
     const host = new RecordingSectionHost();
     renderRetention(host, makeCtx().ctx);
 
@@ -84,6 +84,7 @@ describe('renderRetention — fields present', () => {
       .filter((f) => f.kind === 'number')
       .map((f) => (f as { label: string }).label);
     expect(numberLabels).toEqual([
+      S.SETTINGS_RETENTION_ALWAYS_KEEP_N,
       S.SETTINGS_RETENTION_RECENT_HOURS,
       S.SETTINGS_RETENTION_NEVER_PRUNE,
       S.SETTINGS_RETENTION_DAILY_DAYS,

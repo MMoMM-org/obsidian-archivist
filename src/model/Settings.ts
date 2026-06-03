@@ -4,10 +4,17 @@ import { ConfigError, configInvalid } from './Errors';
 // ROB-006: schema_version is a string literal union — one entry per schema
 // shape, not a freewheeling string. Each version introduced here MUST have a
 // matching migration in SETTINGS_MIGRATIONS below.
-export type SettingsSchemaVersion = '1.0';
-export const CURRENT_SETTINGS_SCHEMA: SettingsSchemaVersion = '1.0';
+export type SettingsSchemaVersion = '1.0' | '1.1';
+export const CURRENT_SETTINGS_SCHEMA: SettingsSchemaVersion = '1.1';
 
 export interface RetentionSettings {
+  /**
+   * Floor that protects the N most-recent snapshots regardless of tier
+   * evaluation. Prevents accidentally pruning all backups when tier
+   * settings are very aggressive (e.g. daily_days=1 plus a quiet day
+   * during which no new snapshot was created). 0 disables the floor.
+   */
+  always_keep_n: number;
   never_prune_window_days: number;
   recent_hours: number;
   daily_days: number;
@@ -72,13 +79,31 @@ export interface SettingsMigration {
 // blob as `settings.json.bak` and fall back to DEFAULT_SETTINGS — never
 // silently discard user config.
 export const SETTINGS_MIGRATIONS: SettingsMigration[] = [
-  // Example entry (commented — no real migrations needed yet):
-  // { from: '1.0', to: '1.1', migrate: (s) => ({ ...s, schema_version: '1.1' }) }
+  // 1.0 → 1.1: add retention.always_keep_n as a safety floor. Existing
+  // installs default to 3 — strictly conservative (older deployments keep
+  // MORE snapshots after the migration, never fewer).
+  {
+    from: '1.0',
+    to: '1.1',
+    migrate: (old: Record<string, unknown>): Record<string, unknown> => {
+      const retentionRaw = old.retention;
+      const retention =
+        typeof retentionRaw === 'object' && retentionRaw !== null && !Array.isArray(retentionRaw)
+          ? (retentionRaw as Record<string, unknown>)
+          : {};
+      return {
+        ...old,
+        schema_version: '1.1',
+        retention: { always_keep_n: 3, ...retention },
+      };
+    },
+  },
 ];
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   schema_version: CURRENT_SETTINGS_SCHEMA,
   retention: {
+    always_keep_n: 3,
     never_prune_window_days: 14,
     recent_hours: 24,
     daily_days: 30,
@@ -147,6 +172,7 @@ function isStringArray(v: unknown): v is string[] {
 export function isRetentionSettings(v: unknown): v is RetentionSettings {
   if (!isObject(v)) return false;
   return (
+    typeof v.always_keep_n === 'number' &&
     typeof v.never_prune_window_days === 'number' &&
     typeof v.recent_hours === 'number' &&
     typeof v.daily_days === 'number' &&
@@ -214,7 +240,7 @@ export function isPluginSettings(v: unknown): v is PluginSettings {
 // ---------------------------------------------------------------------------
 // Parse + migrate
 
-const KNOWN_VERSIONS: readonly string[] = ['1.0'];
+const KNOWN_VERSIONS: readonly string[] = ['1.0', '1.1'];
 
 export interface ParseSettingsResult {
   settings: PluginSettings;

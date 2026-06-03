@@ -418,6 +418,9 @@ export const S = {
   SETTINGS_INC_INTERVAL: 'Incremental backup interval',
   SETTINGS_QUIET_PERIOD: 'Quiet period after edits (minutes)',
   SETTINGS_STARTUP_GRACE: 'Startup grace period (minutes)',
+  SETTINGS_RETENTION_ALWAYS_KEEP_N: 'Always keep most-recent snapshots',
+  SETTINGS_RETENTION_ALWAYS_KEEP_N_DESC:
+    'Floor that protects this many newest snapshots regardless of the tier rules below. Prevents accidental loss of every backup if tiers are configured aggressively. 0 disables.',
   SETTINGS_RETENTION_RECENT_HOURS: 'Recent high-frequency window (hours)',
   SETTINGS_RETENTION_DAILY_DAYS: 'Daily retention (days)',
   SETTINGS_RETENTION_MONTHLY_YEARS: 'Monthly retention (years)',

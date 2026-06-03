@@ -49,6 +49,10 @@ function makeSnapshot(
 
 function makeSettings(overrides?: Partial<RetentionSettings>): RetentionSettings {
   return {
+    // Evaluator tests isolate single-tier behaviour; the safety floor is
+    // off by default here and turned on explicitly by the few tests that
+    // exercise it.
+    always_keep_n: 0,
     never_prune_window_days: 14,
     recent_hours: 24,
     daily_days: 30,
@@ -72,6 +76,96 @@ function subtractHours(isoDate: string, hours: number): string {
   d.setTime(d.getTime() - hours * 60 * 60 * 1000);
   return d.toISOString();
 }
+
+// ---------------------------------------------------------------------------
+// Always-keep-N safety floor
+// ---------------------------------------------------------------------------
+
+describe('evaluateTiers — always-keep-N safety floor', () => {
+  const now = new Date('2026-04-24T12:00:00.000Z');
+
+  it('keeps the N most-recent snapshots regardless of tier rules', () => {
+    // All tiers off; only the floor decides.
+    const settings = makeSettings({
+      always_keep_n: 3,
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 0,
+      monthly_years: 0,
+    });
+    const s1 = makeSnapshot('2026-01-01T10:00:00.000Z', { id: 's1' });
+    const s2 = makeSnapshot('2026-02-01T10:00:00.000Z', { id: 's2' });
+    const s3 = makeSnapshot('2026-03-01T10:00:00.000Z', { id: 's3' });
+    const s4 = makeSnapshot('2026-04-01T10:00:00.000Z', { id: 's4' });
+    const s5 = makeSnapshot('2026-04-20T10:00:00.000Z', { id: 's5' });
+    const kept = evaluateTiers([s1, s2, s3, s4, s5], settings, now);
+    // Newest three: s5, s4, s3.
+    expect(kept).toEqual(new Set(['s3', 's4', 's5']));
+  });
+
+  it('value 0 disables the floor — no contributions', () => {
+    const settings = makeSettings({
+      always_keep_n: 0,
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 0,
+      monthly_years: 0,
+    });
+    const snapshots = [
+      makeSnapshot('2026-01-01T10:00:00.000Z'),
+      makeSnapshot('2026-02-01T10:00:00.000Z'),
+    ];
+    expect(evaluateTiers(snapshots, settings, now)).toEqual(new Set());
+  });
+
+  it('floor smaller than snapshot count: only top-N are kept', () => {
+    const settings = makeSettings({
+      always_keep_n: 1,
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 0,
+      monthly_years: 0,
+    });
+    const oldS = makeSnapshot('2026-01-01T10:00:00.000Z', { id: 'old' });
+    const midS = makeSnapshot('2026-02-01T10:00:00.000Z', { id: 'mid' });
+    const newS = makeSnapshot('2026-03-01T10:00:00.000Z', { id: 'new' });
+    expect(evaluateTiers([oldS, midS, newS], settings, now)).toEqual(new Set(['new']));
+  });
+
+  it('floor larger than snapshot count: all snapshots kept, no error', () => {
+    const settings = makeSettings({
+      always_keep_n: 10,
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 0,
+      monthly_years: 0,
+    });
+    const a = makeSnapshot('2026-01-01T10:00:00.000Z', { id: 'a' });
+    const b = makeSnapshot('2026-02-01T10:00:00.000Z', { id: 'b' });
+    expect(evaluateTiers([a, b], settings, now)).toEqual(new Set(['a', 'b']));
+  });
+
+  it('UNIONs with tier rules — floor protects IDs even when no tier matches them', () => {
+    // Footgun scenario: daily_days=1 with no snapshot today would keep nothing.
+    // The floor of 3 must still protect the 3 newest snapshots so the user
+    // doesn't lose all backups during a quiet day.
+    const settings = makeSettings({
+      always_keep_n: 3,
+      never_prune_window_days: 0,
+      recent_hours: 0,
+      daily_days: 1, // only protects snapshots from the last 1 day
+      monthly_years: 0,
+    });
+    // All snapshots are 2+ days old — daily-1 protects none of them.
+    const a = makeSnapshot('2026-04-20T10:00:00.000Z', { id: 'a' });
+    const b = makeSnapshot('2026-04-21T10:00:00.000Z', { id: 'b' });
+    const c = makeSnapshot('2026-04-22T10:00:00.000Z', { id: 'c' });
+    const d = makeSnapshot('2026-04-23T11:00:00.000Z', { id: 'd' });
+    const kept = evaluateTiers([a, b, c, d], settings, now);
+    // Floor keeps the 3 newest; the oldest is the only prune candidate.
+    expect(kept).toEqual(new Set(['b', 'c', 'd']));
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Never-prune window

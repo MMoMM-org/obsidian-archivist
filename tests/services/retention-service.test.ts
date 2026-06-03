@@ -301,7 +301,7 @@ describe('RetentionService', () => {
     it('proceeds when last_retention_at is null (first run)', async () => {
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
 
@@ -314,7 +314,7 @@ describe('RetentionService', () => {
     it('proceeds when last_retention_at is 25h ago', async () => {
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: TWENTY_FIVE_HOURS_AGO.toISOString() }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
 
@@ -349,7 +349,7 @@ describe('RetentionService', () => {
       );
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const dropbox = makeFakeDropbox();
       // Only the snapshotIndexStore.read is used — not downloadJson
@@ -396,7 +396,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
 
       const svc = makeService({ dropbox, pluginStore, snapshotIndexStore: corruptStore });
@@ -432,7 +432,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
 
       const svc = makeService({ dropbox, pluginStore, snapshotIndexStore: corruptStore });
@@ -460,7 +460,7 @@ describe('RetentionService', () => {
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
         // never_prune_window_days=1 keeps snapshots within 1 day of NOW → B1 (1h before NOW)
-        makeSettings({ never_prune_window_days: 1, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 1, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const dropbox = makeFakeDropbox();
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
@@ -491,7 +491,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const dropbox = makeFakeDropbox();
       dropbox.deleteV2 = vi.fn(async (path: string) => {
@@ -525,7 +525,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const logger = makeFakeLogger();
@@ -563,7 +563,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
 
@@ -606,7 +606,7 @@ describe('RetentionService', () => {
     it('persists last_retention_at after a successful pass', async () => {
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex([]));
 
@@ -646,7 +646,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
 
@@ -667,7 +667,7 @@ describe('RetentionService', () => {
 
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: null }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const dropbox = makeFakeDropbox();
       // All deletes fail
@@ -742,7 +742,7 @@ describe('RetentionService', () => {
         makeLocalIndex(),
         // Disable every tier so only the chain-integrity ancestors survive
         // (F2 is no one's parent, F1 isn't either — both would be pruned).
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const svc = makeService({ pluginStore, snapshotIndexStore });
@@ -770,7 +770,7 @@ describe('RetentionService', () => {
       ];
       const pluginStore = makeFakePluginStore(
         makeLocalIndex(),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const dropbox = makeFakeDropbox();
@@ -810,7 +810,7 @@ describe('RetentionService', () => {
       // Last retention only 1h ago — runIfDue would skip, runNow must not.
       const pluginStore = makeFakePluginStore(
         makeLocalIndex({ last_retention_at: ONE_HOUR_AGO.toISOString() }),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 0, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const dropbox = makeFakeDropbox();
@@ -850,7 +850,7 @@ describe('RetentionService', () => {
       ];
       const pluginStore = makeFakePluginStore(
         makeLocalIndex(),
-        makeSettings({ never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const invalidateManifestCache = vi.fn();
@@ -885,7 +885,7 @@ describe('RetentionService', () => {
       const pluginStore = makeFakePluginStore(
         makeLocalIndex(),
         // Recent kept by recent_hours, F1 pruned.
-        makeSettings({ never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
+        makeSettings({ always_keep_n: 0, never_prune_window_days: 0, recent_hours: 2, daily_days: 0, monthly_years: 0 }),
       );
       const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
       const triggerGcSweep = vi.fn();
