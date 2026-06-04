@@ -239,14 +239,14 @@ npm audit         # Dependency audit
 <!-- doc-product:documentation:start -->
 ## Documentation
 
-- [Installation](docs/installation.md) — TODO: Walk a first-time user through installing Archivist on their Obsidian vault, verifying the installation, and knowing when to update.
-- [Configuration](docs/configuration.md) — TODO: Document every user-configurable setting — name, type, default, and what it controls.
+- [Installation](docs/installation.md) — Walks a first-time user through installing Archivist on their Obsidian vault, verifying the installation, and knowing when to update.
+- [Configuration](docs/configuration.md) — Every configuration setting available in Archivist, grouped by the sections that appear in the Obsidian settings tab.
 - [Usage](docs/usage.md) — Currently scoped: restore flows.
 - [Troubleshooting](docs/troubleshooting.md) — Top-level troubleshooting index.
 - [Architecture overview — how Archivist actually works](docs/architecture-overview.md) — User-facing primer on the moving parts.
-- [Commands reference](docs/commands-reference.md) — TODO: List every command Archivist contributes to the Obsidian command palette, with a one-sentence description and any preconditions.
+- [Commands reference](docs/commands-reference.md) — Every command Archivist contributes to the Obsidian command palette.
 - [Future Features](docs/future-features.md) — Backlog of post-V1 enhancements that have a clear motivating use case but are intentionally deferred.
-- [Settings reference](docs/settings-reference.md) — TODO: Provide a hand-authored deep reference for every setting — allowed values, interactions, and "when to change this" guidance.
+- [Settings reference](docs/settings-reference.md) — Hand-authored companion to [Configuration](configuration.md).
 <!-- doc-product:documentation:end -->
 
 ## License
