@@ -149,7 +149,7 @@ There are two ways to recover data:
   installed. Works for: breaking the glass when the plugin won't load,
   Obsidian itself is broken, your Dropbox account is locked, or you
   just want a known-good recovery path that doesn't depend on the
-  plugin code at all. See `docs/restore-guide.md`.
+  plugin code at all. See `docs/usage.md`.
 
 The CLI runs against the **local** Dropbox-mirrored folder (typically
 synced by the Dropbox Desktop app's selective-sync) — it never
@@ -180,4 +180,4 @@ want each device to keep its own backup state.
   vault_id mismatches happen, what to do.
 - `docs/troubleshooting/dropbox-corruption.md` — repair commands and
   the bug-report capture flow.
-- `docs/restore-guide.md` — the standalone CLI walkthrough.
+- `docs/usage.md` — the standalone CLI walkthrough.

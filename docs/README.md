@@ -17,7 +17,6 @@
 
 ### Deep guides
 
-- [Restore guide](restore-guide.md)
 - [Architecture overview](architecture-overview.md)
 - [Future features](future-features.md)
 - [Operations: connecting to an existing backup](operations/connecting-existing-backup.md)

@@ -184,7 +184,7 @@ the cleanup sweep's lock probe.
 
 - README's *Retention* section — for the default values and a one-line
   summary of each tier.
-- `docs/restore-guide.md` — for how the kept snapshots are surfaced in
+- `docs/usage.md` — for how the kept snapshots are surfaced in
   the restore flows.
 - `docs/troubleshooting/dropbox-corruption.md` — for recovery from
   Dropbox-side issues, including the benign 409 mentioned above.

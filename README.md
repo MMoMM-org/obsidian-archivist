@@ -27,7 +27,7 @@ Archivist runs in the background, snapshots your Obsidian vault to Dropbox on a 
 
 ## A note of caution
 
-**Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/restore-guide.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
+**Backups are NOT stored as plain files on Dropbox** — Archivist uses content-addressed blobs and per-snapshot manifests, not a 1:1 mirror of your vault. So you can't just open Dropbox in your browser and grab a file out of it. Recovery happens through the in-app **Backup Browser** / **Show history of current file**, or — if the plugin or Obsidian themselves break — through the bundled [standalone CLI](docs/usage.md) which works on your local Dropbox-synced folder with zero plugin dependencies.
 
 I use this plugin personally on my own vault with roughly 6000+ files and I'm not planning to break it. But: **never trust a backup you haven't restored**. Try a restore once in a while — the *Restore to new location* button is non-destructive (it adds a timestamp suffix), so you can compare against the live file before deciding what to keep.
 
@@ -143,7 +143,7 @@ If you decide to switch from Aut-O-Backups to Archivist:
 | **Renames** | Treated as new file (re-upload at the new path) | Tracked as a manifest entry, no new bytes |
 | **Retention** | Manual (you delete old backups yourself) | Hierarchical 3-tier (never-prune window + daily + monthly) with garbage collection |
 | **Per-file restore** | Manual: copy a file out of the latest backup folder | Backup Browser tab + *Show history of current file* command |
-| **Recovery without the plugin** | Files are plain copies on Dropbox — open the folder | Standalone Node CLI (`scripts/restore.mjs`) reconstructs any snapshot from a local Dropbox-mirrored folder. See [docs/restore-guide.md](docs/restore-guide.md) |
+| **Recovery without the plugin** | Files are plain copies on Dropbox — open the folder | Standalone Node CLI (`scripts/restore.mjs`) reconstructs any snapshot from a local Dropbox-mirrored folder. See [docs/usage.md](docs/usage.md) |
 | **Storage growth** | Grows linearly with backup count × vault size | Grows with unique-content additions, capped by retention |
 | **Failure mode if left unattended** | Storage fills the Dropbox account | 3-tier retention prunes old data automatically; backups pause if a hard storage cap is reached |
 
@@ -177,7 +177,7 @@ Archivist logs to Obsidian's developer console. To open it: **Cmd/Ctrl + Shift +
 
 Every release ships a zero-dependency Node script — `scripts/restore.mjs` — that can reconstruct any snapshot from your **local** Dropbox-synced folder. No Obsidian, no plugin, no internet, no `npm install`. Just `node` 18+ and the bytes on your disk.
 
-This is your **break-glass recovery tool**. The full walkthrough — where to get the script, `--at` selectors, dry-run / verify modes, current limitations — is in **[docs/restore-guide.md](docs/restore-guide.md)**.
+This is your **break-glass recovery tool**. The full walkthrough — where to get the script, `--at` selectors, dry-run / verify modes, current limitations — is in **[docs/usage.md](docs/usage.md)**.
 
 ## Installation
 
@@ -241,12 +241,11 @@ npm audit         # Dependency audit
 
 - [Installation](docs/installation.md) — TODO: Walk a first-time user through installing Archivist on their Obsidian vault, verifying the installation, and knowing when to update.
 - [Configuration](docs/configuration.md) — TODO: Document every user-configurable setting — name, type, default, and what it controls.
-- [Usage](docs/usage.md) — TODO: Show a new user how to accomplish their first real backup and restore task with Archivist, bridging the gap between "installed" and "producing value".
-- [Troubleshooting](docs/troubleshooting.md) — TODO: Help users recover from the most common failure modes without filing a bug report, written from the user's symptom rather than the implementer's debugging model.
+- [Usage](docs/usage.md) — Currently scoped: restore flows.
+- [Troubleshooting](docs/troubleshooting.md) — Top-level troubleshooting index.
 - [Architecture overview — how Archivist actually works](docs/architecture-overview.md) — User-facing primer on the moving parts.
 - [Commands reference](docs/commands-reference.md) — TODO: List every command Archivist contributes to the Obsidian command palette, with a one-sentence description and any preconditions.
 - [Future Features](docs/future-features.md) — Backlog of post-V1 enhancements that have a clear motivating use case but are intentionally deferred.
-- [Restoring from Archivist backups](docs/restore-guide.md)
 - [Settings reference](docs/settings-reference.md) — TODO: Provide a hand-authored deep reference for every setting — allowed values, interactions, and "when to change this" guidance.
 <!-- doc-product:documentation:end -->
 
