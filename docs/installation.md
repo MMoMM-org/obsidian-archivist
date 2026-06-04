@@ -44,6 +44,31 @@ The release artifacts ship with attested provenance — verify with
 `gh attestation verify <file> --owner MMoMM-org` if you want to confirm the
 bytes came from the GitHub Actions release workflow.
 
+Each release also bundles `restore.mjs` — the standalone Restore CLI. The
+plugin doesn't need it at runtime, but you'll want it on hand if you ever
+need to recover data without Obsidian. Keep it somewhere stable (next to
+your other recovery tools); see [docs/usage.md](usage.md) for the CLI
+walkthrough.
+
+## Install via BRAT (unreleased main builds)
+
+[BRAT](https://github.com/TfTHacker/obsidian42-brat) installs plugin
+builds from a GitHub repository's `main` branch — useful for chasing a
+fix that has landed but hasn't been tagged yet. Not recommended for
+everyday use; the Community Plugins channel covers that.
+
+1. Install BRAT from Community Plugins.
+2. **Settings → BRAT → Add Beta plugin** and paste
+   `MMoMM-org/obsidian-archivist`.
+
+Already running via BRAT and want to switch to the official channel?
+You can do so without losing settings, backup history, or the Dropbox
+connection: disable Archivist in Obsidian, remove it from BRAT's Beta
+Plugin List (decline if BRAT offers to delete the plugin files — your
+`data.json`, `index.json`, etc. live there), then install Archivist
+from Community Plugins. The plugin ID is identical in both channels,
+so all local data and SecretStorage tokens survive the switch.
+
 ## Verify the installation
 
 After enabling, check that all three surfaces are reachable:

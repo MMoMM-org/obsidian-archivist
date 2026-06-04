@@ -51,6 +51,31 @@ complete the OAuth flow. Backups resume automatically on the next
 scheduler tick. The banner disappears as soon as the first
 post-reconnect backup commits successfully.
 
+### Backups paused — storage cap reached
+
+Archivist defaults to a 200 GB hard limit on Dropbox usage. When the
+folder hits the cap, scheduled backups pause and the status bar
+surfaces a warning. Existing snapshots are **not** auto-deleted in
+this case — the cap is a brake, not a pruner.
+
+Fix: either **raise the cap** under **Settings → Archivist → Retention
+→ Hard storage limit (GB)**, or **shrink retention windows** (lower
+`daily_days` / `monthly_years`) so the next retention pass frees up
+space. The *Preview retention (dry run)* command lets you check the
+effect of new tier values before applying them. See
+[docs/operations/retention-guide.md](operations/retention-guide.md).
+
+### "Two devices are designated as the backup owner"
+
+You have two installs of Archivist both flagged as the designated
+backup device for the same vault. Both can *read* from the shared
+Dropbox folder safely, but only one should *write* — otherwise the
+manifests interleave and the chain gets confused.
+
+Fix: pick one device in **Settings → Archivist → Schedule → This
+device backs up the vault** and toggle the other off. Archivist will
+not lose data while this is unresolved — the warning is preventive.
+
 ### A settings field "won't save" / silently reverts
 
 Most fields in the Advanced section validate on input. If a value

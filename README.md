@@ -47,7 +47,7 @@ For a deeper look at how the storage layout works (and why it's not just files i
 
 ![Settings — Schedule](assets/Settings%20-%20Schedule.png)
 
-**Settings — Retention** (3-tier hierarchical retention + storage cap).
+**Settings — Retention** (hierarchical retention + storage cap).
 
 ![Settings — Retention](assets/Settings%20-%20Retention.png)
 
@@ -141,7 +141,7 @@ If you decide to switch from Aut-O-Backups to Archivist:
 | **Storage layout** | One copy of every vault file written into Dropbox at every backup | Content-addressed blobs (SHA-256) + per-snapshot manifests |
 | **Deduplication** | None — every backup uploads everything again | Identical files uploaded once across all snapshots |
 | **Renames** | Treated as new file (re-upload at the new path) | Tracked as a manifest entry, no new bytes |
-| **Retention** | Manual (you delete old backups yourself) | Hierarchical 3-tier (never-prune window + daily + monthly) with garbage collection |
+| **Retention** | Manual (you delete old backups yourself) | Hierarchical (recent / never-prune / daily / monthly + safety floor) with garbage collection |
 | **Per-file restore** | Manual: copy a file out of the latest backup folder | Backup Browser tab + *Show history of current file* command |
 | **Recovery without the plugin** | Files are plain copies on Dropbox — open the folder | Standalone Node CLI (`scripts/restore.mjs`) reconstructs any snapshot from a local Dropbox-mirrored folder. See [docs/usage.md](docs/usage.md) |
 | **Storage growth** | Grows linearly with backup count × vault size | Grows with unique-content additions, capped by retention |
@@ -151,27 +151,14 @@ Whichever plugin you pick, **never trust a backup you haven't restored** — try
 
 ## Troubleshooting
 
-For corruption-recovery scenarios (broken chain, repair commands, GC lock cleanup, what to capture for a bug report), see [docs/troubleshooting/dropbox-corruption.md](docs/troubleshooting/dropbox-corruption.md). For the "I'm pointing this vault at an existing Dropbox folder" / vault-id adoption flow, see [docs/operations/connecting-existing-backup.md](docs/operations/connecting-existing-backup.md). The common cases below cover the rest.
-
-**"Dropbox disconnected" / Archivist lost access to your account**
-
-This usually means the refresh token was revoked (manually or by inactivity). Open Settings → Archivist → Dropbox and click *Connect Dropbox* again. Your existing backups in Dropbox are NOT affected by re-authenticating.
-
-**"Backups paused — storage cap reached"**
-
-Archivist defaults to a 200 GB hard limit. Either raise the cap (Settings → Retention → *Hard storage limit*) or reduce retention windows (shorter daily/monthly windows). Existing snapshots are not deleted automatically when the cap is reached — backups simply pause until you adjust.
-
-**"Two devices are designated as the backup owner"**
-
-You have two devices both flagged as the designated backup device. Pick one in Settings → Archivist → Schedule → *This device backs up the vault* and toggle the other off. Archivist won't lose data — both devices can read from the same Dropbox folder; only one should write at a time.
-
-**Backups feel slow / are using too much CPU**
-
-Tune Settings → Advanced → *Concurrent uploads* (default 4, range 1–8) and *Upload chunk size* (default 8 MB, range 4–64). Lower values reduce CPU and memory; higher values speed up large file uploads.
-
-**Where do I find logs?**
-
-Archivist logs to Obsidian's developer console. To open it: **Cmd/Ctrl + Shift + I** → **Console** tab. Filter for `[archivist]` to drop unrelated Obsidian noise. Default-mode logs are minimal and contain no path data. For a bug report: toggle Settings → Advanced → *Diagnostic logging* on, reproduce the issue, copy the console output, then turn it back off. The full bug-report capture flow is in [docs/troubleshooting/dropbox-corruption.md](docs/troubleshooting/dropbox-corruption.md#what-to-capture-for-a-bug-report).
+Common-issue recovery, log-capture instructions, and the bug-report
+checklist live in [docs/troubleshooting.md](docs/troubleshooting.md).
+For Dropbox-side corruption scenarios (broken chain, repair commands,
+GC lock cleanup), see
+[docs/troubleshooting/dropbox-corruption.md](docs/troubleshooting/dropbox-corruption.md).
+For the "I'm pointing this vault at an existing Dropbox folder" /
+vault-id adoption flow, see
+[docs/operations/connecting-existing-backup.md](docs/operations/connecting-existing-backup.md).
 
 ## Standalone Restore CLI
 
@@ -181,27 +168,12 @@ This is your **break-glass recovery tool**. The full walkthrough — where to ge
 
 ## Installation
 
-### Community Plugins (recommended)
-1. Open Obsidian Settings → Community Plugins
-2. Click **Browse**, search for **Archivist**
-3. Click **Install**, then **Enable**
+Open Obsidian **Settings → Community Plugins → Browse**, search for
+**Archivist**, click **Install**, then **Enable**.
 
-### Manual
-For air-gapped installs or pinning to a specific version.
-
-1. Download `main.js`, `manifest.json`, `styles.css`, and `restore.mjs` from the [latest release](https://github.com/MMoMM-org/obsidian-archivist/releases/latest)
-2. Create folder `<vault>/.obsidian/plugins/archivist/`
-3. Copy `main.js`, `manifest.json`, and `styles.css` into that folder
-4. Keep `restore.mjs` somewhere safe — it's your break-glass recovery tool
-5. Restart Obsidian and enable the plugin
-
-### BRAT (unreleased main builds)
-For testing changes ahead of the next official release — useful if you're chasing a fix that has merged to `main` but hasn't been tagged yet. Not recommended for everyday use; the Community Plugins channel covers that.
-
-1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
-2. Add beta plugin: `MMoMM-org/obsidian-archivist`
-
-**Already running via BRAT?** You can switch to the official channel without losing settings, backup history, or Dropbox connection: disable Archivist in Obsidian, remove it from BRAT's Beta Plugin List (decline if BRAT offers to delete the plugin files — your `data.json`, `index.json`, etc. live there), then install Archivist from Community Plugins. The plugin ID is identical in both channels, so all local data and SecretStorage tokens survive the switch.
+For manual install, BRAT (unreleased main builds), prerequisites,
+verification, and update mechanics, see
+[docs/installation.md](docs/installation.md).
 
 ## Release notes
 
@@ -209,15 +181,15 @@ Per-version changes are tracked in [CHANGELOG.md](CHANGELOG.md). The latest rele
 
 ## Issue tracker / contact
 
-Bug reports + feature requests: <https://github.com/MMoMM-org/obsidian-archivist/issues>
+Bug reports + feature requests: <https://github.com/MMoMM-org/obsidian-archivist/issues>.
+The information to include in a bug report is summarised in
+[docs/troubleshooting.md#getting-help](docs/troubleshooting.md#getting-help).
 
-When filing a bug, please include:
-
-1. Obsidian version (Settings → About).
-2. Archivist version (`manifest.json` in the plugin folder).
-3. Operating system + version.
-4. A reproduction recipe if possible.
-5. **Don't paste your `data.json`** — it contains your vault id and settings. (Your Dropbox tokens are in Obsidian's encrypted secret store, not in any file in the plugin folder; on 0.7.x installs that haven't restarted under 0.8.0 yet, also avoid pasting any `tokens.json` that may still be present.)
+**Don't paste your `data.json`** — it contains your vault id and
+settings. (Dropbox tokens live in Obsidian's encrypted secret store,
+not in any file in the plugin folder; on 0.7.x installs that haven't
+restarted under 0.8.0 yet, also avoid pasting any `tokens.json` that
+may still be present.)
 
 Security issues: please email the maintainer (see `package.json` author field) instead of filing a public issue.
 
