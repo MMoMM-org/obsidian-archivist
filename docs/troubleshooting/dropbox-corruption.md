@@ -210,6 +210,31 @@ array, bump `last_updated_at` to the current time, save the file. The
 plugin will pick up the change on its next read; there is no cache to
 invalidate manually.
 
+## Benign console messages
+
+When you open DevTools you may see lines like:
+
+```
+POST https://content.dropboxapi.com/2/files/download 409 (Conflict)
+```
+
+…shortly after a backup completes, after retention prunes snapshots, or
+on plugin startup. **This is not an error.** Dropbox uses HTTP 409 with
+`path/not_found` as its "no such file" signal on `/files/download`, and
+Archivist deliberately probes a few paths for absence:
+
+- Garbage collection probes `gc_lock.json` to see whether another
+  device is already running a sweep. The common case is "no lock" → 409.
+- Startup recovery probes `gc_lock.json`, `HEAD.json`, and the parent
+  manifest on first run to decide whether the chain is intact.
+
+Each probe catches the 409 internally and proceeds. The browser's
+network panel logs the HTTP status before the application sees the
+response — there's no way to suppress it from inside the plugin. If
+something has actually gone wrong you'll also see a matching
+`[archivist]` entry at `warn` or `error` level; a lone 409 without
+such an entry is safe to ignore.
+
 ## What to capture for a bug report
 
 If a repair command runs but the symptom persists, the diagnostic log
