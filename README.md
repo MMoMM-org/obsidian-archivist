@@ -236,6 +236,20 @@ npm run typecheck # TypeScript only
 npm audit         # Dependency audit
 ```
 
+<!-- doc-product:documentation:start -->
+## Documentation
+
+- [Installation](docs/installation.md) — TODO: Walk a first-time user through installing Archivist on their Obsidian vault, verifying the installation, and knowing when to update.
+- [Configuration](docs/configuration.md) — TODO: Document every user-configurable setting — name, type, default, and what it controls.
+- [Usage](docs/usage.md) — TODO: Show a new user how to accomplish their first real backup and restore task with Archivist, bridging the gap between "installed" and "producing value".
+- [Troubleshooting](docs/troubleshooting.md) — TODO: Help users recover from the most common failure modes without filing a bug report, written from the user's symptom rather than the implementer's debugging model.
+- [Architecture overview — how Archivist actually works](docs/architecture-overview.md) — User-facing primer on the moving parts.
+- [Commands reference](docs/commands-reference.md) — TODO: List every command Archivist contributes to the Obsidian command palette, with a one-sentence description and any preconditions.
+- [Future Features](docs/future-features.md) — Backlog of post-V1 enhancements that have a clear motivating use case but are intentionally deferred.
+- [Restoring from Archivist backups](docs/restore-guide.md)
+- [Settings reference](docs/settings-reference.md) — TODO: Provide a hand-authored deep reference for every setting — allowed values, interactions, and "when to change this" guidance.
+<!-- doc-product:documentation:end -->
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
