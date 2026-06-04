@@ -75,21 +75,34 @@ Older snapshots in the broken chain become unreadable through the plugin
 UI but are still listed (for transparency) and remain accessible through
 the standalone CLI tool, which can recover what's still intact.
 
-## Retention: the 3-tier model
+## Retention: two safety floors plus three time-window tiers
 
 Without retention, every backup would be kept forever and your Dropbox
-storage would fill. Archivist uses a hierarchical 3-tier model:
+storage would fill. Archivist evaluates five keep-rules in parallel and a
+snapshot survives if **any** rule wants it kept. Two of the rules are
+safety floors that ignore wall-clock buckets; three are time-window
+tiers that thin older history.
 
-| Tier | Default | What it keeps |
+| Rule | Default | What it keeps |
 |------|---------|---------------|
-| Never-prune window | 14 days | Every snapshot, no thinning |
-| Daily | 30 days | One snapshot per day |
-| Monthly | 3 years | One snapshot per month |
+| Always keep most-recent snapshots | 3 | The N newest snapshots, full stop |
+| Never-prune window (days) | 14 | Every snapshot inside the window, no thinning |
+| Recent high-frequency window (hours) | 24 | Every snapshot inside the window |
+| Daily retention (days) | 30 | One snapshot per local calendar day |
+| Monthly retention (years) | 3 | One snapshot per local calendar month |
 
-A snapshot can be referenced by multiple tiers (a recent monthly snapshot
-also covers a daily slot during its month). Garbage collection removes
-content blobs that no surviving manifest references, and the same logic
-runs after every successful backup, throttled to once per 24 hours.
+A snapshot can be referenced by multiple rules (a recent monthly snapshot
+also covers a daily slot during its month). The *Always keep most-recent
+snapshots* floor (`always_keep_n` in `data.json`, default 3) is the
+backstop: even if every tier above is configured to 0 and you go through
+a quiet stretch with no new backups, the N newest snapshots are kept
+unconditionally so an aggressive policy can't wipe the whole history.
+
+When retention prunes snapshots, it fire-and-forget triggers a GC sweep
+so orphaned blobs are reclaimed in the same cycle. The same GC also runs
+after every successful backup, throttled to once per 24 hours. See
+`docs/operations/retention-guide.md` for the preview/run commands and
+real-world tuning notes.
 
 ## Multi-device coordination
 
@@ -125,6 +138,13 @@ There are two ways to recover data:
   current file* command. Works for: browsing snapshots, previewing
   files, restoring individual files (in-place or as a copy with a
   timestamp), restoring a deleted directory.
+- **In-app, single-file pivot** via the File Versions View — a
+  three-column ItemView (view-type `archivist-file-versions`) that's a
+  sister surface to the Backup Browser but pinned to one file. Reach it
+  through the *Restore…* entry on the right-click menu in the file
+  explorer or the markdown view's more-options menu. The *Show history
+  of current file* command still opens the older `FileHistoryModal`,
+  not this view.
 - **Standalone CLI** (`scripts/restore.mjs`), runs anywhere Node 18+ is
   installed. Works for: breaking the glass when the plugin won't load,
   Obsidian itself is broken, your Dropbox account is locked, or you
