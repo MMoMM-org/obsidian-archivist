@@ -52,6 +52,32 @@ export const S = {
   CMD_GC_ORPHAN_CONTENT: 'Remove unused backup blobs',
   CMD_CLEAR_GC_LOCK: 'Clear stuck garbage-collection lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Verify backup ownership',
+  CMD_RETENTION_DRY_RUN: 'Preview retention (dry run)',
+  CMD_RETENTION_RUN_NOW: 'Run retention now (delete)',
+
+  // ─── Retention dry-run notifications ─────────────────────────────
+  RETENTION_DRY_RUN_RUNNING: 'Archivist: evaluating retention…',
+  RETENTION_DRY_RUN_NO_SNAPSHOTS:
+    'Archivist: retention preview — no snapshots to evaluate.',
+  RETENTION_DRY_RUN_ALL_KEPT: (total: number): string =>
+    `Archivist: retention preview — all ${total} snapshot${total === 1 ? '' : 's'} would be kept.`,
+  RETENTION_DRY_RUN_WOULD_PRUNE: (prune: number, total: number): string =>
+    `Archivist: retention preview — would delete ${prune} of ${total} snapshot${total === 1 ? '' : 's'}. See debug log for ids.`,
+  RETENTION_DRY_RUN_FAILED: (msg: string): string =>
+    `Archivist: retention preview failed — ${msg}`,
+
+  // ─── Retention run-now notifications ─────────────────────────────
+  RETENTION_RUN_RUNNING: 'Archivist: running retention…',
+  RETENTION_RUN_NO_SNAPSHOTS:
+    'Archivist: retention skipped — no snapshots to evaluate.',
+  RETENTION_RUN_ALL_KEPT:
+    'Archivist: retention complete — all snapshots kept under the current policy.',
+  RETENTION_RUN_PRUNED: (pruned: number): string =>
+    `Archivist: retention complete — deleted ${pruned} snapshot${pruned === 1 ? '' : 's'}. See debug log for ids.`,
+  RETENTION_RUN_ALL_DELETES_FAILED: (failed: number): string =>
+    `Archivist: retention failed — could not delete ${failed} marked snapshot${failed === 1 ? '' : 's'}. See debug log.`,
+  RETENTION_RUN_FAILED: (msg: string): string =>
+    `Archivist: retention run failed — ${msg}`,
 
   // ─── Verify-vault-ownership notifications ────────────────────────
   VERIFY_OWNERSHIP_RUNNING: 'Archivist: checking Dropbox vault ownership…',
@@ -392,6 +418,9 @@ export const S = {
   SETTINGS_INC_INTERVAL: 'Incremental backup interval',
   SETTINGS_QUIET_PERIOD: 'Quiet period after edits (minutes)',
   SETTINGS_STARTUP_GRACE: 'Startup grace period (minutes)',
+  SETTINGS_RETENTION_ALWAYS_KEEP_N: 'Always keep most-recent snapshots',
+  SETTINGS_RETENTION_ALWAYS_KEEP_N_DESC:
+    'Floor that protects this many newest snapshots regardless of the tier rules below. Prevents accidental loss of every backup if tiers are configured aggressively. 0 disables.',
   SETTINGS_RETENTION_RECENT_HOURS: 'Recent high-frequency window (hours)',
   SETTINGS_RETENTION_DAILY_DAYS: 'Daily retention (days)',
   SETTINGS_RETENTION_MONTHLY_YEARS: 'Monthly retention (years)',

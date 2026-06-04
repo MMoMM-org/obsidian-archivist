@@ -32,6 +32,23 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     });
   }
 
+  // ---- Safety floor: always keep N most-recent ---------------------------
+  // Comes BEFORE the tier inputs so users see the floor in context with the
+  // tiers it overrides. Aggressive tier settings (e.g. daily_days=1 with no
+  // new snapshot on a quiet day) can otherwise prune every backup; this
+  // floor prevents that.
+  host.field({
+    kind: 'number',
+    label: S.SETTINGS_RETENTION_ALWAYS_KEEP_N,
+    description: S.SETTINGS_RETENTION_ALWAYS_KEEP_N_DESC,
+    value: r.always_keep_n,
+    min: 0,
+    max: 100,
+    onChange: (v) => {
+      void ctx.updateSettings({ retention: mergeRetention(r, { always_keep_n: v }) });
+    },
+  });
+
   // ---- Tier inputs --------------------------------------------------------
   host.field({
     kind: 'number',
