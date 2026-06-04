@@ -36,8 +36,34 @@ incrementals overnight".
   after the last edit before running an incremental (default 2 minutes).
   Raise either if you see "backups firing during interactive use".
 
-<!-- TODO: section-by-section recommendations for "small vault" /
-"large vault" / "bandwidth-constrained" / "high-frequency editing" profiles. -->
+### Tuning by vault profile
+
+Defaults work for most vaults. Reach for these only if your situation
+matches one of the profiles below.
+
+- **Small vault (under ~1 000 files).** Defaults are fine. If you almost
+  never touch the vault, lower `inc_interval_minutes` is wasted effort —
+  consider raising it to 30 or 60 so the scheduler doesn't wake the
+  change detector as often.
+- **Large vault (5 000+ files, lots of attachments).** Raise
+  `chunk_size_mb` to 16 or 32 if you have generous upload bandwidth —
+  fewer round-trips per large file. Keep `full_cadence` weekly so the
+  manifest chain stays bounded. Watch
+  *Estimated storage in use* in the settings tab; tune retention windows
+  if it climbs faster than expected.
+- **Bandwidth-constrained (slow upload, metered connection).** Turn
+  **Active window enabled** on and set the window to off-peak hours.
+  Drop `upload_parallelism` to `1`. Leave `chunk_size_mb` at the
+  default — smaller chunks fail faster and retry cheaper on flaky
+  links.
+- **High-frequency editing (you type continuously through the
+  workday).** Raise `quiet_after_event_minutes` to `5`–`10` so the
+  scheduler doesn't fire an incremental in the middle of an editing
+  session. The default 2 minutes is tuned for "edit, pause, edit" —
+  not "edit for an hour straight". You can also raise
+  `inc_interval_minutes` to `30` or `60` to reduce idle-tick cost
+  without losing protection (the change detector still runs and the
+  next incremental will pick up everything since the last one).
 
 ## Retention
 
@@ -140,5 +166,52 @@ in the **Setup** and **Dropbox scopes** sections of the
 folder that already has backups live in
 [docs/operations/connecting-existing-backup.md](operations/connecting-existing-backup.md).
 
-<!-- TODO: cover account-switching (disconnect + reconnect to a different
-account), token storage location, and what to do when OAuth fails. -->
+### Switching to a different Dropbox account
+
+1. **Settings → Archivist → Dropbox account → Disconnect.** A
+   confirmation modal explains that this revokes the plugin's access
+   token and removes local credentials; **existing backups in Dropbox
+   are NOT deleted**.
+2. After disconnect, click **Connect Dropbox** again. The browser
+   opens to Dropbox's authorization page — log in with the *other*
+   account.
+3. Once you're returned to Obsidian, the **Connected as &lt;email&gt;**
+   line under the Dropbox section confirms the new account.
+
+The previous account's `Apps/Archivist/<vault-prefix>/` folder stays
+where it is — Archivist's disconnect does not touch remote data. If
+you want to clean it up, do so manually in the Dropbox web UI.
+
+### Where credentials are stored
+
+Tokens live in Obsidian's **SecretStorage** API, which is backed by
+Electron's `safeStorage` (an encrypted blob in the platform keychain
+on macOS / DPAPI on Windows / libsecret on Linux). They are
+**per-device** and never propagated by Obsidian Sync. Earlier plugin
+versions wrote `tokens.json` into the vault's `.obsidian/plugins/archivist/`
+directory; Archivist performs a one-shot migration from that legacy
+file into SecretStorage on first launch (the migration is logged at
+INFO level).
+
+`data.json` in the plugin's directory holds non-secret settings only —
+it is safe for Obsidian Sync to replicate.
+
+### When OAuth fails
+
+- **"Authorization failed — the state parameter did not match"** —
+  the OAuth flow timed out or the browser cancelled it. Click
+  **Connect Dropbox** again and complete the flow in one browser
+  session.
+- **"Too many pending authorization flows"** — you started a Connect
+  flow, didn't finish it, and clicked Connect again. Cancel the
+  pending one (close the browser tab or dismiss the in-app notice)
+  and retry.
+- **AUTH_LOST banner: "Archivist lost access to your Dropbox account.
+  Open settings to reconnect"** — Dropbox revoked the token, usually
+  because the user removed the app from the Dropbox security page,
+  changed their account password, or the token expired without a
+  refresh. Click through to settings and reconnect.
+- **"This app is not yet verified by Dropbox"** during the browser
+  authorization — this is Dropbox's standard new-third-party-app
+  warning, not an Archivist error. Click through (the warning
+  disappears as the plugin accumulates Dropbox-wide usage).
