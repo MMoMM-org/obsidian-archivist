@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.10.0...0.11.0) (2026-06-04)
+
+
+### Features
+
+* **retention:** add Preview retention (dry run) command ([#61](https://github.com/MMoMM-org/obsidian-archivist/issues/61)) ([e31482e](https://github.com/MMoMM-org/obsidian-archivist/commit/e31482e9ffd7bba0bd457ec3de26cfb170484084))
+
 # [0.10.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.9.1...0.10.0) (2026-06-01)
 
 
