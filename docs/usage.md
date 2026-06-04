@@ -1,4 +1,9 @@
-# Restoring from Archivist backups
+# Usage
+
+> Currently scoped: restore flows. Other usage areas — initial setup,
+> watching your first backup, scheduling — are summarized in the root
+> README and will graduate to dedicated sections of this page as the
+> docs tree fills out.
 
 Archivist gives you two paths to recover data:
 
