@@ -262,6 +262,31 @@ describe('NoticeCenter — persistent banners', () => {
     expect(updates).toHaveLength(1);
   });
 
+  it('carries a primary action through to the banner observable', () => {
+    const { center } = makeCenter();
+    const onClick = vi.fn();
+    center.showPersistent('VAULT_ID_MISMATCH', S.MISMATCH_BANNER, {
+      action: { label: S.MISMATCH_BANNER_RESOLVE, onClick },
+    });
+    const [banner] = center.getPersistentBanners();
+    expect(banner.action?.label).toBe(S.MISMATCH_BANNER_RESOLVE);
+    banner.action?.onClick();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-emits when only the action changes (action is part of identity)', () => {
+    const { center } = makeCenter();
+    const updates: PersistentBanner[][] = [];
+    center.subscribePersistentBanners((list) => updates.push(list));
+    center.showPersistent('VAULT_ID_MISMATCH', 'm', {
+      action: { label: 'Resolve', onClick: vi.fn() },
+    });
+    center.showPersistent('VAULT_ID_MISMATCH', 'm', {
+      action: { label: 'Resolve', onClick: vi.fn() },
+    });
+    expect(updates).toHaveLength(2);
+  });
+
   it('clearPersistent removes the banner and emits', () => {
     const { center } = makeCenter();
     center.showPersistent('AUTH_LOST', 'x');

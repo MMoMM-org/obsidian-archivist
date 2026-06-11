@@ -503,11 +503,38 @@ export default class ArchivistPlugin extends Plugin {
       current: import('./ui/MismatchRecoveryModal').MismatchRecoveryRecord | null;
     } = { current: null };
 
+    // Indirection so surfaceBlockingConfigError (defined here) can open the
+    // recovery modal that is wired further down, after the status-bar surface
+    // exists. Assigned once during onload; the probe / backup paths that call
+    // surfaceBlockingConfigError all run after onload has finished wiring.
+    let openRecovery: () => void = () => {};
+
+    // The sticky "backups paused" Notice, kept so the toast can be hidden the
+    // moment the condition is resolved (adopt success) instead of lingering.
+    // `code` guards against stacking a duplicate when the same condition
+    // surfaces twice (proactive probe + first backup tick).
+    const blockingNotice: { handle: Notice | null; code: string | null } = {
+      handle: null,
+      code: null,
+    };
+    const clearBlockingNotice = (): void => {
+      blockingNotice.handle?.hide();
+      blockingNotice.handle = null;
+      blockingNotice.code = null;
+    };
+    // A sticky (timeout 0) toast would outlive the plugin otherwise — drop it
+    // on unload so disabling the plugin never leaves an orphaned notice.
+    this.register(clearBlockingNotice);
+
     /**
-     * Show the persistent banner + remember the recovery record for the
-     * status-bar click. Consumed both from the catch block (mid-backup
-     * failure) and from the onLayoutReady probe (proactive detection
-     * before the first backup attempt).
+     * Surface a blocking config error on every channel the user might be
+     * looking at: a persistent banner with a Resolve action (Settings +
+     * Backup Browser), a sticky clickable Notice (impossible to miss even
+     * with Settings closed and the ribbon collapsed), and the lastError
+     * snapshot for the "Copy report" button. The red status-bar / ribbon
+     * icon is driven separately by the FSM BLOCKED state. Consumed both from
+     * the catch block (mid-backup failure) and from the onLayoutReady probe
+     * (proactive detection before the first backup attempt).
      */
     const surfaceBlockingConfigError = (
       reason: BlockReason,
@@ -519,7 +546,19 @@ export default class ArchivistPlugin extends Plugin {
       const bannerMessage = reason === 'VAULT_META_CORRUPT'
         ? S.REMOTE_CORRUPT_BANNER
         : S.MISMATCH_BANNER;
-      noticeCenter.showPersistent(bannerCode, bannerMessage);
+      noticeCenter.showPersistent(bannerCode, bannerMessage, {
+        action: { label: S.MISMATCH_BANNER_RESOLVE, onClick: () => openRecovery() },
+      });
+      // Sticky, clickable toast — the signal the user was missing. Only one
+      // per condition; re-surfacing the same code leaves the existing toast.
+      if (blockingNotice.code !== bannerCode) {
+        clearBlockingNotice();
+        const notice = new Notice(bannerMessage, 0);
+        notice.messageEl.addClass('archivist-notice-clickable');
+        this.registerDomEvent(notice.messageEl, 'click', () => openRecovery());
+        blockingNotice.handle = notice;
+        blockingNotice.code = bannerCode;
+      }
       // Persist the detail for ErrorDetailsModal too — keeps the "Copy
       // report" button useful even before the user opens the recovery
       // modal.
@@ -964,6 +1003,7 @@ export default class ArchivistPlugin extends Plugin {
             );
             mismatchRecordRef.current = null;
             lastErrorRef.current = null;
+            clearBlockingNotice();
             noticeCenter.clearPersistent('VAULT_ID_MISMATCH');
             noticeCenter.clearPersistent('VAULT_META_CORRUPT');
             // Release the FSM so the next tick (or the user's next
@@ -987,6 +1027,9 @@ export default class ArchivistPlugin extends Plugin {
         onCancel: () => {},
       }).open();
     };
+    // Wire the forward reference used by surfaceBlockingConfigError (banner
+    // Resolve action + sticky-notice click) now that the modal opener exists.
+    openRecovery = openMismatchRecovery;
 
     const statusBarOnClick = (): void => {
       const state = fsm.getState();

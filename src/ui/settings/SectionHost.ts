@@ -125,6 +125,9 @@ export interface BannerSpec {
   code: string;
   message: string;
   severity: 'info' | 'warn' | 'error';
+  /** Primary call-to-action — rendered as a CTA button (e.g. "Resolve").
+   *  Resolves the underlying condition; distinct from dismissing the banner. */
+  action?: { label: string; onClick: () => void };
   dismissLabel?: string;
   onDismiss?: () => void | Promise<void>;
 }

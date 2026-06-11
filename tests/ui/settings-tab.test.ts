@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { RecordingSectionHost } from '../fixtures/recording-section-host';
+import { persistentToBannerSpec } from '../../src/ui/SettingsTab';
 import { renderBackupSchedule } from '../../src/ui/settings/sections/BackupSchedule';
 import { renderRetention } from '../../src/ui/settings/sections/Retention';
 import { renderNotifications } from '../../src/ui/settings/sections/Notifications';
@@ -68,5 +69,31 @@ describe('SettingsTab — section scaffold', () => {
     // T7.12 manual smoke; per-section content tests land in T7.7–T7.10.
     const mod = await import('../../src/ui/SettingsTab');
     expect(mod.ArchivistSettingTab).toBeDefined();
+  });
+});
+
+describe('SettingsTab — persistent-banner mapping', () => {
+  it('maps a vault-mismatch banner to error severity and preserves the action', () => {
+    const onClick = () => {};
+    const spec = persistentToBannerSpec({
+      code: 'VAULT_ID_MISMATCH',
+      message: S.MISMATCH_BANNER,
+      action: { label: S.MISMATCH_BANNER_RESOLVE, onClick },
+    });
+    expect(spec.severity).toBe('error');
+    expect(spec.action).toEqual({ label: S.MISMATCH_BANNER_RESOLVE, onClick });
+  });
+
+  it('maps corrupt-remote metadata to error severity', () => {
+    const spec = persistentToBannerSpec({
+      code: 'VAULT_META_CORRUPT',
+      message: S.REMOTE_CORRUPT_BANNER,
+    });
+    expect(spec.severity).toBe('error');
+  });
+
+  it('defaults unknown codes to warn severity', () => {
+    const spec = persistentToBannerSpec({ code: 'CHAIN_RECOVERY', message: 'x' });
+    expect(spec.severity).toBe('warn');
   });
 });

@@ -33,15 +33,26 @@ import { S } from './strings';
 
 export type SuccessEvent = { type: 'inc'; fileCount: number } | { type: 'full' };
 
+/** A primary call-to-action rendered as a button on a persistent banner.
+ *  Distinct from `onDismiss`: an action *resolves* the condition (e.g. open
+ *  the recovery modal), it does not just hide the banner. */
+export interface BannerAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface PersistentBanner {
   code: string;
   message: string;
+  /** Optional primary action — rendered as a CTA button ahead of Dismiss. */
+  action?: BannerAction;
   /** Optional user-dismiss hook — if present, the banner renders a Dismiss control. */
   onDismiss?: () => void | Promise<void>;
   dismissLabel?: string;
 }
 
 export interface ShowPersistentOptions {
+  action?: BannerAction;
   onDismiss?: () => void | Promise<void>;
   dismissLabel?: string;
 }
@@ -169,6 +180,7 @@ export class NoticeCenter implements PreflightHost {
     if (
       existing &&
       existing.message === message &&
+      existing.action === opts?.action &&
       existing.onDismiss === opts?.onDismiss &&
       existing.dismissLabel === opts?.dismissLabel
     ) {
@@ -177,6 +189,7 @@ export class NoticeCenter implements PreflightHost {
     this.banners.set(code, {
       code,
       message,
+      action: opts?.action,
       onDismiss: opts?.onDismiss,
       dismissLabel: opts?.dismissLabel,
     });
