@@ -161,15 +161,23 @@ export class ArchivistSettingTab extends PluginSettingTab {
   }
 }
 
-function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
+export function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
   // Map known codes to severity. Default to 'warn' for anything else.
-  const severity: BannerSpec['severity'] =
-    b.code === 'AUTH_LOST' || b.code === 'DEVICE_CONFLICT' ? 'error' : 'warn';
+  // VAULT_ID_MISMATCH / VAULT_META_CORRUPT pause the backup loop entirely —
+  // an error-class condition, not a soft warning.
+  const errorCodes = new Set([
+    'AUTH_LOST',
+    'DEVICE_CONFLICT',
+    'VAULT_ID_MISMATCH',
+    'VAULT_META_CORRUPT',
+  ]);
+  const severity: BannerSpec['severity'] = errorCodes.has(b.code) ? 'error' : 'warn';
   return {
     kind: 'banner',
     code: b.code,
     message: b.message,
     severity,
+    action: b.action,
     dismissLabel: b.dismissLabel,
     onDismiss: b.onDismiss,
   };
@@ -269,13 +277,23 @@ class ObsidianSectionHost implements SectionHost {
     // because it surfaces engineer-jargon to users; the message itself is
     // self-describing and the code stays internal for dedup/clear calls.
     el.createSpan({ text: spec.message });
-    if (spec.onDismiss) {
+    if (spec.action || spec.onDismiss) {
       const setting = new Setting(el);
-      setting.addButton((btn) => {
-        btn.setButtonText(spec.dismissLabel ?? 'Dismiss').onClick(() => {
-          void spec.onDismiss?.();
+      if (spec.action) {
+        setting.addButton((btn) => {
+          btn
+            .setButtonText(spec.action!.label)
+            .setCta()
+            .onClick(() => spec.action!.onClick());
         });
-      });
+      }
+      if (spec.onDismiss) {
+        setting.addButton((btn) => {
+          btn.setButtonText(spec.dismissLabel ?? 'Dismiss').onClick(() => {
+            void spec.onDismiss?.();
+          });
+        });
+      }
     }
   }
 

@@ -221,9 +221,9 @@ export const S = {
   // (onLayoutReady consistency probe) — the backup loop is locked, the
   // user has to act before any further upload runs.
   MISMATCH_BANNER:
-    'Vault identity mismatch — backups paused. Click the status-bar warning to resolve.',
+    'Vault identity mismatch — backups paused. Resolve to continue.',
   REMOTE_CORRUPT_BANNER:
-    'Dropbox vault metadata is unreadable — backups paused. Click the status-bar warning for recovery options.',
+    'Dropbox vault metadata is unreadable — backups paused. Resolve for recovery options.',
   MISMATCH_BANNER_RESOLVE: 'Resolve',
 
   // Modal copy.

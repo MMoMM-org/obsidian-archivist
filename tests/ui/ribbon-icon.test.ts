@@ -288,6 +288,18 @@ describe('RibbonIcon — state matrix', () => {
     expect(state.aria).toBe(S.RIBBON_ARIA_AUTH_LOST);
   });
 
+  it('BLOCKED: shield-alert + dedicated red blocked class (not the muted error class)', () => {
+    const fsm = makeFSM();
+    const { ribbon, state } = makeRibbon(fsm);
+    ribbon.mount();
+    fsm.setBlocked('VAULT_ID_MISMATCH');
+    expect(state.icon).toBe('shield-alert');
+    expect(state.cssClass).toContain('archivist-blocked');
+    expect(state.cssClass).not.toContain('archivist-error');
+    expect(state.tooltip).toBe(S.RIBBON_TOOLTIP_BLOCKED);
+    expect(state.aria).toBe(S.RIBBON_ARIA_BLOCKED);
+  });
+
   it('pulse class is PRESENT only in BACKUP_RUNNING', () => {
     const fsm = makeFSM({ schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 } });
     const { ribbon, state } = makeRibbon(fsm);

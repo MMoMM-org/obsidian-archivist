@@ -149,6 +149,18 @@
 	color: var(--text-error);
 }
 
+/* BLOCKED — backups paused, user action required. Uses the saturated base
+   red (not the muted --text-error) so the shield-alert clearly reads as
+   "stop" in both the ribbon and the status bar. */
+.archivist-blocked {
+	color: var(--color-red);
+}
+
+/* Sticky "backups paused" toast — clickable to open the recovery dialog. */
+.archivist-notice-clickable {
+	cursor: pointer;
+}
+
 @keyframes archivist-pulse {
 	0%, 100% { opacity: 1; }
 	50%      { opacity: 0.45; }

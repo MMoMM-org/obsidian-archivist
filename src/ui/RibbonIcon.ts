@@ -121,7 +121,7 @@ function presentationFor(state: FSMState): StatePresentation {
     case 'BLOCKED':
       return {
         icon: 'shield-alert',
-        cssClass: 'archivist-ribbon archivist-error',
+        cssClass: 'archivist-ribbon archivist-blocked',
         tooltip: S.RIBBON_TOOLTIP_BLOCKED,
         aria: S.RIBBON_ARIA_BLOCKED,
       };
