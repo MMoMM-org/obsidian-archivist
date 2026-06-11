@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.0...0.11.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* **ui:** surface vault-identity mismatch loudly and resolve it from settings ([#75](https://github.com/MMoMM-org/obsidian-archivist/issues/75)) ([5ae2e65](https://github.com/MMoMM-org/obsidian-archivist/commit/5ae2e655ce664e00d5619fb3feb7fae95409e79e))
+
 # [0.11.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.10.0...0.11.0) (2026-06-04)
 
 
