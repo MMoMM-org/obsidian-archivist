@@ -1,3 +1,10 @@
+## [0.11.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.2...0.11.3) (2026-06-17)
+
+
+### Bug Fixes
+
+* **deps:** resolve all 6 npm audit advisories ([#78](https://github.com/MMoMM-org/obsidian-archivist/issues/78)) ([8d60394](https://github.com/MMoMM-org/obsidian-archivist/commit/8d60394d1eeb70d9ede9abe77fbed090647b7381)), closes [hi#severity](https://github.com/hi/issues/severity)
+
 ## [0.11.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.1...0.11.2) (2026-06-17)
 
 
