@@ -1,3 +1,10 @@
+## [0.11.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.1...0.11.2) (2026-06-17)
+
+
+### Bug Fixes
+
+* **net:** route Dropbox SDK through requestUrl to bypass CORS ([#77](https://github.com/MMoMM-org/obsidian-archivist/issues/77)) ([62d90cb](https://github.com/MMoMM-org/obsidian-archivist/commit/62d90cbb5a425dc305938b3a63f59ce8ae16a081))
+
 ## [0.11.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.0...0.11.1) (2026-06-11)
 
 
