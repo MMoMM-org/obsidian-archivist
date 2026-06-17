@@ -39,8 +39,8 @@
 		"@semantic-release/exec": "^7.0.3",
 		"@semantic-release/git": "^10.0.1",
 		"@semantic-release/github": "^12.0.8",
-		"@types/node": "22.19.20",
-		"@vitest/coverage-v8": "4.1.8",
+		"@types/node": "22.19.21",
+		"@vitest/coverage-v8": "4.1.9",
 		"esbuild": "0.28.1",
 		"eslint": "9.39.4",
 		"eslint-plugin-local": "file:./tools/eslint",
@@ -50,7 +50,7 @@
 		"stylelint": "17.13.0",
 		"stylelint-no-unsupported-browser-features": "8.1.1",
 		"typescript": "6.0.3",
-		"typescript-eslint": "8.60.1",
-		"vitest": "4.1.8"
+		"typescript-eslint": "8.61.1",
+		"vitest": "4.1.9"
 	}
 }
