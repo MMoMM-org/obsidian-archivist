@@ -230,10 +230,15 @@ export default class ArchivistPlugin extends Plugin {
       const dropboxModule = await import('dropbox');
       const { DropboxClient } = await import('./infra/DropboxClient');
       const { DROPBOX_CLIENT_ID } = await import('./config/dropbox');
+      const { requestUrlFetch } = await import('./infra/requestUrlFetch');
       const sdk = new dropboxModule.Dropbox({
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         clientId: DROPBOX_CLIENT_ID,
+        // Route every SDK call through Obsidian's requestUrl to bypass CORS on
+        // content.dropboxapi.com (see src/infra/requestUrlFetch.ts). Forwarded
+        // into the SDK's internal DropboxAuth, so token refresh is covered too.
+        fetch: requestUrlFetch,
       });
       dropboxProxy.set(new DropboxClient(sdk, tokenStore, this.logger));
     };
