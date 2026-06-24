@@ -1,3 +1,10 @@
+## [0.11.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.3...0.11.4) (2026-06-24)
+
+
+### Bug Fixes
+
+* **net:** self-heal corrupt snapshot_index + verify upload size (requestUrl truncation) ([#81](https://github.com/MMoMM-org/obsidian-archivist/issues/81)) ([d34cc12](https://github.com/MMoMM-org/obsidian-archivist/commit/d34cc12d9855e47dd20fbcd3af2b9aeca12e4e60))
+
 ## [0.11.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.2...0.11.3) (2026-06-17)
 
 
