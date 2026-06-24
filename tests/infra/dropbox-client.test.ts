@@ -274,6 +274,31 @@ describe('DropboxClient', () => {
     ).rejects.toBeInstanceOf(NetworkError);
   });
 
+  it('corruption_code_malformed_json_throws_corruption_error_without_retry', async () => {
+    // SyntaxError + context.corruptionCode → CorruptionError with that code,
+    // non-retryable. The snapshot index uses this so a truncated body becomes a
+    // repair signal instead of an endlessly-retried NetworkError.
+    let calls = 0;
+    const { client, retry } = buildClient({
+      filesDownload: () => {
+        calls += 1;
+        return sdkResponse({ fileBinary: new TextEncoder().encode('{"broken":') });
+      },
+    });
+
+    const err = await client
+      .downloadJson('/Archivist/snapshot_index.json', {
+        corruptionCode: 'SNAPSHOT_INDEX_INVALID',
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CorruptionError);
+    expect((err as CorruptionError).code).toBe('SNAPSHOT_INDEX_INVALID');
+    // Deterministic bad bytes — retrying is pointless, so it must not loop.
+    expect(calls).toBe(1);
+    expect(retry.delays.length).toBe(0);
+  });
+
   it('too_many_write_operations_throws_rate_limit_error', async () => {
     let calls = 0;
     const { client, retry } = buildClient({

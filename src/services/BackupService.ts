@@ -20,13 +20,14 @@ import { buildFullManifest, buildIncManifest } from './ManifestBuilder';
 import type { BackupProgressReporter } from './BackupProgress';
 import type { ChangeDetector } from './ChangeDetector';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
+import type { SnapshotIndexEntry } from '../model/SnapshotIndex';
 import type { DeviceCoordinator } from './DeviceCoordinator';
 import type { DropboxClient } from '../infra/DropboxClient';
 import type { EventQueue as EventQueueInfra } from '../infra/EventQueue';
 import type { Logger } from '../infra/Logger';
 import type { PluginStore } from '../infra/PluginStore';
 import type { VaultAdapter } from '../infra/VaultAdapter';
-import { ConfigError, PathError } from '../model/Errors';
+import { ConfigError, CorruptionError, PathError } from '../model/Errors';
 import type { LocalIndex } from '../model/Index';
 import type { QueueEntry } from '../model/QueueEntry';
 import type { RenameEntry, SnapshotManifest } from '../model/Manifest';
@@ -151,6 +152,16 @@ export interface BackupServiceDeps {
     walkedDepth: number;
   }) => void;
   /**
+   * Optional self-heal hook for a corrupt snapshot_index.json. When the commit
+   * step finds the index unreadable (CorruptionError SNAPSHOT_INDEX_INVALID),
+   * BackupService calls this to rebuild it from the authoritative manifests on
+   * Dropbox, then retries the index append once. main.ts wires this to
+   * RepairService.rebuildSnapshotIndex. When absent (tests), the corruption
+   * propagates as before. The index is a rebuildable cache (ADR-20), so a
+   * backup should recover from a bad index rather than fail hard forever.
+   */
+  rebuildSnapshotIndex?: () => Promise<void>;
+  /**
    * Optional vault-fingerprint guard. When provided, BackupService runs a
    * pre-write consistency check on every backup attempt and aborts on
    * 'mismatch' / 'remote-corrupt' / 'adopt-remote' (the UI handles
@@ -200,6 +211,7 @@ export class BackupService {
   private readonly onChainCorruptionDetected:
     | ((info: { missingId: string | null; referrerId: string; walkedDepth: number }) => void)
     | null;
+  private readonly rebuildSnapshotIndex: (() => Promise<void>) | null;
   private readonly vaultIdentity: VaultIdentitySubset | null;
   private readonly now: () => string;
 
@@ -254,6 +266,7 @@ export class BackupService {
     this.logger = deps.logger ?? NOOP_LOGGER;
     this.progress = deps.progress ?? null;
     this.onChainCorruptionDetected = deps.onChainCorruptionDetected ?? null;
+    this.rebuildSnapshotIndex = deps.rebuildSnapshotIndex ?? null;
     this.vaultIdentity = deps.vaultIdentity ?? null;
     this.now = deps.now ?? (() => new Date().toISOString());
   }
@@ -724,7 +737,7 @@ export class BackupService {
     await this.dropbox.uploadJson(snapshotPath(manifest), manifest);
 
     // --- Step 4: Append to snapshot_index ---
-    await this.snapshotIndexStore.append({
+    await this.appendToIndexWithSelfHeal({
       id: manifest.id,
       type: manifest.type,
       parent_id: manifest.parent_id,
@@ -748,6 +761,44 @@ export class BackupService {
 
     // --- Step 7: Advance queue cursor (in-memory + disk via EventQueue) ---
     await this.eventQueue.commitWindow(queueCursorAdvanceTo);
+  }
+
+  /**
+   * Append an entry to the snapshot index, self-healing a corrupt index.
+   *
+   * The index is a rebuildable cache (ADR-20). If the existing index is
+   * unreadable (truncated / unterminated JSON → CorruptionError
+   * SNAPSHOT_INDEX_INVALID), a plain append fails forever because every
+   * attempt re-reads the same bad bytes. When a rebuild hook is wired, we
+   * rebuild the index from the authoritative manifests on Dropbox and retry
+   * the append once. Without the hook (tests) the corruption propagates.
+   */
+  private async appendToIndexWithSelfHeal(entry: SnapshotIndexEntry): Promise<void> {
+    try {
+      await this.snapshotIndexStore.append(entry);
+      return;
+    } catch (err) {
+      const isIndexCorrupt =
+        err instanceof CorruptionError && err.code === 'SNAPSHOT_INDEX_INVALID';
+      if (!isIndexCorrupt || this.rebuildSnapshotIndex === null) {
+        throw err;
+      }
+      this.logger.warn('snapshot_index_corrupt_rebuilding', {
+        error: err.message,
+        snapshot_id: entry.id,
+      });
+      await this.rebuildSnapshotIndex();
+      // The rebuild scans every manifest on Dropbox — including the one this
+      // commit just uploaded in Step 3 — so the current entry may already be
+      // captured. Only append when the rebuild didn't include it, to avoid a
+      // duplicate index row.
+      const rebuilt = await this.snapshotIndexStore.read();
+      const alreadyPresent = rebuilt?.snapshots.some((s) => s.id === entry.id) ?? false;
+      if (!alreadyPresent) {
+        await this.snapshotIndexStore.append(entry);
+      }
+      this.logger.info('snapshot_index_rebuilt_after_corruption', { snapshot_id: entry.id });
+    }
   }
 
   // ---------------------------------------------------------------------------

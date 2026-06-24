@@ -125,6 +125,13 @@ function configCodeToBlockReason(code: string): BlockReason | null {
   }
 }
 
+/**
+ * Prefix for every user-visible Obsidian Notice this plugin raises, so a user
+ * running many plugins can attribute a toast (e.g. a network error) to Archivist
+ * at a glance instead of guessing which plugin is reporting.
+ */
+const NOTICE_PREFIX = 'Archivist: ';
+
 export default class ArchivistPlugin extends Plugin {
   private logger: Logger = createLogger(() => false);
   private oauthFlow: OAuthConnectFlow | null = null;
@@ -180,7 +187,7 @@ export default class ArchivistPlugin extends Plugin {
             error: e instanceof Error ? e.message : String(e),
           });
         });
-        new Notice(email ? S.OAUTH_CONNECTED_AS(email) : S.OAUTH_CONNECTED_FALLBACK);
+        new Notice(`${NOTICE_PREFIX}${email ? S.OAUTH_CONNECTED_AS(email) : S.OAUTH_CONNECTED_FALLBACK}`);
         // Push the new email into the settings context and redraw the tab if
         // it's currently open. Without this, the tab stays in empty-state until
         // the user closes & reopens it.
@@ -189,7 +196,7 @@ export default class ArchivistPlugin extends Plugin {
         this.logger.error('oauth_callback_failed', {
           error: err instanceof Error ? err.message : String(err),
         });
-        new Notice(S.OAUTH_STATE_MISMATCH);
+        new Notice(`${NOTICE_PREFIX}${S.OAUTH_STATE_MISMATCH}`);
       }
     });
 
@@ -265,7 +272,11 @@ export default class ArchivistPlugin extends Plugin {
       // minAppVersion. Each button click dismisses the notice before
       // invoking the handler, otherwise the sticky preflight would linger.
       const frag = createFragment();
-      frag.createDiv({ text: message });
+      // Prefix every toast with the plugin name so a user with many plugins can
+      // tell at a glance which one is reporting (e.g. a network error) rather
+      // than guessing. Covers all NoticeCenter routes (success / error /
+      // preflight / resumed) since they all render through this factory.
+      frag.createDiv({ text: `${NOTICE_PREFIX}${message}` });
       const noticeRef: { current: Notice | null } = { current: null };
       if (buttons.length > 0) {
         const container = frag.createDiv({ cls: 'archivist-notice-actions' });
@@ -346,6 +357,14 @@ export default class ArchivistPlugin extends Plugin {
     // subscribes below to refresh on each (throttled) change.
     const progressTracker = createBackupProgressTracker();
 
+    // Late-bound snapshot-index rebuilder. RepairService is built below (it
+    // depends on GCService, also built below), but BackupService needs to
+    // rebuild a corrupt index mid-commit and retry the append. The mutable
+    // holder lets us wire the callback once RepairService exists without
+    // forcing a circular construction order — same pattern as
+    // manifestCacheInvalidator below.
+    const indexRebuilder: { rebuild: (() => Promise<void>) | null } = { rebuild: null };
+
     const backupService = new BackupService({
       dropbox: dropboxProxy as unknown as DropboxClient,
       vault: vaultAdapter,
@@ -357,6 +376,11 @@ export default class ArchivistPlugin extends Plugin {
       changeDetector,
       logger: this.logger,
       progress: progressTracker,
+      // Self-heal a corrupt snapshot_index during commit: rebuild from the
+      // authoritative manifests on Dropbox, then retry the append once.
+      rebuildSnapshotIndex: () =>
+        indexRebuilder.rebuild?.() ??
+        Promise.reject(new Error('snapshot-index rebuilder not wired')),
       // Surface chain-walk corruption recovery as a persistent banner so a
       // long-running fall-back FULL doesn't look like the plugin hung. The
       // banner clears below in the BACKUP_RUNNING success/failure handlers.
@@ -419,6 +443,10 @@ export default class ArchivistPlugin extends Plugin {
       logger: this.logger,
       invalidateManifestCache: () => manifestCacheInvalidator.invalidate?.(),
     });
+
+    // Wire the late-bound rebuilder now that RepairService exists, so a backup
+    // can self-heal a corrupt snapshot_index (BackupService.appendToIndexWithSelfHeal).
+    indexRebuilder.rebuild = () => repairService.rebuildSnapshotIndex().then(() => undefined);
 
     const maintenanceScheduler = new MaintenanceScheduler({
       runRetention: async () => {
@@ -558,7 +586,7 @@ export default class ArchivistPlugin extends Plugin {
       // per condition; re-surfacing the same code leaves the existing toast.
       if (blockingNotice.code !== bannerCode) {
         clearBlockingNotice();
-        const notice = new Notice(bannerMessage, 0);
+        const notice = new Notice(`${NOTICE_PREFIX}${bannerMessage}`, 0);
         notice.messageEl.addClass('archivist-notice-clickable');
         this.registerDomEvent(notice.messageEl, 'click', () => openRecovery());
         blockingNotice.handle = notice;
@@ -974,7 +1002,7 @@ export default class ArchivistPlugin extends Plugin {
           await (navigator as unknown as {
             clipboard: { writeText: (t: string) => Promise<void> };
           }).clipboard.writeText(report);
-          new Notice(S.ERROR_DETAILS_COPIED, 3_000);
+          new Notice(`${NOTICE_PREFIX}${S.ERROR_DETAILS_COPIED}`, 3_000);
         },
       }).open();
     };
@@ -1003,7 +1031,7 @@ export default class ArchivistPlugin extends Plugin {
               remote_name: record.remoteVaultName,
             });
             new Notice(
-              S.MISMATCH_RECOVERY_OK(record.remoteVaultName ?? 'remote'),
+              `${NOTICE_PREFIX}${S.MISMATCH_RECOVERY_OK(record.remoteVaultName ?? 'remote')}`,
               4_000,
             );
             mismatchRecordRef.current = null;
@@ -1017,7 +1045,7 @@ export default class ArchivistPlugin extends Plugin {
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             this.logger.error('vault_id_adoption_failed', { error: msg });
-            new Notice(S.MISMATCH_RECOVERY_FAILED(msg), 0);
+            new Notice(`${NOTICE_PREFIX}${S.MISMATCH_RECOVERY_FAILED(msg)}`, 0);
           }
         },
         onChangePrefix: () => {
@@ -1370,10 +1398,10 @@ export default class ArchivistPlugin extends Plugin {
                 void (async (): Promise<void> => {
                   try {
                     await vaultIdentity.adoptVaultId(result.remote.vault_id);
-                    new Notice(S.ADOPT_VAULT_OK(result.remote.vault_name));
+                    new Notice(`${NOTICE_PREFIX}${S.ADOPT_VAULT_OK(result.remote.vault_name)}`);
                   } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
-                    new Notice(S.ADOPT_VAULT_FAILED(msg), 0);
+                    new Notice(`${NOTICE_PREFIX}${S.ADOPT_VAULT_FAILED(msg)}`, 0);
                     this.logger.error('vault_id_adoption_failed', { error: msg });
                   }
                 })();

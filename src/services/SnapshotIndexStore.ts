@@ -35,7 +35,15 @@ export class SnapshotIndexStore {
   /** Downloads and parses the index. Returns null if missing; throws CorruptionError on bad data. */
   async read(): Promise<SnapshotIndex | null> {
     try {
-      const raw = await this.dropbox.downloadJson<unknown>(this.path);
+      // corruptionCode: a malformed body (truncated / unterminated JSON) is
+      // surfaced as CorruptionError('SNAPSHOT_INDEX_INVALID') — same code as a
+      // schema-validation failure below — instead of a retryable NetworkError.
+      // The index is a rebuildable cache (ADR-20), so corruption is a repair
+      // signal, not a transient glitch to retry endlessly. Lets RepairService
+      // and the backup self-heal path recognise and rebuild it.
+      const raw = await this.dropbox.downloadJson<unknown>(this.path, {
+        corruptionCode: 'SNAPSHOT_INDEX_INVALID',
+      });
       try {
         return parseSnapshotIndex(raw);
       } catch (err) {
