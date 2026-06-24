@@ -783,7 +783,9 @@ export class BackupService {
       if (!isIndexCorrupt || this.rebuildSnapshotIndex === null) {
         throw err;
       }
-      this.logger.warn('snapshot_index_corrupt_rebuilding', {
+      // debug, not warn: the index is a rebuildable cache and we recover it
+      // in-line, so this is a diagnostic breadcrumb rather than an alert.
+      this.logger.debug('snapshot_index_corrupt_rebuilding', {
         error: err.message,
         snapshot_id: entry.id,
       });
