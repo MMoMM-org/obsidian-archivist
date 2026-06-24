@@ -144,6 +144,35 @@ describe('SnapshotIndexStore.read', () => {
     expect(thrown!.code).toBe('SNAPSHOT_INDEX_INVALID');
   });
 
+  it('requests corruptionCode so a malformed body is classified as repairable corruption', async () => {
+    const dropbox = makeFakeDropbox();
+    const spy = vi.fn(async (_path: string, _opts?: unknown) => {
+      throw new PathError('PATH_NOT_FOUND', 'missing', false);
+    });
+    dropbox.downloadJson = spy as never;
+    const store = makeStore(dropbox);
+
+    await store.read();
+
+    expect(spy).toHaveBeenCalledWith(SNAPSHOT_INDEX_PATH, {
+      corruptionCode: 'SNAPSHOT_INDEX_INVALID',
+    });
+  });
+
+  it('propagates a CorruptionError from downloadJson unchanged (truncated body)', async () => {
+    const dropbox = makeFakeDropbox();
+    // Mirrors the production path: downloadJson now throws CorruptionError for a
+    // malformed (truncated) snapshot_index body instead of a retryable NetworkError.
+    dropbox.downloadJson = vi.fn(async () => {
+      throw new CorruptionError('SNAPSHOT_INDEX_INVALID', 'Malformed JSON response', false);
+    }) as never;
+    const store = makeStore(dropbox);
+
+    const err = await store.read().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CorruptionError);
+    expect((err as CorruptionError).code).toBe('SNAPSHOT_INDEX_INVALID');
+  });
+
   it('propagates non-PathError errors from downloadJson', async () => {
     const dropbox = makeFakeDropbox();
     const networkErr = new Error('Network failure');

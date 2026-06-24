@@ -20,7 +20,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { BackupService, type BackupServiceDeps } from '../../src/services/BackupService';
-import { ConflictError } from '../../src/model/Errors';
+import { ConflictError, CorruptionError } from '../../src/model/Errors';
 import type { Logger } from '../../src/infra/Logger';
 import type { PluginSettings } from '../../src/model/Settings';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
@@ -227,6 +227,8 @@ function makeHarness(
     initialQueue?: Partial<EventQueue>;
     now?: () => string;
     snapshotIndexStore?: ReturnType<typeof makeFakeSnapshotIndexStore>;
+    /** Self-heal hook for the corrupt-index recovery tests. */
+    rebuildSnapshotIndex?: () => Promise<void>;
     /**
      * Optional ChangeDetector double. The reconcile-on-first-inc tests inject a
      * mock with `getChangedPaths` returning a controlled set of paths.
@@ -308,6 +310,7 @@ function makeHarness(
     ...(opts.changeDetector ? { changeDetector: opts.changeDetector as never } : {}),
     ...(opts.vaultIdentity ? { vaultIdentity: opts.vaultIdentity as never } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
+    ...(opts.rebuildSnapshotIndex ? { rebuildSnapshotIndex: opts.rebuildSnapshotIndex } : {}),
   };
 
   return {
@@ -620,6 +623,105 @@ describe('BackupService.runFull — crash simulation', () => {
 // ---------------------------------------------------------------------------
 // Tests: upload_parallelism validation (ROB-001)
 // ---------------------------------------------------------------------------
+
+describe('BackupService — snapshot_index self-heal (corrupt index)', () => {
+  it('rebuilds a corrupt index mid-commit and retries the append, so the backup succeeds', async () => {
+    const vaultFiles = makeVaultFiles(3);
+    const dropbox = makeFakeDropbox();
+
+    let appendCalls = 0;
+    const indexState: { value: { schema_version: string; last_updated_at: string; snapshots: unknown[] } | null } = {
+      value: null,
+    };
+    const snapshotIndexStore = {
+      append: vi.fn(async (entry: unknown) => {
+        appendCalls += 1;
+        if (appendCalls === 1) {
+          // First commit reads the existing index and hits truncated /
+          // unterminated JSON — exactly the production failure.
+          throw new CorruptionError('SNAPSHOT_INDEX_INVALID', 'Malformed JSON response', false);
+        }
+        const idx = indexState.value ?? { schema_version: '1.0', last_updated_at: 'x', snapshots: [] };
+        idx.snapshots.push(entry);
+        indexState.value = idx;
+      }),
+      read: vi.fn(async () => indexState.value),
+    };
+
+    const rebuildSnapshotIndex = vi.fn(async () => {
+      // Rebuild yields a valid index. We deliberately do NOT pre-seed the
+      // current entry, so the retry append must add it.
+      indexState.value = { schema_version: '1.0', last_updated_at: 'x', snapshots: [] };
+    });
+
+    const { service } = makeHarness(vaultFiles, {
+      dropbox,
+      snapshotIndexStore: snapshotIndexStore as never,
+      rebuildSnapshotIndex,
+    });
+
+    await expect(service.runFull()).resolves.toBeDefined();
+
+    expect(rebuildSnapshotIndex).toHaveBeenCalledTimes(1);
+    expect(appendCalls).toBe(2); // first throws, retry after rebuild succeeds
+    expect(indexState.value?.snapshots).toHaveLength(1);
+  });
+
+  it('skips the retry append when the rebuild already captured the current entry (no duplicate)', async () => {
+    const vaultFiles = makeVaultFiles(2);
+
+    let appendCalls = 0;
+    const indexState: { value: { schema_version: string; last_updated_at: string; snapshots: { id: string }[] } | null } = {
+      value: null,
+    };
+    let currentEntryId = '';
+    const snapshotIndexStore = {
+      append: vi.fn(async (entry: { id: string }) => {
+        appendCalls += 1;
+        currentEntryId = entry.id;
+        throw new CorruptionError('SNAPSHOT_INDEX_INVALID', 'Malformed JSON response', false);
+      }),
+      read: vi.fn(async () => indexState.value),
+    };
+    const rebuildSnapshotIndex = vi.fn(async () => {
+      // Rebuild from manifests already includes the just-uploaded current
+      // snapshot, so the index is complete — the retry append must be skipped.
+      indexState.value = {
+        schema_version: '1.0',
+        last_updated_at: 'x',
+        snapshots: [{ id: currentEntryId }],
+      };
+    });
+
+    const { service } = makeHarness(vaultFiles, {
+      snapshotIndexStore: snapshotIndexStore as never,
+      rebuildSnapshotIndex,
+    });
+
+    await expect(service.runFull()).resolves.toBeDefined();
+
+    expect(rebuildSnapshotIndex).toHaveBeenCalledTimes(1);
+    expect(appendCalls).toBe(1); // only the initial (throwing) append; no duplicate
+    expect(indexState.value?.snapshots).toHaveLength(1);
+  });
+
+  it('without a rebuild hook, a corrupt index propagates instead of being swallowed', async () => {
+    const vaultFiles = makeVaultFiles(2);
+    const snapshotIndexStore = {
+      append: vi.fn(async () => {
+        throw new CorruptionError('SNAPSHOT_INDEX_INVALID', 'Malformed JSON response', false);
+      }),
+      read: vi.fn(async () => null),
+    };
+
+    const { service } = makeHarness(vaultFiles, {
+      snapshotIndexStore: snapshotIndexStore as never,
+      // no rebuildSnapshotIndex wired
+    });
+
+    await expect(service.runFull()).rejects.toBeInstanceOf(CorruptionError);
+  });
+});
 
 describe('BackupService.runFull — upload_parallelism validation', () => {
   it('parallelism=0 falls back to DEFAULT_UPLOAD_PARALLELISM — all blobs uploaded, no hang', async () => {

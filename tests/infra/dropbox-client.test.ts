@@ -274,6 +274,65 @@ describe('DropboxClient', () => {
     ).rejects.toBeInstanceOf(NetworkError);
   });
 
+  it('corruption_code_malformed_json_throws_corruption_error_without_retry', async () => {
+    // SyntaxError + context.corruptionCode → CorruptionError with that code,
+    // non-retryable. The snapshot index uses this so a truncated body becomes a
+    // repair signal instead of an endlessly-retried NetworkError.
+    let calls = 0;
+    const { client, retry } = buildClient({
+      filesDownload: () => {
+        calls += 1;
+        return sdkResponse({ fileBinary: new TextEncoder().encode('{"broken":') });
+      },
+    });
+
+    const err = await client
+      .downloadJson('/Archivist/snapshot_index.json', {
+        corruptionCode: 'SNAPSHOT_INDEX_INVALID',
+      })
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(CorruptionError);
+    expect((err as CorruptionError).code).toBe('SNAPSHOT_INDEX_INVALID');
+    // Deterministic bad bytes — retrying is pointless, so it must not loop.
+    expect(calls).toBe(1);
+    expect(retry.delays.length).toBe(0);
+  });
+
+  it('upload_retries_on_truncated_write_then_succeeds', async () => {
+    // requestUrl intermittently truncates a large body → Dropbox stores fewer
+    // bytes than sent. uploadBlob compares the echoed size and re-uploads; the
+    // second attempt lands whole.
+    let calls = 0;
+    const { client, sdk } = buildClient({
+      filesUpload: (arg: unknown) => {
+        const { contents } = arg as { contents: Uint8Array };
+        calls += 1;
+        const size = calls === 1 ? contents.length - 5 : contents.length;
+        return sdkResponse({ id: 'id', rev: 'r', size, server_modified: 'x' });
+      },
+    });
+
+    await expect(
+      client.uploadJson('/idx.json', { a: 'x'.repeat(50) }),
+    ).resolves.toBeUndefined();
+    expect(sdk.filesUpload).toHaveBeenCalledTimes(2);
+  });
+
+  it('upload_throws_UPLOAD_TRUNCATED_after_persistent_short_writes', async () => {
+    const { client } = buildClient({
+      filesUpload: (arg: unknown) => {
+        const { contents } = arg as { contents: Uint8Array };
+        // Always one byte short — never lands whole.
+        return sdkResponse({ id: 'id', rev: 'r', size: contents.length - 1, server_modified: 'x' });
+      },
+    });
+
+    const err = await client.uploadBlob('/big.bin', new Uint8Array(100)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect((err as NetworkError).code).toBe('UPLOAD_TRUNCATED');
+  });
+
   it('too_many_write_operations_throws_rate_limit_error', async () => {
     let calls = 0;
     const { client, retry } = buildClient({
@@ -437,7 +496,17 @@ describe('DropboxClient', () => {
     // SDK DropboxResponse, FileMetadata, etc. We dispatch each method against
     // a happy-path fake and check the returned shape.
     const { client } = buildClient({
-      filesUpload: () => sdkResponse({ id: 'id:1', rev: 'r1', size: 3, server_modified: '2026-04-23T00:00:00Z' }),
+      // Echo the uploaded byte count as the committed size so uploadBlob's
+      // truncation guard sees a full write (Dropbox returns the stored size).
+      filesUpload: (arg: unknown) => {
+        const { contents } = arg as { contents: Uint8Array };
+        return sdkResponse({
+          id: 'id:1',
+          rev: 'r1',
+          size: contents.length,
+          server_modified: '2026-04-23T00:00:00Z',
+        });
+      },
       filesDownload: (arg: unknown) => {
         const { path } = arg as { path: string };
         const body =

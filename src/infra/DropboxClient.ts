@@ -77,6 +77,12 @@ function asDropboxLike(sdk: Dropbox): DropboxLike {
 
 const DEFAULT_SINGLE_SHOT_MAX_BYTES = 150 * 1024 * 1024; // Dropbox hard cap
 const DEFAULT_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+// Obsidian's requestUrl intermittently truncates large request bodies, so a
+// single-shot upload can land fewer bytes than we sent — Dropbox stores the
+// short body and the next read fails to parse (observed on ~1 MB JSON indexes).
+// We compare Dropbox's echoed committed size against what we sent and re-upload
+// on mismatch, up to this many total attempts before surfacing a hard error.
+const UPLOAD_VERIFY_MAX_ATTEMPTS = 5;
 const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 60;
 // Defaults are intentionally conservative: real-world FULL backups of large
 // vaults (~6k files) consistently tripped 429s at the previous 8 req/s × burst
@@ -195,8 +201,20 @@ function readHeader(h: SdkErrorLike['headers'], key: string): string | undefined
 // Internal — consumed only by classifyError inside this module. Not exported
 // to keep the public surface lean; promote to `export` if a future consumer
 // needs it.
+// Threaded from each public method through runOp → withAuthRefresh → attempt
+// → classifyError, so error classification knows the calling context.
+type RunOpContext = { endpoint: string } & ClassifyContext;
+
 interface ClassifyContext {
   isManifestEndpoint?: boolean;
+  /**
+   * When set, a JSON parse failure (SyntaxError) is surfaced as a
+   * `CorruptionError` with this code instead of a retryable `NetworkError`.
+   * Used by callers that read a rebuildable metadata file (e.g. the snapshot
+   * index): a malformed body is corruption to be repaired, not a transient
+   * glitch to retry endlessly.
+   */
+  corruptionCode?: string;
 }
 
 function pickErrorTag(err: unknown): string | undefined {
@@ -256,6 +274,9 @@ export function classifyError(err: unknown, context: ClassifyContext = {}): Arch
   if (err instanceof SyntaxError) {
     if (context.isManifestEndpoint) {
       return new CorruptionError('MANIFEST_CORRUPT', `Malformed manifest JSON: ${err.message}`, false, err);
+    }
+    if (context.corruptionCode !== undefined) {
+      return new CorruptionError(context.corruptionCode, `Malformed JSON response: ${err.message}`, false, err);
     }
     return new NetworkError('JSON_PARSE', `Malformed JSON response: ${err.message}`, true, err);
   }
@@ -370,14 +391,40 @@ export class DropboxClient {
 
   async uploadBlob(path: string, bytes: Uint8Array, opts?: { mode?: 'overwrite' | 'add' }): Promise<void> {
     const mode = opts?.mode ?? 'overwrite';
-    await this.runOp(
-      () =>
-        this.sdk.filesUpload({
-          path: normalizeApiPath(path),
-          contents: bytes,
-          mode: { '.tag': mode },
-        }),
-      { endpoint: 'files_upload' },
+    const expected = bytes.length;
+
+    for (let attempt = 1; attempt <= UPLOAD_VERIFY_MAX_ATTEMPTS; attempt++) {
+      const res = await this.runOp(
+        () =>
+          this.sdk.filesUpload({
+            path: normalizeApiPath(path),
+            contents: bytes,
+            mode: { '.tag': mode },
+          }),
+        { endpoint: 'files_upload' },
+      );
+
+      // Dropbox echoes the committed FileMetadata, whose `size` is the number
+      // of bytes it actually stored. If it equals what we sent, the upload
+      // landed whole. If the SDK/mock omits size, we can't verify — trust it.
+      const stored = (res.result as { size?: unknown } | null | undefined)?.size;
+      if (typeof stored !== 'number' || stored === expected) return;
+
+      // Short write — requestUrl truncated the body in flight. Re-upload.
+      // debug, not warn: it self-corrects on the next attempt, so it's a
+      // diagnostic breadcrumb, not an actionable problem.
+      this.logger.debug('upload_truncated_retrying', {
+        path,
+        expected,
+        stored,
+        attempt,
+      });
+    }
+
+    throw new NetworkError(
+      'UPLOAD_TRUNCATED',
+      `Upload of ${path} kept being truncated (expected ${expected} bytes) after ${UPLOAD_VERIFY_MAX_ATTEMPTS} attempts`,
+      true,
     );
   }
 
@@ -396,20 +443,23 @@ export class DropboxClient {
     );
   }
 
-  async downloadJson<T>(path: string, opts?: { isManifestEndpoint?: boolean }): Promise<T> {
+  async downloadJson<T>(
+    path: string,
+    opts?: { isManifestEndpoint?: boolean; corruptionCode?: string },
+  ): Promise<T> {
     const isManifestEndpoint = opts?.isManifestEndpoint ?? false;
+    const corruptionCode = opts?.corruptionCode;
     return await this.runOp(
       async () => {
         const resp = await this.sdk.filesDownload({ path: normalizeApiPath(path) });
         const bytes = await extractBytes(resp.result as FileDownloadResult);
         // Guarded JSON.parse — the wrapper throws SyntaxError which the outer
         // classifyError converts to CorruptionError | NetworkError based on
-        // isManifestEndpoint.
+        // isManifestEndpoint / corruptionCode.
         const text = new TextDecoder('utf-8').decode(bytes);
-        const parsed = JSON.parse(text) as T;
-        return parsed;
+        return JSON.parse(text) as T;
       },
-      { endpoint: 'files_download_json', isManifestEndpoint },
+      { endpoint: 'files_download_json', isManifestEndpoint, corruptionCode },
     );
   }
 
@@ -503,14 +553,14 @@ export class DropboxClient {
    * is near expiry, (2) one-shot reactive refresh on 401 expired_access_token,
    * and (3) generic retry/backoff for transient errors.
    */
-  private async runOp<T>(op: () => Promise<T>, context: { endpoint: string; isManifestEndpoint?: boolean }): Promise<T> {
+  private async runOp<T>(op: () => Promise<T>, context: RunOpContext): Promise<T> {
     await this.maybeProactiveRefresh();
     return await retry(() => this.withAuthRefresh(op, context), this.retryOptions);
   }
 
   private async withAuthRefresh<T>(
     op: () => Promise<T>,
-    context: { endpoint: string; isManifestEndpoint?: boolean },
+    context: RunOpContext,
   ): Promise<T> {
     try {
       return await this.attempt(op, context);
@@ -544,7 +594,7 @@ export class DropboxClient {
    */
   private async attempt<T>(
     op: () => Promise<T>,
-    context: { endpoint: string; isManifestEndpoint?: boolean },
+    context: RunOpContext,
   ): Promise<T> {
     // Order matters: bucket FIRST (smooths burst rate), gate SECOND (extends
     // back-off after an observed 429 beyond what the bucket alone would do).
@@ -553,7 +603,10 @@ export class DropboxClient {
     try {
       return await op();
     } catch (err) {
-      const classified = classifyError(err, { isManifestEndpoint: context.isManifestEndpoint });
+      const classified = classifyError(err, {
+        isManifestEndpoint: context.isManifestEndpoint,
+        corruptionCode: context.corruptionCode,
+      });
       if (classified instanceof RateLimitError) {
         this.bumpRateLimitGate(classified.retryAfterSeconds);
       }
