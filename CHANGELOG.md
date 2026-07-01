@@ -1,3 +1,9 @@
+## [0.11.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.4...0.11.5) (2026-07-01)
+
+### Bug Fixes
+
+* **release:** conventionalcommits preset so semantic-release keeps ! commits ([#83](https://github.com/MMoMM-org/obsidian-archivist/issues/83)) ([0e832c1](https://github.com/MMoMM-org/obsidian-archivist/commit/0e832c1ffa06bae03815745f5237b6ece458f41e))
+
 ## [0.11.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.3...0.11.4) (2026-06-24)
 
 
