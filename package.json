@@ -39,19 +39,19 @@
 		"@semantic-release/exec": "^7.0.3",
 		"@semantic-release/git": "^10.0.1",
 		"@semantic-release/github": "^12.0.8",
-		"@types/node": "22.19.20",
-		"@vitest/coverage-v8": "4.1.8",
+		"@types/node": "22.20.0",
+		"@vitest/coverage-v8": "4.1.9",
 		"conventional-changelog-conventionalcommits": "^9.0.0",
 		"esbuild": "0.28.1",
 		"eslint": "9.39.4",
 		"eslint-plugin-local": "file:./tools/eslint",
-		"eslint-plugin-obsidianmd": "0.3.0",
+		"eslint-plugin-obsidianmd": "0.4.1",
 		"obsidian": "1.12.3",
 		"semantic-release": "^25.0.3",
-		"stylelint": "17.13.0",
+		"stylelint": "17.14.0",
 		"stylelint-no-unsupported-browser-features": "8.1.1",
 		"typescript": "6.0.3",
-		"typescript-eslint": "8.60.1",
-		"vitest": "4.1.8"
+		"typescript-eslint": "8.62.1",
+		"vitest": "4.1.9"
 	}
 }
