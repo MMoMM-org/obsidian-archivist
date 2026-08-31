@@ -24,7 +24,11 @@
 // directly; otherwise its refresh_token is exchanged for a fresh one. Vaults
 // migrated by LegacyTokenMigration no longer have the file.
 //
-// VAULT — auto-read from data.json (settings.vault_prefix). Override:
+// VAULT — auto-read from data.json (settings.advanced.vault_prefix). Note the
+// plugin leaves that field EMPTY until the user sets one explicitly and derives
+// the prefix from the vault name at runtime instead (main.ts: `vault_prefix ||
+// slugifyVaultName(name)`). This script does not replicate that slugify — pass
+// the prefix explicitly when the setting is blank. Override:
 //   ARCHIVIST_VAULT_PREFIX=<prefix>      — explicit prefix
 //   ARCHIVIST_DATA_PATH=<file>           — point at a different data.json
 //   <prefix> as a positional arg also works
@@ -152,7 +156,10 @@ function resolveVaultPrefix(positional) {
   if (process.env.ARCHIVIST_VAULT_PREFIX) return process.env.ARCHIVIST_VAULT_PREFIX;
   const path = process.env.ARCHIVIST_DATA_PATH || DEFAULT_DATA_PATH;
   const data = readJsonIfPresent(path);
-  const prefix = data?.settings?.vault_prefix;
+  // settings.advanced.vault_prefix — NOT settings.vault_prefix. The field has
+  // always lived under AdvancedSettings (src/model/Settings.ts); reading it one
+  // level too shallow made this auto-read silently return undefined every time.
+  const prefix = data?.settings?.advanced?.vault_prefix;
   if (typeof prefix === 'string' && prefix.length > 0) return prefix;
   return null;
 }
@@ -391,7 +398,8 @@ Auth comes from DROPBOX_REFRESH_TOKEN — since ADR-21 the plugin keeps its
 tokens in Obsidian SecretStorage, so there is no tokens.json to auto-discover
 on a current install. Mint one for CLI use:
   node scripts/mint-dropbox-token.mjs url
-The vault prefix is still auto-read from the test vault's data.json.
+The vault prefix is auto-read from the test vault's data.json, but only when
+settings.advanced.vault_prefix is set explicitly — otherwise pass it in.
 
 overrides (env):
   DROPBOX_ACCESS_TOKEN     skip everything, use this short-lived token
@@ -427,8 +435,10 @@ async function main() {
   const prefix = resolveVaultPrefix(positional);
   if (!prefix) {
     fail(
-      'no vault prefix — pass it positionally, set ARCHIVIST_VAULT_PREFIX, or ' +
-        'complete plugin onboarding so settings.vault_prefix lands in data.json',
+      'no vault prefix — pass it positionally or set ARCHIVIST_VAULT_PREFIX. ' +
+        'Auto-read only works when settings.advanced.vault_prefix is set explicitly; ' +
+        'when it is blank the plugin derives the prefix from the vault name at ' +
+        'runtime and there is nothing in data.json to read',
     );
   }
 
