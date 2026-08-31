@@ -1,3 +1,9 @@
+## [0.11.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.5...0.11.6) (2026-08-31)
+
+### Bug Fixes
+
+* **tools:** read vault_prefix from settings.advanced in dropbox-inspect ([#96](https://github.com/MMoMM-org/obsidian-archivist/issues/96)) ([7d0c97c](https://github.com/MMoMM-org/obsidian-archivist/commit/7d0c97c175eea981a4bd639d5f4de12041db5753)), closes [#95](https://github.com/MMoMM-org/obsidian-archivist/issues/95)
+
 ## [0.11.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.4...0.11.5) (2026-07-01)
 
 ### Bug Fixes
