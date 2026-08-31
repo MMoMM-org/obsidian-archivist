@@ -5,18 +5,24 @@
 // during development (Phase 10 onward). Zero npm deps, mirrors the precedent
 // set by scripts/restore.mjs.
 //
-// AUTH — by default the script reads the live plugin tokens from the local
-// test vault (the same tokens the plugin writes after the in-app OAuth flow):
+// AUTH — set DROPBOX_REFRESH_TOKEN. Since ADR-21 the plugin keeps its tokens in
+// Obsidian's SecretStorage (Electron safeStorage, OS-keychain backed), so a
+// current install has no tokens.json for this script to read and no practical
+// way for a CLI to decrypt the real one. Mint a throwaway token instead:
 //
-//   test/Archivist/.obsidian/plugins/obsidian-archivist/tokens.json
+//   node scripts/mint-dropbox-token.mjs url
+//   node scripts/mint-dropbox-token.mjs exchange <verifier> <code> --print
 //
-// A still-valid access_token is used directly; otherwise the refresh_token is
-// exchanged for a fresh one. Override paths and overrides:
-//
-//   DROPBOX_REFRESH_TOKEN=<rt>           — bypass tokens.json (use this rt)
-//   DROPBOX_ACCESS_TOKEN=<at>            — bypass everything (use this at)
-//   ARCHIVIST_TOKENS_PATH=<file>         — point at a different tokens.json
+//   DROPBOX_REFRESH_TOKEN=<rt>           — primary auth path
+//   DROPBOX_ACCESS_TOKEN=<at>            — bypass the refresh exchange
+//   ARCHIVIST_TOKENS_PATH=<file>         — legacy tokens.json (ADR-7 vaults)
 //   DROPBOX_CLIENT_ID=<id>               — override CLIENT_ID (defaults: prod)
+//
+// LEGACY FALLBACK — a pre-0.8.0 (ADR-7) test vault may still carry
+//   test/Archivist/.obsidian/plugins/obsidian-archivist/tokens.json
+// which is read when neither env var is set. A still-valid access_token is used
+// directly; otherwise its refresh_token is exchanged for a fresh one. Vaults
+// migrated by LegacyTokenMigration no longer have the file.
 //
 // VAULT — auto-read from data.json (settings.vault_prefix). Override:
 //   ARCHIVIST_VAULT_PREFIX=<prefix>      — explicit prefix
@@ -122,12 +128,15 @@ async function obtainAccessToken() {
     return refreshAccessToken(process.env.DROPBOX_REFRESH_TOKEN);
   }
 
-  // 3. auto-read from the test vault's tokens.json
+  // 3. legacy: auto-read from a pre-ADR-21 test vault's tokens.json
   const t = loadVaultTokens();
   if (!t) {
     fail(
-      `no tokens — complete the in-app OAuth flow in the test vault, or set ` +
-        `DROPBOX_REFRESH_TOKEN / DROPBOX_ACCESS_TOKEN. ` +
+      `no tokens — set DROPBOX_REFRESH_TOKEN or DROPBOX_ACCESS_TOKEN. Since ` +
+        `ADR-21 the plugin stores its tokens in Obsidian SecretStorage, not in ` +
+        `tokens.json, so completing the in-app OAuth flow no longer leaves a ` +
+        `file here for auto-discovery. Mint a token for CLI use with: ` +
+        `node scripts/mint-dropbox-token.mjs url ` +
         `(looked at ${process.env.ARCHIVIST_TOKENS_PATH || DEFAULT_TOKENS_PATH})`,
     );
   }
@@ -378,14 +387,16 @@ commands:
   chain  [<prefix>] [<id>]     walk parent lineage (default: HEAD.latest)
   cat    [<prefix>] <path>     print a remote file (path under Apps/Archivist/)
 
-By default the script reads tokens + vault prefix from the local test vault
-(test/Archivist/.obsidian/plugins/obsidian-archivist/{tokens,data}.json).
-Complete the in-app OAuth flow once and the script Just Works.
+Auth comes from DROPBOX_REFRESH_TOKEN — since ADR-21 the plugin keeps its
+tokens in Obsidian SecretStorage, so there is no tokens.json to auto-discover
+on a current install. Mint one for CLI use:
+  node scripts/mint-dropbox-token.mjs url
+The vault prefix is still auto-read from the test vault's data.json.
 
 overrides (env):
   DROPBOX_ACCESS_TOKEN     skip everything, use this short-lived token
-  DROPBOX_REFRESH_TOKEN    skip tokens.json, refresh with this token
-  ARCHIVIST_TOKENS_PATH    point at a different tokens.json
+  DROPBOX_REFRESH_TOKEN    primary auth path, refresh with this token
+  ARCHIVIST_TOKENS_PATH    legacy tokens.json (pre-0.8.0 vaults only)
   ARCHIVIST_DATA_PATH      point at a different data.json
   ARCHIVIST_VAULT_PREFIX   bypass settings.vault_prefix from data.json
   DROPBOX_CLIENT_ID        defaults to ${DEFAULT_CLIENT_ID}
