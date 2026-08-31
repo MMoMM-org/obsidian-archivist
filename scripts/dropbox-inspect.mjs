@@ -287,6 +287,20 @@ async function cmdStats(token, prefix) {
   console.log(`  ${'TOTAL'.padEnd(20)} ${String(totalC).padStart(6)} files  ${formatBytes(totalB).padStart(10)}`);
 }
 
+/**
+ * Download snapshot_index.json and return a Map of id -> entry, or null when
+ * the file is absent. `tier` lives here (SnapshotIndexEntry, populated during
+ * retention runs) and NOT on the snapshot manifest, so any caller that wants
+ * to show a tier has to join against this.
+ */
+async function loadSnapshotIndex(token, root) {
+  const bytes = await downloadFile(token, `${root}/snapshot_index.json`).catch(() => null);
+  if (!bytes) return null;
+  const idx = JSON.parse(bytes.toString('utf8'));
+  const entries = Array.isArray(idx.snapshots) ? idx.snapshots : [];
+  return new Map(entries.map((e) => [e.id, e]));
+}
+
 async function cmdHead(token, prefix) {
   const root = vaultRoot(prefix);
   const headBytes = await downloadFile(token, `${root}/HEAD.json`).catch((e) => {
@@ -300,18 +314,30 @@ async function cmdHead(token, prefix) {
   console.log('HEAD.json:');
   console.log(JSON.stringify(head, null, 2));
 
-  const idxBytes = await downloadFile(token, `${root}/snapshot_index.json`).catch(() => null);
-  if (!idxBytes) {
+  const index = await loadSnapshotIndex(token, root);
+  if (index === null) {
     console.log('\n(no snapshot_index.json)');
     return;
   }
-  const idx = JSON.parse(idxBytes.toString('utf8'));
-  const entries = idx.entries || idx.snapshots || [];
+  const entries = [...index.values()];
   console.log(`\nsnapshot_index.json — ${entries.length} entries`);
   for (const e of entries.slice(-10)) {
-    console.log(`  ${e.id || e}  ${e.parent_id ? '← ' + e.parent_id : '(root)'}`);
+    console.log(`  ${e.id}  ${e.parent_id ? '← ' + e.parent_id : '(root)'}`);
   }
   if (entries.length > 10) console.log(`  … (${entries.length - 10} earlier)`);
+}
+
+/**
+ * Render the retention tier for `id`. Three distinguishable outcomes, because
+ * they mean different things: no index at all, indexed but not yet evaluated
+ * by a retention run (legitimate), and present in the chain but absent from
+ * the index (a real inconsistency worth seeing).
+ */
+function describeTier(index, id) {
+  if (index === null) return '(no index)';
+  const entry = index.get(id);
+  if (entry === undefined) return '(not indexed)';
+  return entry.tier ?? '(unevaluated)';
 }
 
 async function cmdChain(token, prefix, startId) {
@@ -323,9 +349,15 @@ async function cmdChain(token, prefix, startId) {
       throw e;
     });
     const head = JSON.parse(headBytes.toString('utf8'));
-    id = head.latest || head.snapshot_id || head.id;
-    if (!id) fail('HEAD.json has no latest snapshot id');
+    // HEAD.json is { schema_version, snapshot_id, snapshot_type, device_id,
+    // committed_at }. Earlier revisions of this script also probed `latest`
+    // and `id`; neither has ever existed in the 1.0 schema.
+    id = head.snapshot_id;
+    if (!id) fail('HEAD.json has no snapshot_id');
   }
+
+  // Joined for the tier column only — a missing index is not fatal.
+  const index = await loadSnapshotIndex(token, root);
 
   const seen = new Set();
   let depth = 0;
@@ -345,8 +377,11 @@ async function cmdChain(token, prefix, startId) {
     });
     if (!bytes) break;
     const m = JSON.parse(bytes.toString('utf8'));
-    const fileCount = (m.files || []).length;
-    const tier = m.tier || '?';
+    // manifest.files is Record<path, FileEntry> — an object, not an array.
+    // `.length` on it is undefined, and a `|| []` guard never fires because
+    // the object is truthy.
+    const fileCount = Object.keys(m.files ?? {}).length;
+    const tier = describeTier(index, id);
     console.log(
       `  ${'  '.repeat(depth)}${id}  type=${m.type || '?'}  tier=${tier}  files=${fileCount}  parent=${m.parent_id || '(root)'}`
     );
