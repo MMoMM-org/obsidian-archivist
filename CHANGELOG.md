@@ -1,3 +1,9 @@
+## [0.11.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.6...0.11.7) (2026-08-31)
+
+### Bug Fixes
+
+* **tools:** correct chain columns in dropbox-inspect ([#98](https://github.com/MMoMM-org/obsidian-archivist/issues/98)) ([eb566c9](https://github.com/MMoMM-org/obsidian-archivist/commit/eb566c9c6fc4a436aa2f45dd4f5916511e5215f9)), closes [#97](https://github.com/MMoMM-org/obsidian-archivist/issues/97)
+
 ## [0.11.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.5...0.11.6) (2026-08-31)
 
 ### Bug Fixes
