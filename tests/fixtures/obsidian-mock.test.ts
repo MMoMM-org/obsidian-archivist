@@ -4,7 +4,17 @@
 // the stubs themselves must behave like Obsidian 1.14.4 does.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, ButtonComponent, PluginSettingTab, SettingTab, debounce } from './obsidian-mock';
+import {
+  App,
+  ButtonComponent,
+  PluginSettingTab,
+  Setting,
+  SettingTab,
+  _setMockApiVersion,
+  debounce,
+  requireApiVersion,
+  type MockEl,
+} from './obsidian-mock';
 import { RecordingSectionHost } from './recording-section-host';
 import type { FieldSpec, ToggleFieldSpec } from '../../src/ui/settings/SectionHost';
 
@@ -125,6 +135,76 @@ describe('mock ButtonComponent', () => {
 
   it('starts non-destructive', () => {
     expect(new ButtonComponent({})._destructive).toBe(false);
+  });
+});
+
+describe('mock Setting', () => {
+  it('exposes settingEl, infoEl, nameEl, descEl and controlEl elements', () => {
+    const setting = new Setting({});
+
+    for (const el of [setting.settingEl, setting.infoEl, setting.nameEl, setting.descEl, setting.controlEl]) {
+      expect(typeof (el as MockEl).createEl).toBe('function');
+    }
+  });
+
+  it('setName and setDesc write the name and description text', () => {
+    const setting = new Setting({}).setName('Internal').setDesc('Details');
+
+    expect((setting.nameEl as MockEl).textContent).toBe('Internal');
+    expect((setting.descEl as MockEl).textContent).toBe('Details');
+  });
+
+  it('setClass adds a class to settingEl and chains', () => {
+    const setting = new Setting({});
+
+    expect(setting.setClass('a').setClass('b')).toBe(setting);
+    expect((setting.settingEl as MockEl).className).toBe('setting-item a b');
+  });
+
+  it('addButton hands a ButtonComponent to the callback and records it in order', () => {
+    const setting = new Setting({});
+
+    setting.addButton((b) => (b as ButtonComponent).setButtonText('One'));
+    setting.addButton((b) => (b as ButtonComponent).setButtonText('Two').setDestructive());
+
+    expect(setting._buttons.map((b) => b._text)).toEqual(['One', 'Two']);
+    expect(setting._buttons[1]).toBeInstanceOf(ButtonComponent);
+    expect(setting._buttons[1]._destructive).toBe(true);
+  });
+
+  it('createEl records an href option as the href attribute', () => {
+    const nameEl = new Setting({}).nameEl as MockEl;
+
+    const a = nameEl.createEl('a', { text: 'Docs', href: 'https://example.org' });
+
+    expect(a.attrs.href).toBe('https://example.org');
+  });
+
+  it('appends settingEl to a MockEl container', () => {
+    const container = new Setting({}).controlEl as MockEl;
+    const before = container.children.length;
+
+    const setting = new Setting(container);
+
+    expect(container.children.length).toBe(before + 1);
+    expect(container.children[before]).toBe(setting.settingEl);
+  });
+});
+
+describe('mock requireApiVersion', () => {
+  afterEach(() => _setMockApiVersion('1.14.4'));
+
+  it('defaults to 1.14.4 and accepts equal or older versions only', () => {
+    expect(requireApiVersion('1.14.4')).toBe(true);
+    expect(requireApiVersion('1.13.0')).toBe(true);
+    expect(requireApiVersion('1.15.0')).toBe(false);
+  });
+
+  it('compares numerically against the version set by _setMockApiVersion', () => {
+    _setMockApiVersion('1.11.4');
+
+    expect(requireApiVersion('1.13.0')).toBe(false);
+    expect(requireApiVersion('1.9.10')).toBe(true);
   });
 });
 

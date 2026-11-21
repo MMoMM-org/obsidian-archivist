@@ -13,8 +13,8 @@
 //     - Account · Connected as <email>      [ Re-authenticate ] [ Disconnect ]
 //     - Secret-store disclosure + docs link
 //
-// Disconnect uses Obsidian's `mod-warning` button styling to flag the
-// destructive action without hard-coded colours; the confirm modal wording in
+// Disconnect is flagged `destructive: true`; the host decides the styling
+// (no hard-coded colours here). The confirm modal wording in
 // S.OAUTH_DISCONNECT_CONFIRM_BODY makes explicit that local credentials are
 // removed but existing backup data in Dropbox is NOT deleted in V1.
 

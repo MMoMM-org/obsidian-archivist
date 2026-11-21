@@ -24,9 +24,9 @@ import type {
   FieldSpec,
   SectionHost,
   BannerSpec,
-  LinkFieldSpec,
-  ActionRowFieldSpec,
+  HeaderInfo,
 } from './settings/SectionHost';
+import { customRowRenderers } from './settings/customRows';
 import type { SettingsContext } from './settings/context';
 import { renderBackupSchedule } from './settings/sections/BackupSchedule';
 import { renderRetention } from './settings/sections/Retention';
@@ -144,20 +144,14 @@ export class ArchivistSettingTab extends PluginSettingTab {
     };
     const rawAuthor = manifest.author ?? '';
     const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
-
-    const header = containerEl.createDiv({ cls: 'archivist-version-header' });
-    header.createSpan({ text: `${manifest.name} `, cls: 'archivist-plugin-name' });
-    header.createSpan({ text: `v${manifest.version}` });
-
-    if (authorName) {
-      header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-      header.createEl('a', {
-        text: authorName,
-        href: manifest.authorUrl ?? PLUGIN_README_URL,
-      });
-    }
-    header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-    header.createEl('a', { text: 'Documentation', href: PLUGIN_README_URL });
+    const info: HeaderInfo = {
+      pluginName: manifest.name,
+      version: manifest.version,
+      authorName: authorName || undefined,
+      authorUrl: manifest.authorUrl,
+      docsUrl: PLUGIN_README_URL,
+    };
+    customRowRenderers.header(new Setting(containerEl), info);
   }
 }
 
@@ -185,8 +179,9 @@ export function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
 
 // ---------------------------------------------------------------------------
 // ObsidianSectionHost — production adapter that materialises FieldSpec as
-// Obsidian Setting rows. This is the ONLY place that touches the DOM — all
-// section renderers describe the UI via SectionHost methods.
+// Obsidian Setting rows. Together with settings/customRows.ts (non-input rows)
+// it is the only DOM code — all section renderers describe the UI via
+// SectionHost methods.
 // ---------------------------------------------------------------------------
 
 class ObsidianSectionHost implements SectionHost {
@@ -202,19 +197,19 @@ class ObsidianSectionHost implements SectionHost {
   field(spec: FieldSpec): void {
     switch (spec.kind) {
       case 'static':
-        this.container.createEl('p', { text: spec.text, cls: 'archivist-static-text' });
+        customRowRenderers.static(new Setting(this.container), spec);
         return;
       case 'link':
-        this.renderLink(spec);
+        customRowRenderers.link(new Setting(this.container), spec);
         return;
       case 'banner':
-        this.renderBanner(spec);
+        customRowRenderers.banner(new Setting(this.container), spec);
         return;
       case 'button':
         this.renderButton(spec);
         return;
       case 'actionRow':
-        this.renderActionRow(spec);
+        customRowRenderers.actionRow(new Setting(this.container), spec);
         return;
       case 'readonly':
         this.renderReadonly(spec);
@@ -241,61 +236,12 @@ class ObsidianSectionHost implements SectionHost {
   }
 
   topBanner(spec: BannerSpec): void {
-    this.renderBanner(spec);
+    customRowRenderers.banner(new Setting(this.container), spec);
   }
 
   // ---------------------------------------------------------------------------
   // Per-field renderers — thin wrappers over Obsidian Setting
   // ---------------------------------------------------------------------------
-
-  private renderActionRow(spec: ActionRowFieldSpec): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    for (const action of spec.actions) {
-      setting.addButton((btn) => {
-        btn.setButtonText(action.label).onClick(action.onClick);
-        if (action.cta) btn.setCta();
-        if (action.destructive) btn.setWarning();
-      });
-    }
-  }
-
-  private renderLink(spec: LinkFieldSpec): void {
-    const wrapper = this.container.createDiv({ cls: 'archivist-link-row' });
-    wrapper.createEl('a', {
-      text: spec.label,
-      href: spec.href,
-      cls: 'archivist-doc-link',
-    });
-  }
-
-  private renderBanner(spec: BannerSpec): void {
-    const cls = `archivist-banner archivist-banner-${spec.severity}`;
-    const el = this.container.createDiv({ cls }) as unknown as HTMLElement;
-    // The internal `spec.code` (e.g. PREDECESSOR, CHAIN_RECOVERY) used to
-    // render as a `[CODE]` prefix in front of the banner message. Removed
-    // because it surfaces engineer-jargon to users; the message itself is
-    // self-describing and the code stays internal for dedup/clear calls.
-    el.createSpan({ text: spec.message });
-    if (spec.action || spec.onDismiss) {
-      const setting = new Setting(el);
-      if (spec.action) {
-        setting.addButton((btn) => {
-          btn
-            .setButtonText(spec.action!.label)
-            .setCta()
-            .onClick(() => spec.action!.onClick());
-        });
-      }
-      if (spec.onDismiss) {
-        setting.addButton((btn) => {
-          btn.setButtonText(spec.dismissLabel ?? 'Dismiss').onClick(() => {
-            void spec.onDismiss?.();
-          });
-        });
-      }
-    }
-  }
 
   private renderButton(spec: { label: string; cta?: boolean; onClick: () => void }): void {
     const setting = new Setting(this.container);

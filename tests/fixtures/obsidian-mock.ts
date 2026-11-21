@@ -690,13 +690,42 @@ export function debounce<T extends unknown[], V>(
   return debounced;
 }
 
+// Setting — element-backed stub (spec 002, T2.3). Mirrors the real row
+// structure (settingEl > infoEl > nameEl + descEl, controlEl) so custom-row
+// renderers can draw into the Setting they are handed. addButton creates a
+// recording ButtonComponent; `_buttons` keeps them in creation order.
+function isMockEl(value: unknown): value is MockEl {
+  return typeof value === 'object' && value !== null && Array.isArray((value as MockEl).children);
+}
+
 export class Setting {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(_container: unknown) {}
-  setName(_n: string): this {
+  settingEl: MockEl;
+  infoEl: MockEl;
+  nameEl: MockEl;
+  descEl: MockEl;
+  controlEl: MockEl;
+  /** Test introspection: every ButtonComponent created by addButton, in order. */
+  _buttons: ButtonComponent[] = [];
+
+  constructor(container: unknown) {
+    this.settingEl = makeMockEl('div');
+    this.settingEl.className = 'setting-item';
+    this.infoEl = this.settingEl.createDiv({ cls: 'setting-item-info' });
+    this.nameEl = this.infoEl.createDiv({ cls: 'setting-item-name' });
+    this.descEl = this.infoEl.createDiv({ cls: 'setting-item-description' });
+    this.controlEl = this.settingEl.createDiv({ cls: 'setting-item-control' });
+    if (isMockEl(container)) container.children.push(this.settingEl);
+  }
+  setName(n: string): this {
+    this.nameEl.setText(n);
     return this;
   }
-  setDesc(_d: string): this {
+  setDesc(d: string): this {
+    this.descEl.setText(d);
+    return this;
+  }
+  setClass(cls: string): this {
+    this.settingEl.addClass(cls);
     return this;
   }
   addText(_cb: (t: unknown) => void): this {
@@ -711,12 +740,34 @@ export class Setting {
   addDropdown(_cb: (d: unknown) => void): this {
     return this;
   }
-  addButton(_cb: (b: unknown) => void): this {
+  addButton(cb: (b: ButtonComponent) => unknown): this {
+    const button = new ButtonComponent(this.controlEl.createEl('button'));
+    this._buttons.push(button);
+    cb(button);
     return this;
   }
   addSlider(_cb: (s: unknown) => void): this {
     return this;
   }
+}
+
+// requireApiVersion — numeric dotted-version compare against a mock runtime
+// version (default 1.14.4). Tests downgrade it with _setMockApiVersion to
+// exercise pre-1.13 fallbacks, and restore it afterwards.
+let mockApiVersion = '1.14.4';
+
+export function _setMockApiVersion(version: string): void {
+  mockApiVersion = version;
+}
+
+export function requireApiVersion(version: string): boolean {
+  const have = mockApiVersion.split('.').map(Number);
+  const need = version.split('.').map(Number);
+  for (let i = 0; i < Math.max(have.length, need.length); i++) {
+    const diff = (have[i] ?? 0) - (need[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return true;
 }
 
 export function setIcon(_el: unknown, _iconName: string): void {}
@@ -759,7 +810,7 @@ export interface MockEl {
   listeners: Map<string, Array<(e: { key: string; preventDefault: () => void }) => void>>;
   createEl<T extends string>(
     tag: T,
-    opts?: { text?: string; cls?: string; attr?: Record<string, string> },
+    opts?: { text?: string; cls?: string; href?: string; attr?: Record<string, string> },
   ): MockEl;
   createDiv(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
   createSpan(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
@@ -803,6 +854,7 @@ function makeMockEl(tag: string): MockEl {
       if (opts.text !== undefined) child.textContent = opts.text;
       if (opts.cls !== undefined) child.className = opts.cls;
       if (opts.attr) child.attrs = { ...opts.attr };
+      if (opts.href !== undefined) child.attrs.href = opts.href;
       el.children.push(child);
       return child;
     },
