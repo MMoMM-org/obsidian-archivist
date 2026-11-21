@@ -18,7 +18,8 @@ The most-covered failure modes today:
 - **Check the Obsidian version.** Archivist needs Obsidian **1.14.4
   or newer** (`manifest.json` `minAppVersion`). On older Obsidian,
   Community Plugins offers only the last 0.11.x release, and that
-  install receives no further updates. Update Obsidian to get 0.12.0
+  install receives no further updates. If Archivist does appear but
+  stays on 0.11.x, this is the reason: update Obsidian to get 0.12.0
   and later.
 - **Check the platform.** Archivist is desktop-only
   (`isDesktopOnly: true`). On iOS or Android, it will not appear in the
@@ -97,14 +98,21 @@ the previous valid value — without a UI hint in older versions.
 
 ### Archivist settings don't appear in Obsidian's settings search
 
-Obsidian's settings search finds Archivist's settings only on
-Obsidian **1.14.4 or newer** with Archivist 0.12.0 or later. If a
-search for an Archivist setting (for example *retention* or *Dropbox*)
-returns nothing, your Obsidian version is older than 1.14.4, and you
-are on the last 0.11.x release, which doesn't support settings search.
-Update Obsidian to 1.14.4 or newer, then check for plugin updates
-under **Settings → Community plugins**. The settings themselves still
-work under **Settings → Archivist** on 0.11.x.
+Obsidian's settings search finds Archivist's settings only with
+Archivist **0.12.0 or later**, which needs Obsidian **1.14.4 or newer**.
+If a search for an Archivist setting (for example *retention* or
+*Dropbox*) returns nothing:
+
+- **Check that Archivist is enabled** under **Settings → Community
+  plugins**. A disabled plugin has no settings to find.
+- **Check the Archivist version** in the same list. Version 0.11.x
+  doesn't support settings search. If an update is offered, install it.
+- **No update offered?** Your Obsidian is most likely older than 1.14.4,
+  so Community Plugins only offers the last 0.11.x release. Update
+  Obsidian to 1.14.4 or newer, then check for plugin updates again.
+
+On 0.11.x the settings still work as before under
+**Settings → Archivist**; only the search doesn't find them.
 
 ## Debug information
 
