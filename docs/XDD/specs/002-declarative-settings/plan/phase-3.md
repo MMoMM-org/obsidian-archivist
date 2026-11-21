@@ -114,6 +114,7 @@ This phase replaces the imperative tab with the declarative one. At the end of i
   3. Implement:
      - Set `minAppVersion` to `"1.14.4"` in `manifest.json`.
      - Leave `versions.json` alone; `version-bump.mjs` adds the new entry at release.
+     - Remove the temporary `requireApiVersion('1.13.0')` guard (`markDestructive` in `src/ui/settings/customRows.ts`) and its "before Obsidian 1.13" test block in `tests/ui/settings-custom-rows.test.ts`; call `btn.setDestructive()` directly (added at the Phase 2 checkpoint).
      - Commit as `feat!: declarative settings — searchable in Obsidian settings search` with the footer `BREAKING CHANGE: requires Obsidian 1.14.4 or newer; older Obsidian keeps 0.11.x`.
   4. Validate:
      - `npm run lint` reports **zero** findings: `require-display` no longer applies and `no-deprecated-display` is clean.

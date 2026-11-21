@@ -424,7 +424,7 @@ ENTITY: Mapping table FieldSpec.kind → definition
   static    → render  (customRows.static)       searchable:false, internal name 'static:<section>:<n>'
   banner    → render  (customRows.banner)       searchable:false, internal name 'banner:<code>'
   header    → render  (customRows.header)       searchable:false, internal name 'header'
-  readonly / button → render (customRows) — kept for type completeness; still unused (#112)
+  readonly / button → throws 'unsupported (#112)' — no renderer exists and neither kind is emitted; fail loud instead of drawing an empty row (amended 2026-11-21, Phase 2 checkpoint)
   Every definition: name=label, desc=description, aliases, visible copied from the spec.
 ```
 

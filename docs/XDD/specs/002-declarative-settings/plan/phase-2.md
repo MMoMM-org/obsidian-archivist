@@ -1,6 +1,6 @@
 ---
 title: "Phase 2: Definition building blocks"
-status: pending
+status: completed
 version: "1.0"
 phase: 2
 ---
@@ -32,7 +32,7 @@ phase: 2
 
 This phase delivers a tested, standalone translation from Archivist's `FieldSpec` stream to Obsidian setting definitions. It isn't wired into the tab yet.
 
-- [ ] **T2.1 FieldSpec keys and styling vocabulary** `[activity: domain-modeling]` `[ref: SDD/Internal API Changes; PRD/F2, F4]`
+- [x] **T2.1 FieldSpec keys and styling vocabulary** `[activity: domain-modeling]` `[ref: SDD/Internal API Changes; PRD/F2, F4]`
 
   1. Prime:
      - Read `src/ui/settings/SectionHost.ts:14-159` and all five `src/ui/settings/sections/*.ts`.
@@ -58,7 +58,7 @@ This phase delivers a tested, standalone translation from Archivist's `FieldSpec
      - Every inventory input has a stable, unique key that matches its `data.json` path `[ref: SDD/Data Storage Changes]`.
      - Destructive intent is expressed in the model `[ref: PRD/F4 AC1-2]`.
 
-- [ ] **T2.2 DefinitionBuilderHost** `[activity: build-feature]` `[parallel: true]` `[ref: SDD/Application Data Models; SDD/Implementation Examples]`
+- [x] **T2.2 DefinitionBuilderHost** `[activity: build-feature]` `[parallel: true]` `[ref: SDD/Application Data Models; SDD/Implementation Examples]`
 
   1. Prime:
      - Read the mapping table and the `DefinitionBuilderHost` interface `[ref: SDD/Internal API Changes]`.
@@ -87,7 +87,7 @@ This phase delivers a tested, standalone translation from Archivist's `FieldSpec
      - Every `FieldSpec` kind has a defined, tested mapping `[ref: SDD/Acceptance Criteria F1 #1-3]`.
      - Every text-entry row is a `control` `[ref: SDD/Acceptance Criteria F3 #6]`.
 
-- [ ] **T2.3 CustomRowRenderers** `[activity: build-feature]` `[parallel: true]` `[ref: SDD/Components (CustomRowRenderers); SDD/User Interface & UX]`
+- [x] **T2.3 CustomRowRenderers** `[activity: build-feature]` `[parallel: true]` `[ref: SDD/Components (CustomRowRenderers); SDD/User Interface & UX]`
 
   1. Prime:
      - Read today's DOM code in `src/ui/SettingsTab.ts`: `renderHeader` at 140-161, static at 205, link at 263-270, banner at 272-298, actionRow at 251-261.
@@ -111,10 +111,23 @@ This phase delivers a tested, standalone translation from Archivist's `FieldSpec
      - The header, banners and static content look as they do today `[ref: PRD/F2 AC2]`.
      - Disconnect is destructive and Connect is neutral `[ref: PRD/F4 AC1-2]`.
 
-- [ ] **T2.4 Phase Validation** `[activity: validate]` `[ref: SDD/Application Data Models (mapping table)]`
+- [x] **T2.4 Phase Validation** `[activity: validate]` `[ref: SDD/Application Data Models (mapping table)]`
 
   - Success: every `FieldSpec` kind maps as the SDD table says, with tests `[ref: PRD/F1 AC1; PRD/F2 AC1]`.
 
   - Run all Phase 2 suites, `npm run typecheck` and `npm run lint`. The accepted findings are still only the old `SettingsTab.ts` ones.
   - Cross-check the builder against the SDD mapping table row by row.
   - Commit per task: `refactor(settings): add control keys…`, `feat(settings): definition builder…`, `refactor(settings): extract custom row renderers…`.
+
+---
+
+## Deviations
+
+| Date | Deviation | Rationale | Approved |
+|---|---|---|---|
+| 2026-11-21 | The write guard is a pure `guardWrite(spec, value)` export in `DefinitionBuilderHost.ts`, not inline in `setControlValue` | The SDD Directory Map places it in the builder; this also keeps `SettingsTab.ts` small. Text values that fail `validate` are rejected as well, matching today's `SettingsTab.ts` | Yes, at the Phase 2 checkpoint |
+| 2026-11-21 | `readonly` and `button` kinds throw `unsupported (#112)` instead of mapping to render rows; the SDD mapping table was amended | Neither kind is emitted and there is no renderer; failing loudly beats an empty row. #112 decides whether to delete or render them | Yes, by the user at the Phase 2 checkpoint |
+| 2026-11-21 | `customRows.ts` guards `setDestructive()` with `requireApiVersion('1.13.0')` and falls back to the `mod-warning` class | `minAppVersion` is still 1.11.4 until T3.3; an unguarded call fails lint (`no-unsupported-api`) and would throw at runtime on 1.11–1.12. T3.3 removes the guard (added to its Implement step) | Yes, at the Phase 2 checkpoint |
+| 2026-11-21 | `ObsidianSectionHost` already delegates to `customRowRenderers`, so the current tab draws header, banners and static text inside `Setting` rows | Removes duplicated DOM code and the last `setWarning()` call; the tab is replaced in Phase 3 before any release, and T5.4 checks the visuals | Yes, at the Phase 2 checkpoint |
+| 2026-11-21 | The mock `Setting` gained real elements, `setClass`, recorded `addButton`, `href` and `requireApiVersion` | Needed by the T2.3 renderer tests; each addition has a self-test | Yes, at the Phase 2 checkpoint |
+| 2026-11-21 | T2.1 has a follow-up commit (`38f5483`) | Review fix for a stale cast in the mock self-test | Yes, at the Phase 2 checkpoint |
