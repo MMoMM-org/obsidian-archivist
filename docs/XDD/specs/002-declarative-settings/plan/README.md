@@ -152,7 +152,7 @@ Each phase is defined in a separate file. Tasks follow red-green-refactor: **Pri
 - [x] [Phase 1: Tooling and test foundation](phase-1.md)
 - [x] [Phase 2: Definition building blocks](phase-2.md)
 - [x] [Phase 3: Declarative settings tab](phase-3.md)
-- [ ] [Phase 4: Conditional rows and search synonyms](phase-4.md)
+- [x] [Phase 4: Conditional rows and search synonyms](phase-4.md)
 - [ ] [Phase 5: Docs, integration and release readiness](phase-5.md)
 
 **Dependencies:** Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 (linear). Parallel tasks exist only inside phases.

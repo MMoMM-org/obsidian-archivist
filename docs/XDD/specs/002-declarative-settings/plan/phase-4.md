@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: Conditional rows and search synonyms"
-status: pending
+status: completed
 version: "1.0"
 phase: 4
 ---
@@ -31,7 +31,7 @@ phase: 4
 
 This phase delivers the two Should-have features on top of the declarative tab.
 
-- [ ] **T4.1 Active-window rows react live (F7)** `[activity: build-feature]` `[ref: SDD/Implementation Examples; PRD/F7 AC1-2]`
+- [x] **T4.1 Active-window rows react live (F7)** `[activity: build-feature]` `[ref: SDD/Implementation Examples; PRD/F7 AC1-2]`
 
   1. Prime:
      - Read `src/ui/settings/sections/BackupSchedule.ts:141-180`.
@@ -52,7 +52,7 @@ This phase delivers the two Should-have features on top of the declarative tab.
   5. Success:
      - The rows appear and disappear immediately and drop out of search while hidden `[ref: PRD/F7 AC1-2; PRD/F1 AC3]`.
 
-- [ ] **T4.2 Search synonyms (F8)** `[activity: build-feature]` (after T4.1 — both edit `sections/BackupSchedule.ts`) `[ref: SDD/Acceptance Criteria F7/F8 #2; PRD/F8]`
+- [x] **T4.2 Search synonyms (F8)** `[activity: build-feature]` (after T4.1 — both edit `sections/BackupSchedule.ts`) `[ref: SDD/Acceptance Criteria F7/F8 #2; PRD/F8]`
 
   1. Prime:
      - Read `src/ui/strings.ts` conventions and `tests/ui/strings.test.ts`.
@@ -72,9 +72,20 @@ This phase delivers the two Should-have features on top of the declarative tab.
   5. Success:
      - Synonyms find their rows; unrelated words don't produce Archivist hits `[ref: PRD/F8 AC1-2]`.
 
-- [ ] **T4.3 Phase Validation** `[activity: validate]` `[ref: PRD/F7, F8]`
+- [x] **T4.3 Phase Validation** `[activity: validate]` `[ref: PRD/F7, F8]`
 
   - Success: F7 and F8 acceptance criteria covered by passing tests `[ref: PRD/F7 AC1-2; PRD/F8 AC1-2]`.
 
   - Full `npm test`, `npm run lint`, `npm run typecheck` and `npm run build`.
   - Commit per task: `feat(settings): active window rows react immediately`, `feat(settings): search synonyms for settings`.
+
+---
+
+## Deviations
+
+| Date | Deviation | Rationale | Approved |
+|---|---|---|---|
+| 2026-11-21 | `RowMeta.aliases` is `readonly string[]`; `DefinitionBuilderHost` copies it (`[...meta.aliases]`) onto each definition | Lets sections pass the `as const` `S.ALIASES_*` constants directly without handing Obsidian a reference into `S` | Yes, at the Phase 4 checkpoint |
+| 2026-11-21 | `tests/ui/strings.test.ts` "no empty value" test also accepts non-empty arrays, only under `ALIASES_*` keys | Needed for the alias constants; still strict for every other key | Yes, at the Phase 4 checkpoint |
+| 2026-11-21 | F8 AC1/AC2 and F1 AC3 ("hidden rows drop out of search") are covered automatically only as a data contract (aliases and `visible` reach the definitions); real search behaviour is verified manually in T5.4 | The mock cannot run Obsidian's search index | Yes, at the Phase 4 checkpoint |
+| 2026-11-21 | The "Active backup window" toggle's `onChange` still spreads the section-time snapshot; editing a window time and flipping the toggle within the ~150 ms debounce could revert the time | #110 boundary: only the two window rows read fresh. F7 makes this interleaving reachable; deferred to #110 | Yes, at the Phase 4 checkpoint |
