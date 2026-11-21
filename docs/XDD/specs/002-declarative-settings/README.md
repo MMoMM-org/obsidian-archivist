@@ -15,7 +15,7 @@
 | Document | Status | Notes |
 |----------|--------|-------|
 | requirements.md | completed | v1.0 approved — 8 features (6 Must, 2 Should, both in release), 32 acceptance criteria |
-| solution.md | pending | |
+| solution.md | completed | v1.0 approved — 7 components, ADR-1…6 confirmed, 27 EARS criteria |
 | plan/ | pending | |
 
 **Status values**: `pending` | `in_progress` | `completed` | `skipped`
@@ -33,7 +33,14 @@
 | 2026-11-20 | Pre-existing settings-tab defects out of scope → separate GitHub issues | One feature/fix per change. Defects: stubbed Disconnect confirm (`main.ts:1238`), stale-snapshot onChange closures, silent number/glob rejection, deviceId never displayed / unused `readonly`+`button` kinds, active-window pickers only appear on next re-render, hidden-tab banner re-subscription via `refresh()`. |
 | 2026-11-20 | `obsidian` dev-dep → 1.14.4; **minAppVersion 1.11.4 → 1.14.4**; declarative-only tab, `display()` removed | User choice over dual-support (Path B). Types == runtime floor, so no API can be used that the minimum app lacks. Users below 1.14.4 stay on the last compatible release via `versions.json`. Removes `display()` deprecation hits entirely. |
 | 2026-11-20 | PRD approved; Should-haves F7 (conditional rows react live) and F8 (search synonyms) included in this release | User choice at PRD review. F7 closes the active-window re-render defect instead of a separate issue. |
+| 2026-11-20 | Defect issues filed: #109 (stub Disconnect confirm), #110 (stale-snapshot onChange), #111 (silent number/glob rejection), #112 (deviceId never shown / unused kinds), #113 (hidden-tab banner re-subscription) | Out-of-scope decision above. Not placed on a Projects board — no Archivist board exists. Active-window re-render defect not filed: covered by F7. |
 | 2026-11-20 | Phase transition PRD → SDD | PRD complete, 0 clarification markers. |
+| 2026-11-20 | ADR-1 Translator over FieldSpec (DefinitionBuilderHost); display()/ObsidianSectionHost removed | Single source of truth, section suites stay valid. Alternative B (sections return definitions) rejected: full test rewrite, Obsidian types leak into sections. |
+| 2026-11-20 | ADR-2 Inputs as `control` rows with dotted keys, routed via per-build registry to section onChange | Only control rows survive `update()` while focused (verified in 1.14.4 runtime). |
+| 2026-11-20 | ADR-3 Event-driven debounced `update()` (banner sub in ctor, header-render fetch, refresh()) | No "tab shown" hook in the declarative API; guard + diff bound the loop. |
+| 2026-11-20 | ADR-4 Non-input content as `render` rows; setDestructive; `visible` predicates (F7); `aliases` (F8) | Documented route for custom content. |
+| 2026-11-20 | ADR-5 obsidian 1.14.4 + eslint-plugin-obsidianmd 0.6.0 (exact) | 0.4.2 exact-peers obsidian 1.8.7; installed 0.3.0 lacks settings-tab rules; local lint must mirror the bot. |
+| 2026-11-20 | ADR-6 browserslist stays chrome 139 | 1.14.4 ships Chrome 150, but app updates don't update Electron; 139 is the stricter superset. |
 
 ## Research Summary
 
