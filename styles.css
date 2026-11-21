@@ -34,11 +34,7 @@
 	color: var(--text-faint);
 }
 
-/* ─── Section headings ───────────────────────────────────────────── */
-/* Spec 002 (#54): section headings are now `heading` groups rendered by
-   Obsidian from getSettingDefinitions(), not hand-made h2 elements. The old
-   `.archivist-settings h2` divider rules were removed; Obsidian's native
-   group-heading styling applies (the sanctioned look). */
+/* Section headings are Obsidian-rendered setting groups (no custom rules). */
 
 /* ─── Static descriptive paragraphs ──────────────────────────────── */
 
