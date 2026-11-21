@@ -134,7 +134,7 @@ Consequences of not solving it:
   - [ ] Given the tab is open and the user completes the Dropbox OAuth flow (or disconnects), When the account state changes, Then the Dropbox section switches between its connected and disconnected versions without being reopened
   - [ ] Given account email, device designation or storage usage are fetched in the background, When the values arrive, Then the tab shows them; and Given a fetch fails, Then the last known value stays shown and no error is raised
   - [ ] Given the user is typing in a text field, When a background refresh happens, Then the text being typed is not lost or overwritten
-  - [ ] Given the settings window is closed, When background state changes, Then nothing becomes visible to the user and no extra work happens beyond keeping the search results current
+  - [ ] Given the settings window is closed, When background state changes, Then no settings UI is rendered and the only work done is refreshing the settings-search index (no fetches, no saves)
 
 #### Feature 4: Destructive action styling
 - **User Story:** As a Current-Obsidian user, I want the Dropbox "Disconnect" button to be clearly marked as destructive so that I don't confuse it with "Re-authenticate".
@@ -145,9 +145,9 @@ Consequences of not solving it:
 #### Feature 5: Raise the supported Obsidian version to 1.14.4
 - **User Story:** As an Outdated-Obsidian user, I want to keep a working Archivist when new releases require a newer Obsidian so that my backups are not disrupted; and as the maintainer, I want the declared minimum to match the Obsidian version the code is built for so that no unsupported API reaches users.
 - **Acceptance Criteria:**
-  - [ ] Given the release, When its metadata is read, Then the declared minimum Obsidian version is 1.14.4 and the release history records that versions up to the current one support 1.11.4
+  - [ ] Given the release, When its metadata is read, Then the declared minimum Obsidian version is 1.14.4 and every existing release-history entry is unchanged (0.8.0–0.11.x still map to 1.11.4, older entries to 1.5.0)
   - [ ] Given a user on Obsidian below 1.14.4, When Obsidian checks for plugin updates, Then the new release is not offered and the installed release keeps working unchanged
-  - [ ] Given the user documentation (installation, troubleshooting, README), When it is read after the release, Then it states 1.14.4 as the minimum Obsidian version and explains what users on older versions should expect
+  - [ ] Given the user documentation (installation, troubleshooting, README), When it is read after the release, Then it states 1.14.4 as the minimum Obsidian version, states that installs on older Obsidian stay on the last 0.11.x release and receive no further Archivist updates, and states that updating Obsidian to 1.14.4 or newer unlocks the new release
   - [ ] Given the changelog entry for the release, When it is read, Then it calls out the raised minimum version as a notable change
 
 #### Feature 6: Review and lint compliance
@@ -155,8 +155,8 @@ Consequences of not solving it:
 - **Acceptance Criteria:**
   - [ ] Given the release after Obsidian's next review scan, When the scorecard is checked, Then the "does not implement getSettingDefinitions()" warning is gone and there are no new warnings or failure flags in Source code, Build verification or Dependencies
   - [ ] Given the repo's lint configuration, which mirrors the review bot, When lint runs against Obsidian 1.14.4 types, Then it reports zero errors and no uses of deprecated settings or button APIs
-  - [ ] Given the existing automated test suite, When it runs, Then all settings-related tests pass (adapted to the new tab where necessary, never deleted without a replacement covering the same behaviour)
-  - [ ] Given the "ignore minor bumps" rule for the Obsidian types dependency set up for issue #54, When the release ships, Then that ignore rule has been lifted so routine updates resume
+  - [ ] Given the existing automated test suite, When it runs, Then all settings-related tests pass; any test changed for the new tab keeps asserting the same behaviour, and no test is deleted without a replacement that asserts the same behaviour
+  - [ ] Given the "ignore minor bumps" rule for the Obsidian types dependency set up for issue #54, When the release is merged, Then the ignore is lifted (it lives on GitHub as an `@dependabot ignore` comment state, not in `.github/dependabot.yml`) by commenting `@dependabot unignore obsidian` on the next Dependabot group PR, so routine updates resume
 
 ### Should Have Features
 
@@ -171,7 +171,22 @@ Consequences of not solving it:
 #### Feature 8: Search synonyms
 - **User Story:** As a Current-Obsidian user, I want common alternative words to find Archivist settings (for example "cloud" → Dropbox account, "interval" → incremental backup interval, "exclude" / "ignore" → exclusion globs) so that I find the setting even when I don't know its exact label.
 - **Acceptance Criteria:**
-  - [ ] Given a documented list of synonyms per setting, When the user searches for a synonym, Then the matching Archivist setting appears in the results
+  - [ ] Given the synonym list below, When the user searches for a synonym, Then the matching Archivist setting appears in the results
+
+  Synonym list (complete for this release):
+
+  | Setting | Synonyms |
+  |---|---|
+  | Account (Dropbox account) | dropbox, cloud, connect, login |
+  | Exclusion globs | exclude, ignore, skip |
+  | Incremental backup interval | interval, frequency |
+  | Full backup time (local) | schedule, time |
+  | Full backup cadence | weekly, monthly |
+  | Active backup window | quiet hours, night |
+  | Daily retention (days) | prune, keep |
+  | Hard storage limit (GB) | quota, space |
+  | Dry-run mode (no uploads) | test, simulate |
+  | Diagnostic logging (paths visible in logs) | debug, log |
   - [ ] Given a search for a word unrelated to any synonym or label, When the user searches, Then Archivist settings do not appear in the results
 
 ### Could Have Features
@@ -273,7 +288,7 @@ Archivist collects no usage data, and none may be added. Every metric is tracked
 |------|--------|------------|------------|
 | Users on Obsidian below 1.14.4 stop receiving fixes | Medium | Medium | Release history pins older Archivist releases to 1.11.4; docs and changelog explain it; critical fixes could be back-ported if a report comes in |
 | A row type can't be expressed declaratively and becomes invisible to search | Medium | Low | Research shows custom rows are indexed by name and description; the SDD maps every row before implementation; Feature 1 acceptance checks every inventory row |
-| A background refresh wipes text the user is typing (a regression of a past bug) | High | Medium | Feature 3 acceptance criterion and an explicit regression test |
+| A background refresh wipes text the user is typing (a regression of a past bug) | High | Medium | Feature 3 acceptance criterion; automated structural guard (every text-entry row is a native control row, which Obsidian keeps while focused) plus a manual check in real Obsidian, since the test mock cannot reproduce Obsidian's re-render |
 | Behaviour drift: a setting saves to a different place or resets on upgrade | High | Low | Feature 2 acceptance on existing installs; settings stay stored where they are today |
 | The review bot raises a new warning, for example a deprecated API or CSS compat after the minimum-version bump | Medium | Medium | Lint against 1.14.4 types and the CSS compat check before release; run `/obsidian-eval` after the scan |
 | Obsidian's declarative API changes shape between versions (it did between 1.13.0 and 1.13.1) | Low | Low | The minimum version equals the types version, so the shapes we compile against are the ones users run |

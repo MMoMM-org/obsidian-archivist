@@ -101,7 +101,7 @@ CON-4 **Process.**
   why: "Four plain toggles — the simplest mapping case"
 - file: src/ui/settings/sections/Advanced.ts
   relevance: HIGH
-  why: "Textarea globs (silent rejection), vault_prefix (fresh-read, past typing-wipe bug), sliders (setDynamicTooltip deprecated)"
+  why: "Textarea globs (silent rejection), vault_prefix (fresh-read, past typing-wipe bug), sliders (emitted as kind:'slider' at Advanced.ts:121,133; the deprecated setDynamicTooltip call lives in SettingsTab.ts:460 renderSlider)"
 - file: src/ui/settings/sections/Dropbox.ts
   relevance: HIGH
   why: "Connected / disconnected branches, actionRow with the Disconnect warning → setDestructive"
@@ -114,7 +114,7 @@ CON-4 **Process.**
   relevance: HIGH
   why: "Tab construction (1258-1263), pre-fill of async fields (1240-1256), refresh() callers (194, 1220, 1277)"
 
-- file: src/services/NoticeCenter.ts
+- file: src/ui/NoticeCenter.ts
   relevance: HIGH
   why: "subscribePersistentBanners(handler) → unsubscribe fn (207-212); getPersistentBanners"
 
@@ -320,15 +320,22 @@ graph LR
 ├── tests/
 │   ├── fixtures/
 │   │   ├── obsidian-mock.ts                   # MODIFY: SettingTab 1.13+ members, ButtonComponent.setDestructive, debounce
-│   │   └── recording-section-host.ts          # MODIFY: record visible/aliases/key; `findField` skips invisible by default
+│   │   ├── recording-section-host.ts          # MODIFY: record visible/aliases/key; `findField` skips invisible by default
+│   │   ├── obsidian-mock.test.ts              # NEW: fixture self-test for the 1.13+ SettingTab surface
+│   │   └── settings-0.11.x.data.json          # NEW: captured 0.11.x settings with non-default values
 │   └── ui/
 │       ├── settings-definition-builder.test.ts  # NEW: mapping, grouping, write guard, validation mapping
+│       ├── settings-custom-rows.test.ts       # NEW: header / banner / static / link / actionRow renderers
+│       ├── settings-tab.integration.test.ts   # NEW: whole tab from a 0.11.x data.json fixture
+│       ├── release-metadata.test.ts           # NEW: minAppVersion 1.14.4 + versions.json snapshot unchanged
 │       ├── settings-tab.test.ts               # MODIFY: definitions shape, refresh orchestration, banner → update
 │       ├── settings-backup-schedule.test.ts   # MODIFY: active-window assertions via visible predicate
 │       └── settings-*.test.ts                 # MODIFY only where `warning` → `destructive` or keys are asserted
 ├── manifest.json                              # MODIFY: minAppVersion 1.14.4
 ├── package.json                               # MODIFY: obsidian 1.14.4 (exact), eslint-plugin-obsidianmd 0.6.0 (exact)
 ├── eslint.config.mjs                          # MODIFY: files-scope TS/type-checked blocks (obsidianmd 0.6.0 lints manifest.json / LICENSE)
+├── styles.css                                 # MODIFY: retarget `.archivist-settings h2` rules (39-55) to group headings
+├── evolution/2026-11/                         # NEW: toolchain entry (obsidian 1.14.4, obsidianmd 0.6.0, unsandboxed install, eslint files scoping)
 ├── README.md, docs/installation.md, docs/troubleshooting.md   # MODIFY: minimum Obsidian 1.14.4
 ```
 
@@ -373,7 +380,7 @@ FieldSpec additions (SectionHost.ts):
     (no new required fields — the builder derives stable internal row names)
 
 DefinitionBuilderHost (NEW):
-  constructor(renderers: CustomRowRenderers)
+  constructor(renderers: CustomRowRenderers)   # interface type declared in SectionHost.ts (T2.1) so builder and renderers can be built in parallel
   heading(text): void                 # opens a new group { type: 'group', heading: text, items: [] }
   topBanner(spec): void               # appends a render row to the top group (no heading)
   field(spec): void                   # appends one definition to the current group
@@ -388,7 +395,7 @@ ArchivistSettingTab (REWRITTEN):
   setControlValue(key, value): Promise<void>         # write guard → spec.onChange(coerced) → scheduleUpdate()
   refresh(): Promise<void>                           # unchanged signature; forces update() after async fetch
   (private) refreshAsyncFields(force): Promise<void> # guard + diff, then scheduleUpdate() on change/force
-  (private) scheduleUpdate: () => void               # debounce(() => this.update(), 150, true)
+  (private) scheduleUpdate: () => void               # debounce(() => this.update(), 150, false) — resetTimer=false: fires 150 ms after the FIRST call of a burst; later calls in the window coalesce
   # Removed: display(), hide() override, ObsidianSectionHost, renderHeader(), subscribeBannerUpdates().
 ```
 
@@ -481,9 +488,10 @@ async setControlValue(key: string, value: unknown): Promise<void> {
 ```typescript
 // BackupSchedule.ts (illustrative)
 const windowOn = (): boolean => ctx.getSettings().schedule.active_window_enabled;
-host.field({ kind: 'text', key: 'schedule.active_window_start', label: S.ACTIVE_WINDOW_START,
+host.field({ kind: 'text', key: 'schedule.active_window_start', label: 'Active window start', // literal today (BackupSchedule.ts:156)
              value: settings.schedule.active_window_start, placeholder: 'HH:MM',
-             validate: validateHHMM, visible: windowOn,
+             validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'), // inline HHMM_REGEX + message exactly as today (BackupSchedule.ts:164)
+             visible: windowOn,
              onChange: (v) => void ctx.updateSettings({ schedule: { ...ctx.getSettings().schedule, active_window_start: v } }) });
 // Obsidian re-evaluates `visible` after every control change (refreshDomState), so flipping
 // "Active backup window" shows/hides both rows immediately; scheduleUpdate() then refreshes search.
@@ -561,7 +569,8 @@ sequenceDiagram
 - **Invalid input** (text kinds with `validate`): Obsidian shows the returned string inline, adds `is-invalid` to the row, and never calls `setControlValue`. This matches today's inline error for HH:MM and vault_prefix.
 - **Silently rejected input** (number, textarea): the write guard returns without saving, as today. Surfacing these errors is #111.
 - **Async fetch failure:** each promise falls back to the cached `ctx` value (`.catch(() => ctx.x)`, as today). No banner or error is raised from the tab.
-- **Save failure** (`updateSettings` rejects): the behaviour is unchanged. The section's `onChange` owns it; today it is fire-and-forget.
+- **Save failure** (`updateSettings` rejects): the section's `onChange` owns persistence and is fire-and-forget today. `setControlValue` additionally awaits and catches whatever `onChange` returns, so a rejection never becomes an unhandled promise, and it still schedules one `update()` so the row re-reads the stored value. Covered by a test (Constitution L1, vault-state failure path).
+- **Ownership failure** (`takeOwnership`/`releaseOwnership` rejects): caught; no settings write, `ctx.deviceDesignated` unchanged, the next build shows the previous state.
 - **Stale key** (a write arrives for a key not in the current registry, e.g. a row removed by a rebuild): ignored.
 - **Duplicate keys within a group:** the builder throws during tests/dev, so it can never reach Obsidian's "duplicate setting key" runtime warning.
 - **Tab torn down mid-refresh:** `update()` on a closed modal is documented as safe. Render-row cleanups run when a row is torn down.
@@ -570,7 +579,7 @@ sequenceDiagram
 
 ```
 ALGORITHM: Refresh orchestration (prevents loops, preserves typing)
-STATE: refreshing: boolean; ctx cached fields; scheduleUpdate = debounce(update, 150, leading=true)
+STATE: refreshing: boolean; ctx cached fields; scheduleUpdate = debounce(update, 150, resetTimer=false)
 
 on header render():                         # runs on every renderTab (open + each re-render)
   void refreshAsyncFields(force=false)
@@ -578,11 +587,13 @@ on header render():                         # runs on every renderTab (open + ea
 refreshAsyncFields(force):
   if refreshing: return                     # guard 1: one fetch at a time
   refreshing = true
-  values = await all(fetch each, fallback to cached)
-  changed = any(values[i] !== ctx[i])
-  ctx[...] = values
-  refreshing = false
-  if changed or force: scheduleUpdate()     # guard 2: only on change (or explicit refresh())
+  try:
+    values = await all(fetch each, fallback to cached)   # each fetch already .catch → cached
+    changed = any(values[i] !== ctx[i])
+    ctx[...] = values
+    if changed or force: scheduleUpdate()   # guard 2: only on change (or explicit refresh())
+  finally:
+    refreshing = false                      # always reset — a throw must never wedge later refreshes
 
 on banner change: scheduleUpdate()
 on setControlValue (accepted): scheduleUpdate()
@@ -597,7 +608,7 @@ on setControlValue (accepted): scheduleUpdate()
 | 3 | update() re-renders → header render again | false→true | `a@b.c` | — | fetch starts |
 | 4 | fetch resolves (`a@b.c`) | true→false | `a@b.c` | **false** | stop (no update) |
 
-The loop ends after one extra fetch. If a banner changes between steps 2 and 3, the leading-edge debounce collapses both into a single `update()`. Typing at step 3 is safe: the vault_prefix control row holds focus, so Obsidian's keyed renderer keeps it. This was verified in the 1.14.4 runtime, `refreshCurrentPage` / activeElement check.
+The loop ends after one extra fetch. If a banner changes between steps 2 and 3, the debounce (resetTimer=false) collapses both into a single `update()` fired 150 ms after the first call. Typing at step 3 is safe: the vault_prefix control row holds focus, so Obsidian's keyed renderer keeps it. This was verified in the 1.14.4 runtime, `refreshCurrentPage` / activeElement check.
 
 ## Deployment View
 
@@ -605,14 +616,14 @@ The loop ends after one extra fetch. If a banner changes between steps 2 and 3, 
 - **Environment:** the user's Obsidian desktop app, 1.14.4 or newer. Shipped through the normal semantic-release pipeline (GitHub release with `main.js`, `manifest.json`, `styles.css`, plus artifact attestations).
 - **Configuration:**
   - `manifest.json` `minAppVersion: "1.14.4"`.
-  - `version-bump.mjs` writes `versions.json["<new>"] = "1.14.4"` at release. Earlier entries keep `1.11.4`, so Obsidian keeps serving 0.11.x to older apps.
+  - `version-bump.mjs` writes `versions.json["<new>"] = "1.14.4"` at release. Existing entries are left untouched (0.1.0–0.7.9 → `1.5.0`, 0.8.0–0.11.x → `1.11.4`), so Obsidian keeps serving 0.11.x to older apps.
 - **Dependencies:**
   - `obsidian` 1.14.4 (types only, exact).
   - `eslint-plugin-obsidianmd` 0.6.0 (exact).
   - No runtime dependency changes.
 - **Performance:**
   - `getSettingDefinitions()` builds about 35 rows from in-memory settings, with no I/O.
-  - `update()` is debounced at 150 ms with a leading edge.
+  - `update()` is debounced at 150 ms (`resetTimer=false`): at most one call per 150 ms window, fired 150 ms after the first trigger.
   - The open-time fetch reads the local token store; usage bytes come from a stub.
 
 ### Multi-Component Coordination
@@ -696,7 +707,7 @@ Not applicable. No other component deploys with this one. The optional `_outbox/
     - #110 (stale snapshot in `onChange`) is narrowed to the ~150 ms debounce window but not closed.
   - User confirmed: **Yes (2026-11-20)**
 
-- [x] ADR-3 **Event-driven refresh through a debounced `update()`** (150 ms, leading edge):
+- [x] ADR-3 **Event-driven refresh through a debounced `update()`** (150 ms, `debounce(fn, 150, false)` — Obsidian's third argument is `resetTimer`, there is no leading-edge option; corrected during spec validation 2026-11-21):
   - the banner subscription is created once in the constructor and torn down on plugin unload via `deps.register`;
   - the open-time async fetch is started from the header render row;
   - `refresh()` forces an update.
@@ -741,8 +752,8 @@ Not applicable. No other component deploys with this one. The optional `_outbox/
 ## Quality Requirements
 
 - **Performance:**
-  - `getSettingDefinitions()` finishes in under 5 ms for the current about 35 rows, with no `await` and no I/O. Enforced by a sync signature and by review.
-  - At most one `update()` per 150 ms burst.
+  - `getSettingDefinitions()` is synchronous (no `await`, no I/O, no network) over about 35 in-memory rows. Enforced by its sync return type and a test that it returns an array, not a Promise. No timing target: perf numbers are noise in this environment and never gate a build.
+  - At most one `update()` per 150 ms window.
   - At most one in-flight async fetch.
 - **Usability:**
   - 100% of the PRD Settings inventory is findable by name in Obsidian 1.14.4 settings search. Verified with the manual checklist, one line per row.
@@ -750,7 +761,7 @@ Not applicable. No other component deploys with this one. The optional `_outbox/
 - **Security:** zero `innerHTML`, enforced by the local lint rule. No token values in definitions.
 - **Reliability:**
   - Zero settings-path changes: a 0.11.x `data.json` loads with every control showing its stored value. Covered by a fixture-based test.
-  - Typing in vault_prefix survives a forced `refresh()`. Covered by a manual check, because the mock can't reproduce keyed reconciliation; the test suite asserts the vault_prefix row is a `control`, not a `render` row.
+  - Typing in vault_prefix survives a forced `refresh()`. The automated regression guard is structural: a test asserts every text-entry row (vault_prefix, HH:MM, numbers, globs) is a `control`, never a `render` row, because only control rows survive `update()` while focused. The behaviour itself is confirmed manually in T5.4, since the mock can't reproduce Obsidian's keyed reconciliation. (Recorded as a deviation from the PRD's "explicit regression test" wording.)
 - **Compliance:**
   - `npm run lint` reports 0 errors and 0 `prefer-setting-definitions` / `no-deprecated-display` / `prefer-update-over-display` / `@typescript-eslint/no-deprecated` hits.
   - `npm run build`, `npm test` and `npm run typecheck` pass.
@@ -772,11 +783,14 @@ Not applicable. No other component deploys with this one. The optional `_outbox/
 - [ ] WHILE `dropboxUsedBytes ≥ warn% × hard_limit` and `hard_limit > 0`, THE SYSTEM SHALL emit the STORAGE banner row in the Retention group; otherwise it SHALL NOT.
 
 **Main Flow Criteria: PRD F3 (live refresh)**
-- [ ] WHEN NoticeCenter emits a banner change, THE SYSTEM SHALL call `update()` within 150 ms (leading edge), whether or not the tab is visible.
+- [ ] WHEN NoticeCenter emits a banner change, THE SYSTEM SHALL call `update()` 150 ms after the first change of a burst (later changes in the window coalesce into that call), whether or not the tab is visible.
 - [ ] WHEN `refresh()` is called, THE SYSTEM SHALL re-fetch the async fields and call `update()` even if nothing changed.
 - [ ] WHEN the header row renders, THE SYSTEM SHALL start one async fetch and SHALL call `update()` only if a fetched value differs from the cached one.
 - [ ] IF a fetch is already in flight, THEN THE SYSTEM SHALL not start another.
-- [ ] IF an async fetch rejects, THEN THE SYSTEM SHALL keep the cached value and raise no error or banner.
+- [ ] IF an async fetch rejects, THEN THE SYSTEM SHALL keep the cached value, raise no error or banner, and reset the in-flight guard so the next fetch runs.
+- [ ] IF a section `onChange` (and so `updateSettings`) rejects, THEN THE SYSTEM SHALL surface no unhandled rejection from `setControlValue` and SHALL NOT enter an update loop.
+- [ ] IF `takeOwnership()` / `releaseOwnership()` rejects, THEN THE SYSTEM SHALL write no `PluginSettings` field and keep `ctx.deviceDesignated` unchanged.
+- [ ] WHILE the settings window is closed or the plugin is unloading during an in-flight fetch, THE SYSTEM SHALL complete without throwing and reset the in-flight guard.
 - [ ] THE SYSTEM SHALL emit every text-entry row (text, textarea, number) as a `control` definition, never as a `render` row (focus survives `update()`).
 - [ ] WHEN the plugin unloads, THE SYSTEM SHALL unsubscribe from NoticeCenter banner updates.
 

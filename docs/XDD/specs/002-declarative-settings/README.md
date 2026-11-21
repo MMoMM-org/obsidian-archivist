@@ -5,18 +5,18 @@
 | Field | Value |
 |-------|-------|
 | **Created** | 2026-11-20 |
-| **Current Phase** | SDD |
-| **Decomposition tier** | {{DECOMPOSITION_TIER}} |
-| **Model tier** | {{MODEL_TIER}} |
-| **Last Updated** | 2026-11-20 |
+| **Current Phase** | Ready |
+| **Decomposition tier** | Incremental |
+| **Model tier** | hard |
+| **Last Updated** | 2026-11-21 |
 
 ## Documents
 
 | Document | Status | Notes |
 |----------|--------|-------|
 | requirements.md | completed | v1.0 approved — 8 features (6 Must, 2 Should, both in release), 32 acceptance criteria |
-| solution.md | completed | v1.0 approved — 7 components, ADR-1…6 confirmed, 27 EARS criteria |
-| plan/ | pending | |
+| solution.md | completed | v1.0 approved — 7 components, ADR-1…6 confirmed, 27 EARS criteria (24 + 3 failure-path criteria added at validation) |
+| plan/ | completed | 5 phases, 20 tasks, 4 parallel-tagged (T2.2 ∥ T2.3, T5.1 ∥ T5.2); validated 2026-11-21 |
 
 **Status values**: `pending` | `in_progress` | `completed` | `skipped`
 
@@ -41,6 +41,12 @@
 | 2026-11-20 | ADR-4 Non-input content as `render` rows; setDestructive; `visible` predicates (F7); `aliases` (F8) | Documented route for custom content. |
 | 2026-11-20 | ADR-5 obsidian 1.14.4 + eslint-plugin-obsidianmd 0.6.0 (exact) | 0.4.2 exact-peers obsidian 1.8.7; installed 0.3.0 lacks settings-tab rules; local lint must mirror the bot. |
 | 2026-11-20 | ADR-6 browserslist stays chrome 139 | 1.14.4 ships Chrome 150, but app updates don't update Electron; 139 is the stricter superset. |
+| 2026-11-21 | SDD approved; ADR-4 render-row refinement accepted | Static text keeps its exact look as render rows (searchable:false). |
+| 2026-11-21 | Decomposition tier: Incremental | Classifier recommended Incremental (component_count=2 new: DefinitionBuilderHost, customRows; feature_count=6; ac_count=32; no parallel markers in solution.md — the plan's later `[parallel: true]` tags are intra-phase only and don't change rule 1). Accepted. |
+| 2026-11-21 | Model tier: hard | Classifier recommended hard (adr_count=6; high_risks=2; novel_pattern=false). Accepted. |
+| 2026-11-21 | Plan written: 5 phases, 20 tasks | Incremental tier; TDD per task; T3.3 ships as `feat!` → 0.12.0 (`.releaserc` breaking→minor keeps pre-1.0). |
+| 2026-11-21 | Spec validation (4 perspectives): 5 FAIL / ~20 WARN, all fixed | Key corrections: Obsidian `debounce` 3rd arg is `resetTimer` (→ `false`, not leading-edge); versions.json snapshot (old entries map to 1.5.0); refresh guard `try/finally`; Constitution L1 write-failure + ownership-failure tests; NoticeCenter path `src/ui/`; explicit F8 synonym table; evolution/2026-11 entry; T4.1→T4.2 serialised (shared file). Typing-wipe test downgraded to structural guard + manual check — logged as deviation in plan/phase-5.md. |
+| 2026-11-21 | Phase → Ready | PRD, SDD, PLAN complete; readiness HIGH. |
 
 ## Research Summary
 
