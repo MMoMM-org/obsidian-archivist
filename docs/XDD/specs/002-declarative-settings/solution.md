@@ -390,7 +390,7 @@ DefinitionBuilderHost (NEW):
   # Throws in dev/test if two input specs in the same group share a key (Obsidian keys rows by ctrl:<key>).
 
 ArchivistSettingTab (REWRITTEN):
-  constructor(app, deps: { plugin, noticeCenter, context, register: (teardown: () => void) => void })
+  constructor(app, deps: { plugin, noticeCenter, context, logger, register: (teardown: () => void) => void })   # logger added at the Phase 3 checkpoint
   getSettingDefinitions(): SettingDefinitionItem[]   # sync; runs the 5 sections + top group through a fresh builder
   getControlValue(key): unknown                      # registry.get(key)?.value
   setControlValue(key, value): Promise<void>         # write guard → spec.onChange(coerced) → scheduleUpdate()
@@ -570,7 +570,7 @@ sequenceDiagram
 - **Invalid input** (text kinds with `validate`): Obsidian shows the returned string inline, adds `is-invalid` to the row, and never calls `setControlValue`. This matches today's inline error for HH:MM and vault_prefix.
 - **Silently rejected input** (number, textarea): the write guard returns without saving, as today. Surfacing these errors is #111.
 - **Async fetch failure:** each promise falls back to the cached `ctx` value (`.catch(() => ctx.x)`, as today). No banner or error is raised from the tab.
-- **Save failure** (`updateSettings` rejects): the section's `onChange` owns persistence and is fire-and-forget today. `setControlValue` additionally awaits and catches whatever `onChange` returns, so a rejection never becomes an unhandled promise, and it still schedules one `update()` so the row re-reads the stored value. Covered by a test (Constitution L1, vault-state failure path).
+- **Save failure** (`updateSettings` rejects): the section's `onChange` owns persistence and returns the save promise (was fire-and-forget before Phase 3). `setControlValue` additionally awaits and catches whatever `onChange` returns, so a rejection never becomes an unhandled promise, and it still schedules one `update()` so the row re-reads the stored value. Covered by a test (Constitution L1, vault-state failure path).
 - **Ownership failure** (`takeOwnership`/`releaseOwnership` rejects): caught; no settings write, `ctx.deviceDesignated` unchanged, the next build shows the previous state.
 - **Stale key** (a write arrives for a key not in the current registry, e.g. a row removed by a rebuild): ignored.
 - **Duplicate keys within a group:** the builder throws during tests/dev, so it can never reach Obsidian's "duplicate setting key" runtime warning.

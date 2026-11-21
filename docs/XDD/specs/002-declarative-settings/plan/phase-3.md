@@ -1,6 +1,6 @@
 ---
 title: "Phase 3: Declarative settings tab"
-status: pending
+status: completed
 version: "1.0"
 phase: 3
 ---
@@ -34,7 +34,7 @@ phase: 3
 
 This phase replaces the imperative tab with the declarative one. At the end of it, Archivist's settings are searchable on 1.14.4 and refresh live.
 
-- [ ] **T3.1 Declarative ArchivistSettingTab contract** `[activity: build-feature]` `[ref: SDD/Internal API Changes; SDD/Implementation Examples (write guard)]`
+- [x] **T3.1 Declarative ArchivistSettingTab contract** `[activity: build-feature]` `[ref: SDD/Internal API Changes; SDD/Implementation Examples (write guard)]`
 
   1. Prime:
      - Read the current `src/ui/SettingsTab.ts` in full.
@@ -71,7 +71,7 @@ This phase replaces the imperative tab with the declarative one. At the end of i
      - Values and validation behave as before `[ref: PRD/F2 AC1, AC4-7]`.
      - The designated toggle keeps its side effects `[ref: PRD/F2 AC7]`.
 
-- [ ] **T3.2 Refresh orchestration** `[activity: build-feature]` `[ref: SDD/Complex Logic; SDD/Runtime View (secondary flows); PRD/F3]`
+- [x] **T3.2 Refresh orchestration** `[activity: build-feature]` `[ref: SDD/Complex Logic; SDD/Runtime View (secondary flows); PRD/F3]`
 
   1. Prime:
      - Read the Complex Logic algorithm and the traced walkthrough.
@@ -103,7 +103,7 @@ This phase replaces the imperative tab with the declarative one. At the end of i
      - The refresh loop is bounded `[ref: PRD/Detailed Spec Rule 5]`.
      - No visible work happens while the modal is closed beyond `update()` refreshing the search index `[ref: PRD/F3 AC5]`.
 
-- [ ] **T3.3 Raise minAppVersion to 1.14.4** `[activity: build-platform]` `[ref: SDD/Deployment View; PRD/F5 AC1-2]`
+- [x] **T3.3 Raise minAppVersion to 1.14.4** `[activity: build-platform]` `[ref: SDD/Deployment View; PRD/F5 AC1-2]`
 
   1. Prime:
      - Read `manifest.json`, `versions.json` and `version-bump.mjs`.
@@ -124,10 +124,25 @@ This phase replaces the imperative tab with the declarative one. At the end of i
      - Users on older Obsidian keep 0.11.x through the existing `versions.json` entries `[ref: PRD/F5 AC2]`.
      - Lint is fully clean against 1.14.4 types `[ref: PRD/F6 AC2]`.
 
-- [ ] **T3.4 Phase Validation** `[activity: validate]` `[ref: SDD/Acceptance Criteria F2, F3, F5/F6]`
+- [x] **T3.4 Phase Validation** `[activity: validate]` `[ref: SDD/Acceptance Criteria F2, F3, F5/F6]`
 
   - Success: declarative tab live, lint fully clean against 1.14.4 `[ref: PRD/F1 AC1; PRD/F3; PRD/F6 AC2]`.
 
   - Full `npm test`, `npm run typecheck`, `npm run lint` (0 errors, 0 warnings from the settings-tab rules) and `npm run build`.
   - Grep `src/` for `display(`, `setWarning(` and `setDynamicTooltip(`; it must return nothing `[ref: SDD/Acceptance Criteria F5/F6 #2]`.
   - Commit per task.
+
+---
+
+## Deviations
+
+| Date | Deviation | Rationale | Approved |
+|---|---|---|---|
+| 2026-11-21 | Section input `onChange` bodies return their save/ownership promise (`void x` → `return x`, type `OnChangeResult`) | The SDD save-failure requirement (await and catch, no unhandled rejection) cannot be met while sections discard the promise. Semantics are unchanged; #110 (stale snapshots) is untouched | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | `setControlValue` serializes writes through a `writeChain`; a `designatedWrites` counter stops a stale `isDesignated()` fetch from overwriting a fresh toggle | Code review found out-of-order take/release could leave the wrong device state | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | Apply and refresh failures are logged through the injected plugin `logger` (`setting_apply_failed`, `settings_refresh_failed`; key and error message only); the tab deps gained `logger` | The repo logger is gated and redacting; `console.*` bypassed both | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | A forced `refresh()` during an in-flight fetch queues one forced follow-up (`inFlight`/`pendingForce`); a forced refresh whose fetch throws still calls `update()` | Literal "skip while in flight" lost the OAuth-callback refresh, violating "refresh() always calls update()" and F3 AC2. Still one fetch at a time and bounded | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | Teardown also cancels the pending debounced update and sets `disposed`, so late fetches and writes schedule nothing | Makes teardown during an in-flight fetch safe and testable | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | `tests/release-metadata.test.ts` checks a frozen prefix of `versions.json` (0.1.0–0.11.6, unchanged values and order), not strict equality; `tests/config/manifest.test.ts` now checks `minAppVersion >= 1.11.4` instead of an exact pin | `version-bump.mjs` appends an entry on every release (0.11.7 already on origin/main), so strict equality would break on the rebase and every release | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | "Zero lint findings" excludes the five deferred `prefer-instanceof` warnings | Tracked in #114 (Phase 1 deviation) | Yes, at the Phase 3 checkpoint |
+| 2026-11-21 | `src/ui/SettingsTab.ts` is exactly 300 lines | At the limit after comment trimming; the next addition must come with extracting the refresh logic (`refreshAsyncFields`/`runFetches`/`fetchOnce`/`fetchAsyncFields`/`applyFetched`) into its own module | Yes, at the Phase 3 checkpoint |
