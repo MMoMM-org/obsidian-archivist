@@ -478,25 +478,216 @@ export class Notice {
 // tests/fixtures/recording-section-host.ts). The stubs exist so modules that
 // `import { PluginSettingTab, Setting } from 'obsidian'` can load in vitest.
 
-export class PluginSettingTab {
-  app: App;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  plugin: any;
-  containerEl: { empty: () => void; createEl: (...args: unknown[]) => unknown; createDiv: (...args: unknown[]) => unknown };
+// SettingTab — Obsidian 1.13+ declarative surface (spec 002, T1.2). Mirrors
+// 1.14.4 runtime behaviour: update() re-runs getSettingDefinitions() and
+// stores the result in settingItems; refreshDomState() is a recording no-op
+// (the mock has no DOM to re-evaluate predicates against). Definitions are
+// typed loosely — src compiles against the real d.ts, not this mock.
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(app: App, plugin: any) {
+type MockContainerEl = {
+  empty: () => void;
+  createEl: (...args: unknown[]) => unknown;
+  createDiv: (...args: unknown[]) => unknown;
+};
+
+function makeMockContainerEl(): MockContainerEl {
+  return {
+    empty: (): void => {},
+    createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+    createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+  };
+}
+
+function readDotted(root: unknown, key: string): unknown {
+  let node: unknown = root;
+  for (const part of key.split('.')) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node;
+}
+
+function writeDotted(root: Record<string, unknown>, key: string, value: unknown): void {
+  const parts = key.split('.');
+  const last = parts.pop() as string;
+  let node = root;
+  for (const part of parts) {
+    const next = node[part];
+    if (next === null || typeof next !== 'object') node[part] = {};
+    node = node[part] as Record<string, unknown>;
+  }
+  node[last] = value;
+}
+
+export class SettingTab {
+  app: App;
+  containerEl: MockContainerEl;
+  settingItems: unknown[] = [];
+
+  /** Test introspection: number of update() calls. */
+  _updateCalls = 0;
+  /** Test introspection: number of refreshDomState() calls. */
+  _refreshDomStateCalls = 0;
+  /** Test introspection: every setControlValue(key, value) call, in order. */
+  _setControlValueCalls: Array<[string, unknown]> = [];
+  /** Backing store for the base getControlValue/setControlValue (stands in for vault config). */
+  _config: Record<string, unknown> = {};
+
+  constructor(app: App) {
     this.app = app;
-    this.plugin = plugin;
-    this.containerEl = {
-      empty: (): void => {},
-      createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
-      createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
-    };
+    this.containerEl = makeMockContainerEl();
+  }
+
+  getSettingDefinitions(): unknown[] {
+    return [];
+  }
+
+  update(): void {
+    this._updateCalls += 1;
+    this.settingItems = this.getSettingDefinitions();
+  }
+
+  getControlValue(key: string): unknown {
+    return readDotted(this._config, key);
+  }
+
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    this._setControlValueCalls.push([key, value]);
+    writeDotted(this._config, key, value);
+  }
+
+  refreshDomState(): void {
+    this._refreshDomStateCalls += 1;
   }
 
   display(): void {}
   hide(): void {}
+}
+
+export class PluginSettingTab extends SettingTab {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  plugin: any;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(app: App, plugin: any) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  /** Reads `this.plugin.settings` by dotted key, like 1.14.4. */
+  getControlValue(key: string): unknown {
+    return readDotted(this.plugin?.settings, key);
+  }
+
+  /** Mutates `this.plugin.settings` by dotted key and persists via saveData. */
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    this._setControlValueCalls.push([key, value]);
+    if (this.plugin.settings === null || typeof this.plugin.settings !== 'object') this.plugin.settings = {};
+    writeDotted(this.plugin.settings, key, value);
+    if (typeof this.plugin.saveData === 'function') return this.plugin.saveData(this.plugin.settings);
+  }
+}
+
+// ButtonComponent — recording stub (spec 002, T1.2). Tracks the styling state
+// so later phases can assert destructive / CTA styling without a DOM.
+export class ButtonComponent {
+  buttonEl: unknown;
+  _destructive = false;
+  _cta = false;
+  _disabled = false;
+  _text = '';
+  _tooltip = '';
+  _onClick: ((evt: unknown) => unknown) | null = null;
+
+  constructor(containerEl: unknown) {
+    this.buttonEl = containerEl;
+  }
+
+  setButtonText(text: string): this {
+    this._text = text;
+    return this;
+  }
+  setTooltip(tooltip: string): this {
+    this._tooltip = tooltip;
+    return this;
+  }
+  setDisabled(disabled: boolean): this {
+    this._disabled = disabled;
+    return this;
+  }
+  setCta(): this {
+    this._cta = true;
+    return this;
+  }
+  removeCta(): this {
+    this._cta = false;
+    return this;
+  }
+  setDestructive(): this {
+    this._destructive = true;
+    return this;
+  }
+  removeDestructive(): this {
+    this._destructive = false;
+    return this;
+  }
+  onClick(cb: (evt: unknown) => unknown): this {
+    this._onClick = cb;
+    return this;
+  }
+}
+
+// debounce — Obsidian semantics (verified on 1.14.4). The third argument is
+// resetTimer, NOT leading-edge: with false a burst fires once, `timeout` ms
+// after the FIRST call; with true every call pushes the timer out, so it
+// fires `timeout` ms after the LAST call. The latest arguments win. Driven by
+// window.setTimeout so vitest fake timers control it.
+
+export interface Debouncer<T extends unknown[], V> {
+  (...args: [...T]): this;
+  cancel(): this;
+  run(): V | void;
+}
+
+export function debounce<T extends unknown[], V>(
+  cb: (...args: [...T]) => V,
+  timeout = 0,
+  resetTimer = false,
+): Debouncer<T, V> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingArgs: [...T] | null = null;
+
+  const fire = (): V => {
+    timer = null;
+    const args = pendingArgs as [...T];
+    pendingArgs = null;
+    return cb(...args);
+  };
+
+  const debounced = function (...args: [...T]): Debouncer<T, V> {
+    pendingArgs = args;
+    if (timer !== null) {
+      if (!resetTimer) return debounced;
+      window.clearTimeout(timer);
+    }
+    timer = window.setTimeout(fire, timeout);
+    return debounced;
+  } as Debouncer<T, V>;
+
+  debounced.cancel = (): Debouncer<T, V> => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+    pendingArgs = null;
+    return debounced;
+  };
+
+  debounced.run = (): V | void => {
+    if (timer === null) return undefined;
+    window.clearTimeout(timer);
+    return fire();
+  };
+
+  return debounced;
 }
 
 export class Setting {
