@@ -97,16 +97,17 @@ describe('renderBackupSchedule — fields present', () => {
       S.SETTINGS_STARTUP_GRACE,
       S.SETTINGS_QUIET_PERIOD,
       'Active backup window',
+      'Active window start',
+      'Active window end',
     ]);
   });
 
-  it('does NOT render active-window time pickers when the toggle is off (default)', () => {
+  it('hides active-window time pickers when the toggle is off (default)', () => {
     const host = new RecordingSectionHost();
     const { ctx } = makeCtx();
     renderBackupSchedule(host, ctx);
-    const labels = host.fields().map((f) => 'label' in f ? f.label : '');
-    expect(labels).not.toContain('Active window start');
-    expect(labels).not.toContain('Active window end');
+    expect(host.findField('text', 'Active window start')).toBeUndefined();
+    expect(host.findField('text', 'Active window end')).toBeUndefined();
   });
 
   it('renders active-window time pickers when the toggle is on', () => {
@@ -117,9 +118,89 @@ describe('renderBackupSchedule — fields present', () => {
     };
     const { ctx } = makeCtx({ settings });
     renderBackupSchedule(host, ctx);
-    const labels = host.fields().map((f) => 'label' in f ? f.label : '');
-    expect(labels).toContain('Active window start');
-    expect(labels).toContain('Active window end');
+    expect(host.findField('text', 'Active window start')).toBeDefined();
+    expect(host.findField('text', 'Active window end')).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Active window rows react live (spec 002 F7)
+// ---------------------------------------------------------------------------
+
+/** A ctx whose updateSettings merges into the settings getSettings returns. */
+function makeLiveCtx(enabled = false): { ctx: SettingsContext; current: () => PluginSettings } {
+  let settings: PluginSettings = {
+    ...DEFAULT_SETTINGS,
+    schedule: { ...DEFAULT_SETTINGS.schedule, active_window_enabled: enabled },
+  };
+  const { ctx } = makeCtx({ settings });
+  ctx.getSettings = () => settings;
+  ctx.updateSettings = async (patch) => {
+    settings = { ...settings, ...patch };
+  };
+  return { ctx, current: () => settings };
+}
+
+const WINDOW_LABELS = ['Active window start', 'Active window end'];
+
+function windowEntries(host: RecordingSectionHost) {
+  return host.fieldEntries().filter((e) => 'label' in e.spec && WINDOW_LABELS.includes(e.spec.label));
+}
+
+describe('renderBackupSchedule — active window rows (F7)', () => {
+  it('always emits both window rows with a visible predicate, right after the toggle', () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeLiveCtx(false).ctx);
+    const labels = host.fields().map((f) => ('label' in f ? f.label : f.kind));
+    expect(labels.slice(-3)).toEqual(['Active backup window', ...WINDOW_LABELS]);
+    const entries = windowEntries(host);
+    expect(entries).toHaveLength(2);
+    for (const e of entries) expect(typeof e.visible).toBe('function');
+  });
+
+  it('predicate follows the toggle without re-running the section', async () => {
+    const host = new RecordingSectionHost();
+    const live = makeLiveCtx(false);
+    renderBackupSchedule(host, live.ctx);
+    const entries = windowEntries(host);
+    expect(entries.map((e) => e.visible?.())).toEqual([false, false]);
+
+    await host.findField('toggle', 'Active backup window')!.onChange(true);
+    expect(entries.map((e) => e.visible?.())).toEqual([true, true]);
+
+    await host.findField('toggle', 'Active backup window')!.onChange(false);
+    expect(entries.map((e) => e.visible?.())).toEqual([false, false]);
+  });
+
+  it('findField skips the hidden rows by default and finds them with includeHidden', () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeLiveCtx(false).ctx);
+    for (const label of WINDOW_LABELS) {
+      expect(host.findField('text', label)).toBeUndefined();
+      const spec = host.findField('text', label, { includeHidden: true });
+      expect(spec?.placeholder).toBe('HH:MM');
+      expect(spec?.validate?.('08:00')).toBeNull();
+      expect(spec?.validate?.('24:00')).toBe('Expected HH:MM (24-hour).');
+    }
+  });
+
+  it('rows become findable once the toggle flips on', async () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeLiveCtx(false).ctx);
+    await host.findField('toggle', 'Active backup window')!.onChange(true);
+    expect(host.findField('text', 'Active window start')).toBeDefined();
+    expect(host.findField('text', 'Active window end')).toBeDefined();
+  });
+
+  it('a write to one window field keeps a just-written value of the other (fresh read)', async () => {
+    const host = new RecordingSectionHost();
+    const live = makeLiveCtx(true);
+    renderBackupSchedule(host, live.ctx);
+    await host.findField('text', 'Active window start')!.onChange('07:15');
+    await host.findField('text', 'Active window end')!.onChange('21:45');
+    expect(live.current().schedule.active_window_start).toBe('07:15');
+    expect(live.current().schedule.active_window_end).toBe('21:45');
+    expect(live.current().schedule.active_window_enabled).toBe(true);
   });
 });
 

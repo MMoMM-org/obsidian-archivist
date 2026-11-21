@@ -8,7 +8,8 @@
 //   - Incremental interval dropdown (5 / 15 / 30 / 60 min)
 //   - Startup grace period (number input, 1–60 min)
 //   - Quiet period after edits (number input, 1–30 min)
-//   - Active-window toggle + two time pickers (disabled unless toggle on)
+//   - Active-window toggle + two time pickers (always emitted; visible only
+//     while the toggle is on, so they show/hide live and drop out of search)
 
 import type { SectionHost } from '../SectionHost';
 import type { SettingsContext } from '../context';
@@ -158,33 +159,39 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     },
   });
 
-  if (settings.schedule.active_window_enabled) {
-    host.field({
-      kind: 'text',
-      key: 'schedule.active_window_start',
-      label: 'Active window start',
-      value: settings.schedule.active_window_start,
-      placeholder: 'HH:MM',
-      onChange: (v) => {
-        return ctx.updateSettings({
-          schedule: { ...settings.schedule, active_window_start: v },
-        });
-      },
-      validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
-    });
+  // Always emitted; Obsidian re-evaluates `visible` after every control change,
+  // so flipping the toggle shows/hides both rows (and their search entries)
+  // without re-running this section. onChange reads settings fresh so a write
+  // to one window field never reverts a just-written value of the other.
+  const windowOn = (): boolean => ctx.getSettings().schedule.active_window_enabled;
 
-    host.field({
-      kind: 'text',
-      key: 'schedule.active_window_end',
-      label: 'Active window end',
-      value: settings.schedule.active_window_end,
-      placeholder: 'HH:MM',
-      onChange: (v) => {
-        return ctx.updateSettings({
-          schedule: { ...settings.schedule, active_window_end: v },
-        });
-      },
-      validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
-    });
-  }
+  host.field({
+    kind: 'text',
+    key: 'schedule.active_window_start',
+    label: 'Active window start',
+    value: settings.schedule.active_window_start,
+    placeholder: 'HH:MM',
+    visible: windowOn,
+    onChange: (v) => {
+      return ctx.updateSettings({
+        schedule: { ...ctx.getSettings().schedule, active_window_start: v },
+      });
+    },
+    validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
+  });
+
+  host.field({
+    kind: 'text',
+    key: 'schedule.active_window_end',
+    label: 'Active window end',
+    value: settings.schedule.active_window_end,
+    placeholder: 'HH:MM',
+    visible: windowOn,
+    onChange: (v) => {
+      return ctx.updateSettings({
+        schedule: { ...ctx.getSettings().schedule, active_window_end: v },
+      });
+    },
+    validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
+  });
 }
