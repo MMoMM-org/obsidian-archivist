@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, ButtonComponent, PluginSettingTab, SettingTab, debounce } from './obsidian-mock';
 import { RecordingSectionHost } from './recording-section-host';
-import type { FieldSpec } from '../../src/ui/settings/SectionHost';
+import type { FieldSpec, ToggleFieldSpec } from '../../src/ui/settings/SectionHost';
 
 class DefinitionsTab extends PluginSettingTab {
   definitionCalls = 0;
@@ -242,10 +242,10 @@ describe('mock debounce', () => {
 });
 
 describe('RecordingSectionHost declarative metadata', () => {
-  // FieldSpec gains key/visible/aliases in T2.1; the cast keeps this test
-  // compiling before then.
-  function toggle(label: string, extra: Record<string, unknown> = {}): FieldSpec {
-    return { kind: 'toggle', label, value: false, onChange: () => {}, ...extra } as FieldSpec;
+  type ToggleMeta = Partial<Pick<ToggleFieldSpec, 'key' | 'visible' | 'aliases'>>;
+
+  function toggle(label: string, extra: ToggleMeta = {}): ToggleFieldSpec {
+    return { kind: 'toggle', key: 'ui.test', label, value: false, onChange: () => {}, ...extra };
   }
 
   it('captures key, visible and aliases for each recorded field', () => {
@@ -263,7 +263,10 @@ describe('RecordingSectionHost declarative metadata', () => {
   it('leaves key, visible and aliases undefined when the spec has none', () => {
     const host = new RecordingSectionHost();
 
-    host.field(toggle('Plain'));
+    // Models a non-input or legacy spec that carries no key.
+    const keyless = { kind: 'toggle', label: 'Plain', value: false, onChange: () => {} };
+
+    host.field(keyless as unknown as FieldSpec);
 
     const [entry] = host.fieldEntries();
     expect(entry.key).toBeUndefined();
