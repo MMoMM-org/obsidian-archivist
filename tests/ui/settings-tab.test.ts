@@ -688,9 +688,12 @@ function renderHeader(tab: ArchivistSettingTab): void {
   header.render(new Setting({}) as unknown as ObsidianSetting, {} as SettingGroup);
 }
 
-/** Lets an in-flight fetch whose surfaces have settled run to completion. */
+/**
+ * Lets an in-flight fetch whose surfaces have settled run to completion: drains
+ * every pending microtask without moving the fake clock, so no debounce fires.
+ */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
+  await vi.advanceTimersByTimeAsync(0);
 }
 
 function accountDesc(tab: ArchivistSettingTab): string | undefined {
@@ -823,6 +826,120 @@ describe('ArchivistSettingTab — refresh orchestration', () => {
     expect(fetch.calls()).toBe(2);
     expect(h.tab._updateCalls).toBe(1);
     expect(accountDesc(h.tab)).toBe(S.OAUTH_CONNECTED_AS('a@b.c'));
+  });
+
+  // Walks a refresh() across every microtask between the in-flight fetch's last
+  // surface resolving and the chain going idle. Wherever it lands — caught by
+  // the follow-up loop or after the guard was cleared — it must get a fetch of
+  // its own; none may land in a gap that hands it the already-finished chain.
+  it.each(Array.from({ length: 16 }, (_, hops) => hops))(
+    'a refresh() %i microtasks after the in-flight fetch resolved still gets its own fetch',
+    async (hops) => {
+      const h = makeHarness();
+      const fetch = stubFetch(h);
+      const email = valueDeferred<string | null>();
+      h.ctx.dropbox.getAccountEmail = () => email.promise;
+      renderHeader(h.tab);
+      let callsAtRefresh = -1;
+      const refreshing = email.promise.then(async () => {
+        for (let i = 0; i < hops; i++) await Promise.resolve();
+        callsAtRefresh = fetch.calls();
+        await h.tab.refresh();
+      });
+
+      email.resolve(null);
+      await refreshing;
+      vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+
+      expect(callsAtRefresh).toBe(1);
+      expect(fetch.calls()).toBe(2);
+      expect(h.tab._updateCalls).toBe(1);
+    },
+  );
+
+  it('a refresh() during the forced follow-up is picked up by the loop: 3 fetches, every refresh() resolves after the last', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h);
+    const emails = [valueDeferred<string | null>(), valueDeferred<string | null>(), valueDeferred<string | null>()];
+    h.ctx.dropbox.getAccountEmail = () => emails[fetch.calls() - 1].promise;
+    renderHeader(h.tab);
+    const resolved: string[] = [];
+    const first = h.tab.refresh().then(() => resolved.push('first'));
+    await settle();
+
+    emails[0].resolve(null);
+    await settle();
+    expect(fetch.calls()).toBe(2);
+    const second = h.tab.refresh().then(() => resolved.push('second'));
+    emails[1].resolve(null);
+    await settle();
+    expect(fetch.calls()).toBe(3);
+    expect(resolved).toEqual([]);
+
+    emails[2].resolve(null);
+    await Promise.all([first, second]);
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    expect(fetch.calls()).toBe(3);
+    expect(resolved).toEqual(['first', 'second']);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('two refresh() calls during one in-flight fetch collapse into one follow-up and both resolve after it', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h);
+    const emails = [valueDeferred<string | null>(), valueDeferred<string | null>()];
+    h.ctx.dropbox.getAccountEmail = () => emails[fetch.calls() - 1].promise;
+    renderHeader(h.tab);
+    let settled = 0;
+    const both = [h.tab.refresh(), h.tab.refresh()].map((p) => p.then(() => (settled += 1)));
+    await settle();
+
+    emails[0].resolve(null);
+    await settle();
+    expect(fetch.calls()).toBe(2);
+    expect(settled).toBe(0);
+
+    emails[1].resolve(null);
+    await Promise.all(both);
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(settled).toBe(2);
+    expect(fetch.calls()).toBe(2);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('teardown during an in-flight fetch with a queued refresh() starts no follow-up, calls no update(), throws nothing', async () => {
+    await withUnhandledSpy(async (onUnhandled) => {
+      const h = makeHarness();
+      const fetch = stubFetch(h, { used: 7 * GB });
+      const email = valueDeferred<string | null>();
+      h.ctx.dropbox.getAccountEmail = () => email.promise;
+      renderHeader(h.tab);
+      const refreshing = h.tab.refresh();
+      await settle();
+
+      for (const teardown of h.teardowns) teardown();
+      email.resolve(null);
+      await expect(refreshing).resolves.toBeUndefined();
+      vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+      expect(fetch.calls()).toBe(1);
+      expect(h.tab._updateCalls).toBe(0);
+      await flushRejections();
+      expect(onUnhandled).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a control write that settles after teardown schedules no update()', async () => {
+    const h = makeHarness();
+    const save = deferred();
+    h.ctx.updateSettings = () => save.promise;
+    h.tab.getSettingDefinitions();
+    const write = h.tab.setControlValue('notifications.toast_on_error', false);
+
+    for (const teardown of h.teardowns) teardown();
+    save.resolve();
+    await write;
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(0);
   });
 
   it('a forced refresh whose fetch throws still calls update() once and logs the failure', async () => {

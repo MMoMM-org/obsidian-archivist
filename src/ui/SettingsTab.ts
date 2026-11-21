@@ -11,9 +11,8 @@
 //   - refresh orchestration (SDD Complex Logic): a NoticeCenter banner change
 //     and every header render (open + each re-render) feed a debounced
 //     update(); the header render re-fetches the async fields (device, Dropbox
-//     account, usage) and only schedules update() when a value changed, so the
-//     open → fetch → update → fetch loop stops after one round. refresh()
-//     forces the update().
+//     account, usage) and only schedules update() when a value changed, so the open →
+//     fetch → update → fetch loop stops after one round. refresh() forces the update().
 //
 // Sections stay DOM-free and describe rows through SectionHost; the non-input
 // rows are drawn by settings/customRows.ts.
@@ -172,7 +171,7 @@ export class ArchivistSettingTab extends PluginSettingTab {
       this.deps.context.deviceDesignated = guarded.value === true;
       this.designatedWrites += 1;
     }
-    this.scheduleUpdate();
+    if (!this.disposed) this.scheduleUpdate();
   }
 
   /** After OAuth / disconnect / token change: re-fetch, then always update(). */
@@ -207,18 +206,21 @@ export class ArchivistSettingTab extends PluginSettingTab {
       if (force) this.pendingForce = true;
       return force ? this.inFlight : Promise.resolve();
     }
-    this.inFlight = this.runFetches(force).finally(() => {
-      this.inFlight = null;
-    });
+    // Assigned before runFetches can reach its finally: its body opens with await.
+    this.inFlight = this.runFetches(force);
     return this.inFlight;
   }
 
-  /** Bounded: only a refresh() during a follow-up can queue another one. */
+  /** Bounded loop; clears the guard in the exit turn, so no refresh() gets a finished chain. */
   private async runFetches(force: boolean): Promise<void> {
-    await this.fetchOnce(force);
-    while (this.pendingForce && !this.disposed) {
-      this.pendingForce = false;
-      await this.fetchOnce(true);
+    try {
+      await this.fetchOnce(force);
+      while (this.pendingForce && !this.disposed) {
+        this.pendingForce = false;
+        await this.fetchOnce(true);
+      }
+    } finally {
+      this.inFlight = null;
     }
   }
 
