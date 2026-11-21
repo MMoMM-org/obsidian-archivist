@@ -5,7 +5,10 @@
 
 ## Prerequisites
 
-- **Obsidian 1.11.4 or newer** (minimum app version, per `manifest.json`).
+- **Obsidian 1.14.4 or newer** (minimum app version, per `manifest.json`).
+  Archivist 0.12.0 raised the minimum from 1.11.4. Installs on older
+  Obsidian stay on the last 0.11.x release and receive no further plugin
+  updates. Updating Obsidian to 1.14.4 or newer unlocks 0.12.0 and later.
 - **Desktop only.** Archivist is marked `isDesktopOnly: true`. Mobile Obsidian
   (iOS / Android) is not supported.
 - **A Dropbox account.** Archivist uses Dropbox's *App Folder* permission model

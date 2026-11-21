@@ -15,9 +15,11 @@ The most-covered failure modes today:
 
 ### Plugin doesn't appear in Settings after install
 
-- **Check the Obsidian version.** Archivist needs Obsidian **1.11.4
-  or newer** (`manifest.json` `minAppVersion`). Older versions silently
-  ignore the plugin.
+- **Check the Obsidian version.** Archivist needs Obsidian **1.14.4
+  or newer** (`manifest.json` `minAppVersion`). On older Obsidian,
+  Community Plugins offers only the last 0.11.x release, and that
+  install receives no further updates. Update Obsidian to get 0.12.0
+  and later.
 - **Check the platform.** Archivist is desktop-only
   (`isDesktopOnly: true`). On iOS or Android, it will not appear in the
   community-plugins list.
@@ -92,6 +94,17 @@ the previous valid value — without a UI hint in older versions.
 - **Concurrent uploads** is bounded to `1`–`8`; values outside the
   range revert.
 - **Upload chunk size (MB)** is bounded to `4`–`64`.
+
+### Archivist settings don't appear in Obsidian's settings search
+
+Obsidian's settings search finds Archivist's settings only on
+Obsidian **1.14.4 or newer** with Archivist 0.12.0 or later. If a
+search for an Archivist setting (for example *retention* or *Dropbox*)
+returns nothing, your Obsidian version is older than 1.14.4, and you
+are on the last 0.11.x release, which doesn't support settings search.
+Update Obsidian to 1.14.4 or newer, then check for plugin updates
+under **Settings → Community plugins**. The settings themselves still
+work under **Settings → Archivist** on 0.11.x.
 
 ## Debug information
 
