@@ -4,7 +4,7 @@
 // make sure no synonym is another row's label (that would be a misleading hit).
 
 import { describe, expect, it } from 'vitest';
-import type { Setting, SettingDefinition, SettingDefinitionGroup } from 'obsidian';
+import type { SettingDefinition, SettingDefinitionGroup } from 'obsidian';
 import { DefinitionBuilderHost } from '../../src/ui/settings/DefinitionBuilderHost';
 import type { CustomRowRenderers, SectionHost } from '../../src/ui/settings/SectionHost';
 import type { SettingsContext } from '../../src/ui/settings/context';
@@ -138,7 +138,7 @@ describe.each(ACCOUNT_STATES)('search synonyms — Dropbox %s', (_state, email) 
     const defs = buildDefinitions(email);
     const account = defs.find((d) => d.name === 'Account');
     expect(account?.aliases).toEqual(F8_TABLE['actionRow:Account']);
-    const exclusion = defs.find((d) => 'control' in d && d.control.key === 'advanced.exclusion_globs');
+    const exclusion = defs.find((d) => d.control !== undefined && d.control.key === 'advanced.exclusion_globs');
     expect(exclusion?.aliases).toEqual(F8_TABLE['advanced.exclusion_globs']);
     const withAliases = defs.filter((d) => d.aliases !== undefined);
     expect(withAliases).toHaveLength(Object.keys(F8_TABLE).length);
