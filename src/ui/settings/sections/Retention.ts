@@ -39,6 +39,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
   // floor prevents that.
   host.field({
     kind: 'number',
+    key: 'retention.always_keep_n',
     label: S.SETTINGS_RETENTION_ALWAYS_KEEP_N,
     description: S.SETTINGS_RETENTION_ALWAYS_KEEP_N_DESC,
     value: r.always_keep_n,
@@ -52,6 +53,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
   // ---- Tier inputs --------------------------------------------------------
   host.field({
     kind: 'number',
+    key: 'retention.recent_hours',
     label: S.SETTINGS_RETENTION_RECENT_HOURS,
     description: 'Keep every snapshot captured in the last N hours (0–168).',
     value: r.recent_hours,
@@ -64,6 +66,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
 
   host.field({
     kind: 'number',
+    key: 'retention.never_prune_window_days',
     label: S.SETTINGS_RETENTION_NEVER_PRUNE,
     description: 'Keep every snapshot in this window (0–14 days).',
     value: r.never_prune_window_days,
@@ -76,6 +79,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
 
   host.field({
     kind: 'number',
+    key: 'retention.daily_days',
     label: S.SETTINGS_RETENTION_DAILY_DAYS,
     description: 'After the never-prune window, keep one snapshot per day (0–90).',
     value: r.daily_days,
@@ -88,6 +92,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
 
   host.field({
     kind: 'number',
+    key: 'retention.monthly_years',
     label: S.SETTINGS_RETENTION_MONTHLY_YEARS,
     description: 'After daily window, keep one per month (0–10 years).',
     value: r.monthly_years,
@@ -101,6 +106,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
   // ---- Storage cap + warn percent ----------------------------------------
   host.field({
     kind: 'number',
+    key: 'retention.storage_hard_limit_gb',
     label: S.SETTINGS_STORAGE_HARD_LIMIT,
     value: r.storage_hard_limit_gb,
     min: 1,
@@ -112,6 +118,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
 
   host.field({
     kind: 'number',
+    key: 'retention.storage_warn_at_percent',
     label: S.SETTINGS_STORAGE_WARN_AT,
     value: r.storage_warn_at_percent,
     min: 50,

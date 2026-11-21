@@ -78,7 +78,7 @@ function renderConnected(host: SectionHost, ctx: SettingsContext, email: string)
       },
       {
         label: S.OAUTH_DISCONNECT_BUTTON,
-        warning: true,
+        destructive: true,
         onClick: () => {
           void (async (): Promise<void> => {
             const ok = await ctx.confirm({

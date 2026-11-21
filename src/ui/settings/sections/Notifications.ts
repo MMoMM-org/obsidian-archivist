@@ -15,6 +15,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
 
   host.field({
     kind: 'toggle',
+    key: 'notifications.preflight_notice_enabled',
     label: S.SETTINGS_PREFLIGHT_NOTICE,
     value: n.preflight_notice_enabled,
     onChange: (v) => {
@@ -26,6 +27,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
 
   host.field({
     kind: 'toggle',
+    key: 'notifications.toast_after_inc',
     label: S.SETTINGS_TOAST_AFTER_INC,
     value: n.toast_after_inc,
     onChange: (v) => {
@@ -37,6 +39,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
 
   host.field({
     kind: 'toggle',
+    key: 'notifications.toast_after_full',
     label: S.SETTINGS_TOAST_AFTER_FULL,
     value: n.toast_after_full,
     onChange: (v) => {
@@ -48,6 +51,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
 
   host.field({
     kind: 'toggle',
+    key: 'notifications.toast_on_error',
     label: S.SETTINGS_TOAST_ON_ERROR,
     value: n.toast_on_error,
     onChange: (v) => {

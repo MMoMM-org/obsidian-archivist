@@ -181,3 +181,34 @@ describe('renderRetention — storage warning banner', () => {
     expect(banners).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Control keys (spec 002 T2.1) — dotted PluginSettings paths
+// ---------------------------------------------------------------------------
+
+describe('renderRetention — control keys', () => {
+  it('every number input carries its dotted settings key, in order', () => {
+    const host = new RecordingSectionHost();
+    renderRetention(host, makeCtx().ctx);
+    const keys = host
+      .fieldEntries()
+      .filter((e) => e.spec.kind === 'number')
+      .map((e) => e.key);
+    expect(keys).toEqual([
+      'retention.always_keep_n',
+      'retention.recent_hours',
+      'retention.never_prune_window_days',
+      'retention.daily_days',
+      'retention.monthly_years',
+      'retention.storage_hard_limit_gb',
+      'retention.storage_warn_at_percent',
+    ]);
+  });
+
+  it('keys are unique within the section', () => {
+    const host = new RecordingSectionHost();
+    renderRetention(host, makeCtx().ctx);
+    const keys = host.fieldEntries().filter((e) => e.spec.kind === 'number').map((e) => e.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});

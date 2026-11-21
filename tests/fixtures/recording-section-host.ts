@@ -3,21 +3,13 @@
 // without touching the DOM.
 //
 // Declarative metadata (spec 002): each recorded field also captures the
-// spec's `key`, `visible` and `aliases`. FieldSpec gains those fields in T2.1;
-// until then they are read loosely through `DeclarativeMeta` so this fixture
-// compiles against either shape. `findField` mirrors Obsidian, which hides a
-// row whose `visible()` returns false — pass `{ includeHidden: true }` to
-// look up such a row anyway.
+// spec's `key` (input kinds only), `visible` and `aliases`. `findField`
+// mirrors Obsidian, which hides a row whose `visible()` returns false — pass
+// `{ includeHidden: true }` to look up such a row anyway.
 
-import type { BannerSpec, FieldSpec, SectionHost } from '../../src/ui/settings/SectionHost';
+import type { BannerSpec, FieldSpec, RowMeta, SectionHost } from '../../src/ui/settings/SectionHost';
 
-interface DeclarativeMeta {
-  key?: string;
-  visible?: () => boolean;
-  aliases?: string[];
-}
-
-export type RecordedField = { kind: 'field'; spec: FieldSpec } & DeclarativeMeta;
+export type RecordedField = { kind: 'field'; spec: FieldSpec; key?: string } & RowMeta;
 
 export type RecordedEntry =
   | { kind: 'heading'; text: string }
@@ -37,8 +29,8 @@ export class RecordingSectionHost implements SectionHost {
   }
 
   field(spec: FieldSpec): void {
-    const meta = spec as FieldSpec & DeclarativeMeta;
-    this.entries.push({ kind: 'field', spec, key: meta.key, visible: meta.visible, aliases: meta.aliases });
+    const key = 'key' in spec ? spec.key : undefined;
+    this.entries.push({ kind: 'field', spec, key, visible: spec.visible, aliases: spec.aliases });
   }
 
   topBanner(spec: BannerSpec): void {

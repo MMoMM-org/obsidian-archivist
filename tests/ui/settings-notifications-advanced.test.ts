@@ -277,3 +277,40 @@ describe('renderAdvanced — vault prefix', () => {
     expect(harness.updates).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Control keys (spec 002 T2.1) — dotted PluginSettings paths
+// ---------------------------------------------------------------------------
+
+describe('renderNotifications — control keys', () => {
+  it('every toggle carries its dotted settings key, in order, unique', () => {
+    const host = new RecordingSectionHost();
+    renderNotifications(host, makeCtx().ctx);
+    const keys = host.fieldEntries().map((e) => e.key);
+    expect(keys).toEqual([
+      'notifications.preflight_notice_enabled',
+      'notifications.toast_after_inc',
+      'notifications.toast_after_full',
+      'notifications.toast_on_error',
+    ]);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('renderAdvanced — control keys', () => {
+  it('every input carries its dotted settings key, in order, unique', () => {
+    const host = new RecordingSectionHost();
+    renderAdvanced(host, makeCtx().ctx);
+    const keys = host.fieldEntries().map((e) => e.key);
+    expect(keys).toEqual([
+      'advanced.exclusion_globs',
+      'advanced.reconcile_scan_enabled',
+      'advanced.dry_run_mode',
+      'advanced.diagnostic_logging',
+      'advanced.vault_prefix',
+      'advanced.upload_parallelism',
+      'advanced.chunk_size_mb',
+    ]);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});

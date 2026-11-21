@@ -11,7 +11,30 @@
 // the ObsidianSectionHost implementation touches DOM, and it routes every
 // field through Obsidian's Setting class (CSP + plugin-review requirement).
 
-export interface TextFieldSpec {
+import type { Setting } from 'obsidian';
+
+/**
+ * Declarative-settings metadata shared by every row kind (spec 002).
+ * Sections leave both unset until Phase 4 wires them.
+ */
+export interface RowMeta {
+  /** Evaluated on each render; absent = always visible. */
+  visible?: () => boolean;
+  /** Extra search terms. Only meaningful on searchable rows. */
+  aliases?: string[];
+}
+
+/**
+ * Input kinds persist a value, so each carries a stable `key`: the dotted
+ * `PluginSettings` path it edits (e.g. `schedule.full_cadence`), unique within
+ * its section. Rows that are not backed by `data.json` use the reserved `ui.`
+ * prefix (e.g. `ui.device_designated`).
+ */
+export interface InputMeta extends RowMeta {
+  key: string;
+}
+
+export interface TextFieldSpec extends InputMeta {
   kind: 'text';
   label: string;
   description?: string;
@@ -21,7 +44,7 @@ export interface TextFieldSpec {
   validate?: (v: string) => string | null;
 }
 
-export interface ToggleFieldSpec {
+export interface ToggleFieldSpec extends InputMeta {
   kind: 'toggle';
   label: string;
   description?: string;
@@ -29,7 +52,7 @@ export interface ToggleFieldSpec {
   onChange: (v: boolean) => void;
 }
 
-export interface NumberFieldSpec {
+export interface NumberFieldSpec extends InputMeta {
   kind: 'number';
   label: string;
   description?: string;
@@ -46,7 +69,7 @@ export interface DropdownOption {
   label: string;
 }
 
-export interface DropdownFieldSpec {
+export interface DropdownFieldSpec extends InputMeta {
   kind: 'dropdown';
   label: string;
   description?: string;
@@ -55,7 +78,7 @@ export interface DropdownFieldSpec {
   onChange: (v: string) => void;
 }
 
-export interface TextareaFieldSpec {
+export interface TextareaFieldSpec extends InputMeta {
   kind: 'textarea';
   label: string;
   description?: string;
@@ -64,7 +87,7 @@ export interface TextareaFieldSpec {
   validate?: (v: string) => string | null;
 }
 
-export interface SliderFieldSpec {
+export interface SliderFieldSpec extends InputMeta {
   kind: 'slider';
   label: string;
   description?: string;
@@ -75,7 +98,7 @@ export interface SliderFieldSpec {
   onChange: (v: number) => void;
 }
 
-export interface ButtonFieldSpec {
+export interface ButtonFieldSpec extends RowMeta {
   kind: 'button';
   label: string;
   cta?: boolean;
@@ -88,20 +111,20 @@ export interface ButtonFieldSpec {
  * where the "stateful display" (Connected as …) and the "actions" (Re-auth /
  * Disconnect) belong together visually rather than as separate Setting rows.
  */
-export interface ActionRowFieldSpec {
+export interface ActionRowFieldSpec extends RowMeta {
   kind: 'actionRow';
   label: string;
   description?: string;
   actions: Array<{
     label: string;
     cta?: boolean;
-    /** Renders with Obsidian's `mod-warning` class — used for destructive actions. */
-    warning?: boolean;
+    /** Marks a destructive action (e.g. Disconnect); styled as destructive by the host. */
+    destructive?: boolean;
     onClick: () => void;
   }>;
 }
 
-export interface ReadOnlyFieldSpec {
+export interface ReadOnlyFieldSpec extends RowMeta {
   kind: 'readonly';
   label: string;
   description?: string;
@@ -109,18 +132,18 @@ export interface ReadOnlyFieldSpec {
   copyable?: boolean;
 }
 
-export interface StaticTextSpec {
+export interface StaticTextSpec extends RowMeta {
   kind: 'static';
   text: string;
 }
 
-export interface LinkFieldSpec {
+export interface LinkFieldSpec extends RowMeta {
   kind: 'link';
   label: string;
   href: string;
 }
 
-export interface BannerSpec {
+export interface BannerSpec extends RowMeta {
   kind: 'banner';
   code: string;
   message: string;
@@ -156,4 +179,26 @@ export interface SectionHost {
    * renderers can request top-level banner placement.
    */
   topBanner(spec: BannerSpec): void;
+}
+
+/** Plugin identity shown in the settings-tab header row. */
+export interface HeaderInfo {
+  pluginName: string;
+  version: string;
+  /** Display name with any `<email>` suffix already stripped; absent = no author link. */
+  authorName?: string;
+  authorUrl?: string;
+  docsUrl: string;
+}
+
+/**
+ * Draws the non-input rows into an Obsidian `Setting` the declarative builder
+ * hands over. A returned function is the row's cleanup hook.
+ */
+export interface CustomRowRenderers {
+  header(setting: Setting, info: HeaderInfo): void | (() => void);
+  banner(setting: Setting, spec: BannerSpec): void | (() => void);
+  static(setting: Setting, spec: StaticTextSpec): void | (() => void);
+  link(setting: Setting, spec: LinkFieldSpec): void | (() => void);
+  actionRow(setting: Setting, spec: ActionRowFieldSpec): void | (() => void);
 }

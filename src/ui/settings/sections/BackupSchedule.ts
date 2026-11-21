@@ -48,6 +48,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Designated-device toggle -------------------------------------------
   host.field({
     kind: 'toggle',
+    key: 'ui.device_designated',
     label: S.SETTINGS_DESIGNATED_TOGGLE,
     value: ctx.deviceDesignated,
     onChange: (on) => {
@@ -59,6 +60,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Full backup cadence / day / time -----------------------------------
   host.field({
     kind: 'dropdown',
+    key: 'schedule.full_cadence',
     label: S.SETTINGS_FULL_CADENCE,
     value: settings.schedule.full_cadence,
     options: CADENCE_OPTIONS,
@@ -71,6 +73,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'dropdown',
+    key: 'schedule.full_day_of_week',
     label: 'Full backup day',
     value: String(settings.schedule.full_day_of_week),
     options: DAY_OF_WEEK_OPTIONS,
@@ -83,6 +86,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'text',
+    key: 'schedule.full_time_of_day',
     label: S.SETTINGS_FULL_TIME,
     value: settings.schedule.full_time_of_day,
     placeholder: 'HH:MM',
@@ -97,6 +101,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Incremental interval -----------------------------------------------
   host.field({
     kind: 'dropdown',
+    key: 'schedule.inc_interval_minutes',
     label: S.SETTINGS_INC_INTERVAL,
     value: String(settings.schedule.inc_interval_minutes),
     options: INC_INTERVAL_OPTIONS.map((o) => ({ value: String(o.value), label: o.label })),
@@ -113,6 +118,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Grace + quiet timers -----------------------------------------------
   host.field({
     kind: 'number',
+    key: 'schedule.startup_grace_minutes',
     label: S.SETTINGS_STARTUP_GRACE,
     value: settings.schedule.startup_grace_minutes,
     min: 1,
@@ -126,6 +132,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'number',
+    key: 'schedule.quiet_after_event_minutes',
     label: S.SETTINGS_QUIET_PERIOD,
     value: settings.schedule.quiet_after_event_minutes,
     min: 1,
@@ -140,6 +147,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Active-window toggle + conditional time pickers --------------------
   host.field({
     kind: 'toggle',
+    key: 'schedule.active_window_enabled',
     label: 'Active backup window',
     description: 'Limit backups to a daily time window (e.g. 08:00–22:00).',
     value: settings.schedule.active_window_enabled,
@@ -153,6 +161,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   if (settings.schedule.active_window_enabled) {
     host.field({
       kind: 'text',
+      key: 'schedule.active_window_start',
       label: 'Active window start',
       value: settings.schedule.active_window_start,
       placeholder: 'HH:MM',
@@ -166,6 +175,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
     host.field({
       kind: 'text',
+      key: 'schedule.active_window_end',
       label: 'Active window end',
       value: settings.schedule.active_window_end,
       placeholder: 'HH:MM',

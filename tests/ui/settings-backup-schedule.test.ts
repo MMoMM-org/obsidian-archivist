@@ -215,3 +215,44 @@ describe('renderBackupSchedule — onChange wiring', () => {
     expect(harness.updates[0].schedule?.active_window_enabled).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Control keys (spec 002 T2.1) — dotted PluginSettings paths
+// ---------------------------------------------------------------------------
+
+describe('renderBackupSchedule — control keys', () => {
+  const allFieldsSettings: PluginSettings = {
+    ...DEFAULT_SETTINGS,
+    schedule: { ...DEFAULT_SETTINGS.schedule, active_window_enabled: true },
+  };
+
+  it('every input field carries its dotted settings key, in order', () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeCtx({ settings: allFieldsSettings }).ctx);
+    expect(host.fieldEntries().map((e) => e.key)).toEqual([
+      'ui.device_designated',
+      'schedule.full_cadence',
+      'schedule.full_day_of_week',
+      'schedule.full_time_of_day',
+      'schedule.inc_interval_minutes',
+      'schedule.startup_grace_minutes',
+      'schedule.quiet_after_event_minutes',
+      'schedule.active_window_enabled',
+      'schedule.active_window_start',
+      'schedule.active_window_end',
+    ]);
+  });
+
+  it('designated toggle uses the reserved ui.device_designated key', () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeCtx().ctx);
+    expect(host.findField('toggle', S.SETTINGS_DESIGNATED_TOGGLE)?.key).toBe('ui.device_designated');
+  });
+
+  it('keys are unique within the section', () => {
+    const host = new RecordingSectionHost();
+    renderBackupSchedule(host, makeCtx({ settings: allFieldsSettings }).ctx);
+    const keys = host.fieldEntries().map((e) => e.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});

@@ -255,7 +255,7 @@ class ObsidianSectionHost implements SectionHost {
       setting.addButton((btn) => {
         btn.setButtonText(action.label).onClick(action.onClick);
         if (action.cta) btn.setCta();
-        if (action.warning) btn.setWarning();
+        if (action.destructive) btn.setWarning();
       });
     }
   }

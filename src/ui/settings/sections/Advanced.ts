@@ -27,6 +27,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Exclusion globs (textarea) -----------------------------------------
   host.field({
     kind: 'textarea',
+    key: 'advanced.exclusion_globs',
     label: S.SETTINGS_EXCLUSION_GLOBS,
     description: S.SETTINGS_EXCLUSION_GLOBS_HELP,
     value: a.exclusion_globs.join('\n'),
@@ -53,6 +54,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Reconcile scan toggle ----------------------------------------------
   host.field({
     kind: 'toggle',
+    key: 'advanced.reconcile_scan_enabled',
     label: S.SETTINGS_RECONCILE_SCAN,
     value: a.reconcile_scan_enabled,
     onChange: (v) => {
@@ -63,6 +65,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Dry-run toggle -----------------------------------------------------
   host.field({
     kind: 'toggle',
+    key: 'advanced.dry_run_mode',
     label: S.SETTINGS_DRY_RUN,
     value: a.dry_run_mode,
     onChange: (v) => {
@@ -73,6 +76,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Diagnostic logging toggle ------------------------------------------
   host.field({
     kind: 'toggle',
+    key: 'advanced.diagnostic_logging',
     label: S.SETTINGS_DIAGNOSTIC_LOGGING,
     description: 'Off by default. Only enable when capturing logs for a bug report — paths become visible.',
     value: a.diagnostic_logging,
@@ -99,6 +103,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // onChange.
   host.field({
     kind: 'text',
+    key: 'advanced.vault_prefix',
     label: S.SETTINGS_VAULT_PREFIX,
     description: S.SETTINGS_VAULT_PREFIX_HELP,
     value: a.vault_prefix,
@@ -119,6 +124,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Upload parallelism slider -----------------------------------------
   host.field({
     kind: 'slider',
+    key: 'advanced.upload_parallelism',
     label: S.SETTINGS_UPLOAD_PARALLELISM,
     description: S.SETTINGS_UPLOAD_PARALLELISM_HELP,
     value: a.upload_parallelism,
@@ -133,6 +139,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // ---- Chunk size slider --------------------------------------------------
   host.field({
     kind: 'slider',
+    key: 'advanced.chunk_size_mb',
     label: S.SETTINGS_CHUNK_SIZE,
     description: S.SETTINGS_CHUNK_SIZE_HELP,
     value: a.chunk_size_mb,
