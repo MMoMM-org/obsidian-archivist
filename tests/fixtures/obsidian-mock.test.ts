@@ -81,6 +81,15 @@ describe('mock SettingTab (1.13+ surface)', () => {
     expect(plugin.saveData).toHaveBeenLastCalledWith(settings);
   });
 
+  it('base SettingTab setControlValue writes its own config by dotted key and records the call', () => {
+    const tab = new SettingTab(new App());
+
+    tab.setControlValue('a.b', 1);
+
+    expect(tab.getControlValue('a.b')).toBe(1);
+    expect(tab._setControlValueCalls).toEqual([['a.b', 1]]);
+  });
+
   it('keeps the legacy display()/hide() and containerEl stubs', () => {
     const tab = makeTab();
     expect(() => tab.display()).not.toThrow();
@@ -192,6 +201,19 @@ describe('mock debounce', () => {
 
     expect(returned).toBe(debounced);
     expect(cb).not.toHaveBeenCalled();
+  });
+
+  it('a call after cancel() schedules a fresh timer and fires with the new arguments', () => {
+    const cb = vi.fn();
+    const debounced = debounce(cb, 150, false);
+
+    debounced('a');
+    debounced.cancel();
+    debounced('b');
+    vi.advanceTimersByTime(151);
+
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith('b');
   });
 
   it('run() fires a pending call immediately and returns its value, once', () => {
