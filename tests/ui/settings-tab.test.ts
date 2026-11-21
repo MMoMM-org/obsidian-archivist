@@ -793,9 +793,49 @@ describe('ArchivistSettingTab — refresh orchestration', () => {
 
     email.resolve(null);
     await settle();
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(fetch.calls()).toBe(1); // the skipped header fetch leaves no follow-up
+    expect(h.tab._updateCalls).toBe(0);
     renderHeader(h.tab);
     await settle();
     expect(fetch.calls()).toBe(2);
+  });
+
+  it('a refresh() during an in-flight header fetch runs one forced follow-up and resolves after it', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h);
+    const email = valueDeferred<string | null>();
+    h.ctx.dropbox.getAccountEmail = () => email.promise;
+    renderHeader(h.tab); // header fetch reads the email before the tokens are saved
+    let refreshed = false;
+    const refreshing = h.tab.refresh().then(() => {
+      refreshed = true;
+    });
+    await settle();
+    expect(refreshed).toBe(false);
+
+    h.ctx.dropbox.getAccountEmail = () => Promise.resolve('a@b.c'); // OAuth saved the tokens
+    email.resolve(null);
+    await settle();
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    await refreshing;
+
+    expect(fetch.calls()).toBe(2);
+    expect(h.tab._updateCalls).toBe(1);
+    expect(accountDesc(h.tab)).toBe(S.OAUTH_CONNECTED_AS('a@b.c'));
+  });
+
+  it('a forced refresh whose fetch throws still calls update() once and logs the failure', async () => {
+    const h = makeHarness();
+    stubFetch(h);
+    h.ctx.dropbox.getUsedBytes = () => {
+      throw new Error('probe gone');
+    };
+    await h.tab.refresh();
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(1);
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith('settings_refresh_failed', { error: 'probe gone' });
   });
 
   it('a rejected fetch keeps the cached value, raises nothing, and a later fetch still runs', async () => {

@@ -91,7 +91,10 @@ interface AsyncFields {
 
 export class ArchivistSettingTab extends PluginSettingTab {
   private registry = new Map<string, InputFieldSpec>();
-  private refreshing = false;
+  /** The running fetch chain (incl. forced follow-ups); null when idle. */
+  private inFlight: Promise<void> | null = null;
+  /** A refresh() arrived during the in-flight fetch; run one more forced fetch. */
+  private pendingForce = false;
   /** Serializes control writes so they apply in request order; never rejects. */
   private writeChain: Promise<void> = Promise.resolve();
   private readonly scheduleUpdate = debounce(() => this.update(), UPDATE_DEBOUNCE_MS, false);
@@ -172,11 +175,7 @@ export class ArchivistSettingTab extends PluginSettingTab {
     this.scheduleUpdate();
   }
 
-  /**
-   * Public refresh — call after OAuth callback / disconnect / token mutation.
-   * Forces a re-render even if values haven't changed (defensive: ensures UI
-   * mirrors the latest backing state).
-   */
+  /** After OAuth / disconnect / token change: re-fetch, then always update(). */
   async refresh(): Promise<void> {
     await this.refreshAsyncFields(/* force = */ true);
   }
@@ -200,24 +199,42 @@ export class ArchivistSettingTab extends PluginSettingTab {
   }
 
   /**
-   * One fetch at a time (`refreshing`); update() only on a change or `force`.
-   * The guard is always reset, so a failure never wedges later refreshes.
+   * One fetch chain at a time. A skipped header fetch is dropped; a skipped
+   * forced one queues a single follow-up and resolves when the chain is done.
    */
-  private async refreshAsyncFields(force: boolean): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
+  private refreshAsyncFields(force: boolean): Promise<void> {
+    if (this.inFlight) {
+      if (force) this.pendingForce = true;
+      return force ? this.inFlight : Promise.resolve();
+    }
+    this.inFlight = this.runFetches(force).finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+
+  /** Bounded: only a refresh() during a follow-up can queue another one. */
+  private async runFetches(force: boolean): Promise<void> {
+    await this.fetchOnce(force);
+    while (this.pendingForce && !this.disposed) {
+      this.pendingForce = false;
+      await this.fetchOnce(true);
+    }
+  }
+
+  /** Never rejects; update() on a change, or always when forced (even on failure). */
+  private async fetchOnce(force: boolean): Promise<void> {
     const writesAtStart = this.designatedWrites;
+    let changed = false;
     try {
       const fetched = await this.fetchAsyncFields();
-      const changed = this.applyFetched(fetched, writesAtStart !== this.designatedWrites);
-      if ((changed || force) && !this.disposed) this.scheduleUpdate();
+      changed = this.applyFetched(fetched, writesAtStart !== this.designatedWrites);
     } catch (err) {
       this.deps.logger.warn('settings_refresh_failed', {
         error: err instanceof Error ? err.message : String(err),
       });
-    } finally {
-      this.refreshing = false;
     }
+    if ((changed || force) && !this.disposed) this.scheduleUpdate();
   }
 
   /** Each fetch falls back to the cached ctx value when it rejects. */
