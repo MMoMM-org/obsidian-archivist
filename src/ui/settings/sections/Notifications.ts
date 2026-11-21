@@ -19,7 +19,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     label: S.SETTINGS_PREFLIGHT_NOTICE,
     value: n.preflight_notice_enabled,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         notifications: { ...n, preflight_notice_enabled: v },
       });
     },
@@ -31,7 +31,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     label: S.SETTINGS_TOAST_AFTER_INC,
     value: n.toast_after_inc,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         notifications: { ...n, toast_after_inc: v },
       });
     },
@@ -43,7 +43,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     label: S.SETTINGS_TOAST_AFTER_FULL,
     value: n.toast_after_full,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         notifications: { ...n, toast_after_full: v },
       });
     },
@@ -55,7 +55,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     label: S.SETTINGS_TOAST_ON_ERROR,
     value: n.toast_on_error,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         notifications: { ...n, toast_on_error: v },
       });
     },

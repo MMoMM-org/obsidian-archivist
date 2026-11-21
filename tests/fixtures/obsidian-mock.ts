@@ -485,13 +485,21 @@ export class Notice {
 // typed loosely — src compiles against the real d.ts, not this mock.
 
 type MockContainerEl = {
+  /** Test introspection: classes added via addClass(), in order. */
+  _classes: string[];
+  addClass: (...classes: string[]) => void;
   empty: () => void;
   createEl: (...args: unknown[]) => unknown;
   createDiv: (...args: unknown[]) => unknown;
 };
 
 function makeMockContainerEl(): MockContainerEl {
+  const classes: string[] = [];
   return {
+    _classes: classes,
+    addClass: (...cls: string[]): void => {
+      for (const c of cls) if (classes.indexOf(c) === -1) classes.push(c);
+    },
     empty: (): void => {},
     createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
     createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),

@@ -2,14 +2,14 @@
 //
 // Each renderer (renderBackupSchedule / renderRetention / ...) takes a
 // SectionHost and describes the UI declaratively. Production wiring
-// (SettingsTab.display) constructs an `ObsidianSectionHost` that materialises
-// each call as `new Setting(containerEl)...` per Obsidian's plugin API; tests
-// pass a `RecordingSectionHost` that collects a flat list of field specs and
-// asserts structure without touching the DOM.
+// (ArchivistSettingTab.getSettingDefinitions) passes a `DefinitionBuilderHost`
+// that turns each call into an Obsidian setting definition; tests pass a
+// `RecordingSectionHost` that collects a flat list of field specs and asserts
+// structure without touching the DOM.
 //
 // Invariant: NO direct `innerHTML` or `createElement` in the renderers — only
-// the ObsidianSectionHost implementation touches DOM, and it routes every
-// field through Obsidian's Setting class (CSP + plugin-review requirement).
+// settings/customRows.ts touches DOM, inside the `Setting` Obsidian hands to
+// each render row (CSP + plugin-review requirement).
 
 import type { Setting } from 'obsidian';
 
@@ -34,13 +34,20 @@ export interface InputMeta extends RowMeta {
   key: string;
 }
 
+/**
+ * What an input's `onChange` may return. A returned promise (the save or
+ * ownership call) is awaited and caught by the settings tab, so a failure
+ * never becomes an unhandled rejection.
+ */
+export type OnChangeResult = void | Promise<void>;
+
 export interface TextFieldSpec extends InputMeta {
   kind: 'text';
   label: string;
   description?: string;
   value: string;
   placeholder?: string;
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
   validate?: (v: string) => string | null;
 }
 
@@ -49,7 +56,7 @@ export interface ToggleFieldSpec extends InputMeta {
   label: string;
   description?: string;
   value: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (v: boolean) => OnChangeResult;
 }
 
 export interface NumberFieldSpec extends InputMeta {
@@ -60,7 +67,7 @@ export interface NumberFieldSpec extends InputMeta {
   min?: number;
   max?: number;
   step?: number;
-  onChange: (v: number) => void;
+  onChange: (v: number) => OnChangeResult;
   validate?: (v: number) => string | null;
 }
 
@@ -75,7 +82,7 @@ export interface DropdownFieldSpec extends InputMeta {
   description?: string;
   value: string;
   options: DropdownOption[];
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
 }
 
 export interface TextareaFieldSpec extends InputMeta {
@@ -83,7 +90,7 @@ export interface TextareaFieldSpec extends InputMeta {
   label: string;
   description?: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
   validate?: (v: string) => string | null;
 }
 
@@ -95,7 +102,7 @@ export interface SliderFieldSpec extends InputMeta {
   min: number;
   max: number;
   step: number;
-  onChange: (v: number) => void;
+  onChange: (v: number) => OnChangeResult;
 }
 
 export interface ButtonFieldSpec extends RowMeta {

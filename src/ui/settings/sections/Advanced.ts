@@ -36,7 +36,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
         .split('\n')
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         advanced: merge(a, { exclusion_globs: lines }),
       });
     },
@@ -58,7 +58,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     label: S.SETTINGS_RECONCILE_SCAN,
     value: a.reconcile_scan_enabled,
     onChange: (v) => {
-      void ctx.updateSettings({ advanced: merge(a, { reconcile_scan_enabled: v }) });
+      return ctx.updateSettings({ advanced: merge(a, { reconcile_scan_enabled: v }) });
     },
   });
 
@@ -69,7 +69,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     label: S.SETTINGS_DRY_RUN,
     value: a.dry_run_mode,
     onChange: (v) => {
-      void ctx.updateSettings({ advanced: merge(a, { dry_run_mode: v }) });
+      return ctx.updateSettings({ advanced: merge(a, { dry_run_mode: v }) });
     },
   });
 
@@ -81,7 +81,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     description: 'Off by default. Only enable when capturing logs for a bug report — paths become visible.',
     value: a.diagnostic_logging,
     onChange: (v) => {
-      void ctx.updateSettings({ advanced: merge(a, { diagnostic_logging: v }) });
+      return ctx.updateSettings({ advanced: merge(a, { diagnostic_logging: v }) });
     },
   });
 
@@ -111,7 +111,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
       if (!VAULT_PREFIX_REGEX.test(v)) return;
       const currentAdvanced = ctx.getSettings().advanced;
       if (v === currentAdvanced.vault_prefix) return;
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         advanced: merge(currentAdvanced, { vault_prefix: v }),
       });
     },
@@ -132,7 +132,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     max: 8,
     step: 1,
     onChange: (v) => {
-      void ctx.updateSettings({ advanced: merge(a, { upload_parallelism: v }) });
+      return ctx.updateSettings({ advanced: merge(a, { upload_parallelism: v }) });
     },
   });
 
@@ -147,7 +147,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     max: 64,
     step: 1,
     onChange: (v) => {
-      void ctx.updateSettings({ advanced: merge(a, { chunk_size_mb: v }) });
+      return ctx.updateSettings({ advanced: merge(a, { chunk_size_mb: v }) });
     },
   });
 }

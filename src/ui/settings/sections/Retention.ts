@@ -46,7 +46,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 0,
     max: 100,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { always_keep_n: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { always_keep_n: v }) });
     },
   });
 
@@ -60,7 +60,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 0,
     max: 168,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { recent_hours: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { recent_hours: v }) });
     },
   });
 
@@ -73,7 +73,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 0,
     max: 14,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { never_prune_window_days: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { never_prune_window_days: v }) });
     },
   });
 
@@ -86,7 +86,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 0,
     max: 90,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { daily_days: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { daily_days: v }) });
     },
   });
 
@@ -99,7 +99,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 0,
     max: 10,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { monthly_years: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { monthly_years: v }) });
     },
   });
 
@@ -112,7 +112,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 1,
     max: 10_000,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { storage_hard_limit_gb: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { storage_hard_limit_gb: v }) });
     },
   });
 
@@ -124,7 +124,7 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
     min: 50,
     max: 99,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { storage_warn_at_percent: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { storage_warn_at_percent: v }) });
     },
   });
 

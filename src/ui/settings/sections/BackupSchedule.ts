@@ -52,8 +52,8 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     label: S.SETTINGS_DESIGNATED_TOGGLE,
     value: ctx.deviceDesignated,
     onChange: (on) => {
-      if (on) void ctx.device.takeOwnership();
-      else void ctx.device.releaseOwnership();
+      // Returned so the settings tab can await and catch an ownership failure.
+      return on ? ctx.device.takeOwnership() : ctx.device.releaseOwnership();
     },
   });
 
@@ -65,7 +65,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     value: settings.schedule.full_cadence,
     options: CADENCE_OPTIONS,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_cadence: v as FullCadence },
       });
     },
@@ -78,7 +78,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     value: String(settings.schedule.full_day_of_week),
     options: DAY_OF_WEEK_OPTIONS,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_day_of_week: Number(v) as DayOfWeek },
       });
     },
@@ -91,7 +91,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     value: settings.schedule.full_time_of_day,
     placeholder: 'HH:MM',
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_time_of_day: v },
       });
     },
@@ -106,7 +106,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     value: String(settings.schedule.inc_interval_minutes),
     options: INC_INTERVAL_OPTIONS.map((o) => ({ value: String(o.value), label: o.label })),
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: {
           ...settings.schedule,
           inc_interval_minutes: Number(v) as IncIntervalMinutes,
@@ -124,7 +124,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     min: 1,
     max: 60,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, startup_grace_minutes: v },
       });
     },
@@ -138,7 +138,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     min: 1,
     max: 30,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, quiet_after_event_minutes: v },
       });
     },
@@ -152,7 +152,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     description: 'Limit backups to a daily time window (e.g. 08:00–22:00).',
     value: settings.schedule.active_window_enabled,
     onChange: (on) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, active_window_enabled: on },
       });
     },
@@ -166,7 +166,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
       value: settings.schedule.active_window_start,
       placeholder: 'HH:MM',
       onChange: (v) => {
-        void ctx.updateSettings({
+        return ctx.updateSettings({
           schedule: { ...settings.schedule, active_window_start: v },
         });
       },
@@ -180,7 +180,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
       value: settings.schedule.active_window_end,
       placeholder: 'HH:MM',
       onChange: (v) => {
-        void ctx.updateSettings({
+        return ctx.updateSettings({
           schedule: { ...settings.schedule, active_window_end: v },
         });
       },
