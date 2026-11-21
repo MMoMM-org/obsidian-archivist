@@ -1239,13 +1239,13 @@ export default class ArchivistPlugin extends Plugin {
     };
 
     // Pre-populate every async-sourced settingsContext field so the FIRST
-    // refreshAsyncFields tick after the tab opens sees no diff and doesn't
-    // rebuild the DOM. Skipping this caused a real-world bug: while the user
-    // typed into the Vault-prefix textbox, the async deviceId fetch resolved
-    // a few hundred ms later, refreshAsyncFields detected ctx.deviceId went
-    // from '' to a real UUID, called display(), and wiped the in-progress
-    // input — leaving data.json with vault_prefix: '' even after the user
-    // saved twice in a row.
+    // refreshAsyncFields tick after the tab opens sees no diff and schedules
+    // no extra update(). Skipping this caused a real-world bug in the old
+    // imperative tab: while the user typed into the Vault-prefix textbox, the
+    // async deviceId fetch resolved a few hundred ms later, refreshAsyncFields
+    // saw ctx.deviceId go from '' to a real UUID, rebuilt the whole tab and
+    // wiped the in-progress input — leaving data.json with vault_prefix: ''
+    // even after the user saved twice in a row.
     settingsContext.deviceId = await deviceCoordinator
       .getOrCreateDeviceId()
       .catch(() => settingsContext.deviceId);
