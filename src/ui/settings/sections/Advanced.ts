@@ -30,6 +30,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     key: 'advanced.exclusion_globs',
     label: S.SETTINGS_EXCLUSION_GLOBS,
     description: S.SETTINGS_EXCLUSION_GLOBS_HELP,
+    aliases: S.ALIASES_EXCLUSION_GLOBS,
     value: a.exclusion_globs.join('\n'),
     onChange: (raw) => {
       const lines = raw
@@ -67,6 +68,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     kind: 'toggle',
     key: 'advanced.dry_run_mode',
     label: S.SETTINGS_DRY_RUN,
+    aliases: S.ALIASES_DRY_RUN,
     value: a.dry_run_mode,
     onChange: (v) => {
       return ctx.updateSettings({ advanced: merge(a, { dry_run_mode: v }) });
@@ -79,6 +81,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     key: 'advanced.diagnostic_logging',
     label: S.SETTINGS_DIAGNOSTIC_LOGGING,
     description: 'Off by default. Only enable when capturing logs for a bug report — paths become visible.',
+    aliases: S.ALIASES_DIAGNOSTIC_LOGGING,
     value: a.diagnostic_logging,
     onChange: (v) => {
       return ctx.updateSettings({ advanced: merge(a, { diagnostic_logging: v }) });

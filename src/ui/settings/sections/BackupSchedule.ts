@@ -63,6 +63,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     kind: 'dropdown',
     key: 'schedule.full_cadence',
     label: S.SETTINGS_FULL_CADENCE,
+    aliases: S.ALIASES_FULL_CADENCE,
     value: settings.schedule.full_cadence,
     options: CADENCE_OPTIONS,
     onChange: (v) => {
@@ -89,6 +90,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     kind: 'text',
     key: 'schedule.full_time_of_day',
     label: S.SETTINGS_FULL_TIME,
+    aliases: S.ALIASES_FULL_TIME,
     value: settings.schedule.full_time_of_day,
     placeholder: 'HH:MM',
     onChange: (v) => {
@@ -104,6 +106,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     kind: 'dropdown',
     key: 'schedule.inc_interval_minutes',
     label: S.SETTINGS_INC_INTERVAL,
+    aliases: S.ALIASES_INC_INTERVAL,
     value: String(settings.schedule.inc_interval_minutes),
     options: INC_INTERVAL_OPTIONS.map((o) => ({ value: String(o.value), label: o.label })),
     onChange: (v) => {
@@ -151,6 +154,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     key: 'schedule.active_window_enabled',
     label: 'Active backup window',
     description: 'Limit backups to a daily time window (e.g. 08:00–22:00).',
+    aliases: S.ALIASES_ACTIVE_WINDOW,
     value: settings.schedule.active_window_enabled,
     onChange: (on) => {
       return ctx.updateSettings({

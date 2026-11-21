@@ -448,6 +448,21 @@ export const S = {
   SETTINGS_RECONCILE_SCAN: 'Enable reconcile scan on startup',
   SETTINGS_STORAGE_ESTIMATE: (bytes: number): string => `Estimated storage in use: ${bytes} bytes`,
 
+  // ─── Settings search synonyms (spec 002, PRD F8) ─────────────────
+  // Extra terms Obsidian's settings search matches besides a row's name and
+  // description. Lowercase, trimmed, unique. PRD F8 holds the complete table:
+  // change it there first, then here.
+  ALIASES_DROPBOX_ACCOUNT: ['dropbox', 'cloud', 'connect', 'login'],
+  ALIASES_EXCLUSION_GLOBS: ['exclude', 'ignore', 'skip'],
+  ALIASES_INC_INTERVAL: ['interval', 'frequency'],
+  ALIASES_FULL_TIME: ['schedule', 'time'],
+  ALIASES_FULL_CADENCE: ['weekly', 'monthly'],
+  ALIASES_ACTIVE_WINDOW: ['quiet hours', 'night'],
+  ALIASES_RETENTION_DAILY_DAYS: ['prune', 'keep'],
+  ALIASES_STORAGE_HARD_LIMIT: ['quota', 'space'],
+  ALIASES_DRY_RUN: ['test', 'simulate'],
+  ALIASES_DIAGNOSTIC_LOGGING: ['debug', 'log'],
+
   // ─── Backup-now button ───────────────────────────────────────────
   BACKUP_NOW_BUTTON: 'Back up now',
   BACKUP_NOW_IN_PROGRESS: 'Backup already in progress.',

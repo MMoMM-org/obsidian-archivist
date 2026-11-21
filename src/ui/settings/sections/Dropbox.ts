@@ -53,6 +53,7 @@ function renderDisconnected(host: SectionHost, ctx: SettingsContext): void {
     kind: 'actionRow',
     label: 'Account',
     description: S.OAUTH_NOT_CONNECTED,
+    aliases: S.ALIASES_DROPBOX_ACCOUNT,
     actions: [
       {
         label: S.OAUTH_CONNECT_BUTTON,
@@ -69,6 +70,7 @@ function renderConnected(host: SectionHost, ctx: SettingsContext, email: string)
     kind: 'actionRow',
     label: 'Account',
     description: S.OAUTH_CONNECTED_AS(email),
+    aliases: S.ALIASES_DROPBOX_ACCOUNT,
     actions: [
       {
         label: S.OAUTH_REAUTHENTICATE_BUTTON,

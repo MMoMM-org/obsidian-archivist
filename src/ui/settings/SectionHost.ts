@@ -15,13 +15,13 @@ import type { Setting } from 'obsidian';
 
 /**
  * Declarative-settings metadata shared by every row kind (spec 002).
- * Sections leave both unset until Phase 4 wires them.
+ * Search synonyms come from `S.ALIASES_*` (PRD F8).
  */
 export interface RowMeta {
   /** Evaluated on each render; absent = always visible. */
   visible?: () => boolean;
   /** Extra search terms. Only meaningful on searchable rows. */
-  aliases?: string[];
+  aliases?: readonly string[];
 }
 
 /**

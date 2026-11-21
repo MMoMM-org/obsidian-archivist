@@ -68,11 +68,11 @@ function isInput(spec: FieldSpec): spec is InputFieldSpec {
   return INPUT_KINDS.has(spec.kind);
 }
 
-/** name/desc/aliases/visible, copied only when the spec sets them. */
+/** name/desc/aliases/visible, copied only when the spec sets them (aliases as a fresh array). */
 function baseOf(meta: RowMeta, name: string, desc?: string): SettingDefinitionBase {
   const base: SettingDefinitionBase = { name };
   if (desc !== undefined) base.desc = desc;
-  if (meta.aliases !== undefined) base.aliases = meta.aliases;
+  if (meta.aliases !== undefined) base.aliases = [...meta.aliases];
   if (meta.visible !== undefined) base.visible = meta.visible;
   return base;
 }
