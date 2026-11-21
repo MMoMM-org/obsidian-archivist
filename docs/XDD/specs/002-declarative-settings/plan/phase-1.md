@@ -1,6 +1,6 @@
 ---
 title: "Phase 1: Tooling and test foundation"
-status: pending
+status: completed
 version: "1.0"
 phase: 1
 ---
@@ -29,7 +29,7 @@ phase: 1
 
 This phase establishes a toolchain that builds and lints against Obsidian 1.14.4 types, and a test fixture layer that can exercise a declarative `SettingTab`.
 
-- [ ] **T1.1 Toolchain on Obsidian 1.14.4** `[activity: build-platform]` `[ref: SDD/ADR-5; PRD/F6]`
+- [x] **T1.1 Toolchain on Obsidian 1.14.4** `[activity: build-platform]` `[ref: SDD/ADR-5; PRD/F6]`
 
   1. Prime:
      - Read the `eslint-plugin-obsidianmd` "Upgrading to 0.6.0" notes (`docs/configuration.md` in github.com/obsidianmd/eslint-plugin).
@@ -58,7 +58,7 @@ This phase establishes a toolchain that builds and lints against Obsidian 1.14.4
      - Lint mirrors the review bot's settings-tab rules locally. `prefer-setting-definitions` fires on `src/ui/SettingsTab.ts:46`, reproducing the scorecard warning `[ref: PRD/F6 AC2]`.
      - No dependency peer conflicts `[ref: SDD/ADR-5]`.
 
-- [ ] **T1.2 Declarative-capable test fixtures** `[activity: test-strategy]` `[ref: SDD/Directory Map; SDD/Implementation Gotchas (Mock)]`
+- [x] **T1.2 Declarative-capable test fixtures** `[activity: test-strategy]` `[ref: SDD/Directory Map; SDD/Implementation Gotchas (Mock)]`
 
   1. Prime:
      - Read `tests/fixtures/obsidian-mock.ts:481-529` (inert `PluginSettingTab` and `Setting`).
@@ -82,7 +82,7 @@ This phase establishes a toolchain that builds and lints against Obsidian 1.14.4
      - Later phases can assert on definitions, update calls and destructive styling without a real Obsidian `[ref: SDD/Quality Requirements]`.
      - No existing test was weakened `[ref: PRD/F6 AC3]`.
 
-- [ ] **T1.3 Phase Validation** `[activity: validate]` `[ref: plan/README.md Context Priming; SDD/ADR-5]`
+- [x] **T1.3 Phase Validation** `[activity: validate]` `[ref: plan/README.md Context Priming; SDD/ADR-5]`
 
   - Success: toolchain on 1.14.4 with only the recorded `SettingsTab.ts` findings outstanding `[ref: PRD/F6 AC2]`.
 
@@ -90,3 +90,13 @@ This phase establishes a toolchain that builds and lints against Obsidian 1.14.4
   - The only accepted lint findings are the recorded deprecation hits in `src/ui/SettingsTab.ts`.
   - `npm run build` succeeds.
   - Commit per task: `chore(deps): …` and `test(fixtures): …`.
+
+---
+
+## Deviations
+
+| Date | Deviation | Rationale | Approved |
+|---|---|---|---|
+| 2026-11-21 | Five `obsidianmd/prefer-instanceof` **warnings** (modal focus capture) remain in addition to the recorded `SettingsTab.ts` findings | The fix changes popout-window focus behaviour and needs its own test first; tracked in #114. They are warnings, so lint still exits 0 | Yes, at the Phase 1 checkpoint |
+| 2026-11-21 | `vitest.config.ts` changed (the `tests/fixtures/**` exclude was dropped), although the Directory Map did not list it | Without it the new `tests/fixtures/obsidian-mock.test.ts` is never collected | Yes, at the Phase 1 checkpoint |
+| 2026-11-21 | The lint script still doesn't cover `manifest.json` or `LICENSE` | Out of scope for this spec; tracked in #115. They are clean when linted by hand | Yes, at the Phase 1 checkpoint |

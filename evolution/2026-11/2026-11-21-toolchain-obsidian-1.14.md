@@ -16,8 +16,8 @@ Why:
   0.4.2 exact-peers `obsidian@1.8.7`, which conflicts with 1.14.4. 0.6.0 has no such peer.
 - `eslint-plugin-obsidianmd@0.6.0` is MIT-licensed (Constitution Dependencies L1).
 
-`minAppVersion` stays at 1.11.4 and browserslist stays at `chrome 139`. Both move in T3.3, when
-`display()` is removed.
+`minAppVersion` stays at 1.11.4 for now. It moves to 1.14.4 in T3.3, when `display()` is removed.
+Browserslist stays at `chrome 139` permanently (ADR-6): app updates don't update Electron.
 
 ## Unsandboxed install
 
@@ -44,7 +44,16 @@ them by hand, run `npx eslint manifest.json LICENSE package.json`, which is clea
   - `obsidianmd/settings-tab/prefer-setting-definitions` (line 46)
   - `@typescript-eslint/no-deprecated` on `setWarning` (line 258)
   - `@typescript-eslint/no-deprecated` on `setDynamicTooltip` (line 460)
+  - `display()` itself is **not** flagged. `require-display` is satisfied at `minAppVersion` 1.11.4, and
+    `no-deprecated-display` only applies once `minAppVersion` is 1.13 or later.
 - `obsidianmd/prefer-instanceof` fires on the `activeElement instanceof HTMLElement` focus capture in
-  five modals. Fixing it changes popout-window behaviour, so it isn't done in this task.
+  five modals. Fixing it changes popout-window behaviour, so it isn't done in this task (tracked in #114).
+- `validate-manifest` and `validate-license` aren't part of `npm run lint` (tracked in #115).
+
+## Test fixtures (T1.2)
+
+`vitest.config.ts` no longer excludes `tests/fixtures/**`, so the new mock self-test
+(`tests/fixtures/obsidian-mock.test.ts`) is collected. The include pattern `tests/**/*.test.ts` already
+keeps the helper files in that folder out of the run.
 - `no-await-chainable`, `prefer-active-doc`, `validate-manifest` and `validate-license` report nothing.
 - No `no-misused-promises` disable comments exist, so none needed renaming.

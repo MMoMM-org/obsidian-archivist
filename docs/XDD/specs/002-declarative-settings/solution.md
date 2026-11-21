@@ -334,6 +334,7 @@ graph LR
 ├── manifest.json                              # MODIFY: minAppVersion 1.14.4
 ├── package.json                               # MODIFY: obsidian 1.14.4 (exact), eslint-plugin-obsidianmd 0.6.0 (exact)
 ├── eslint.config.mjs                          # MODIFY: files-scope TS/type-checked blocks (obsidianmd 0.6.0 lints manifest.json / LICENSE)
+├── vitest.config.ts                           # MODIFY: drop the tests/fixtures/** exclude so the mock self-test is collected (added at Phase 1 checkpoint)
 ├── styles.css                                 # MODIFY: retarget `.archivist-settings h2` rules (39-55) to group headings
 ├── evolution/2026-11/                         # NEW: toolchain entry (obsidian 1.14.4, obsidianmd 0.6.0, unsandboxed install, eslint files scoping)
 ├── README.md, docs/installation.md, docs/troubleshooting.md   # MODIFY: minimum Obsidian 1.14.4
