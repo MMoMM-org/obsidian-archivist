@@ -25,7 +25,7 @@ import type {
   SettingDefinitionRender,
   SettingGroup,
 } from 'obsidian';
-import { Setting, type MockEl } from '../fixtures/obsidian-mock';
+import { Setting, _reconcileRenderRow, type MockEl } from '../fixtures/obsidian-mock';
 import { ArchivistSettingTab } from '../../src/ui/SettingsTab';
 import type { NoticeCenter, PersistentBanner } from '../../src/ui/NoticeCenter';
 import type { SettingsContext } from '../../src/ui/settings/context';
@@ -516,5 +516,50 @@ describe('ArchivistSettingTab from a 0.11.x data.json — values', () => {
     await h.tab.setControlValue('ui.device_designated', true);
     expect(h.takeOwnership).toHaveBeenCalledTimes(1);
     expect(h.disk.read()).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Render rows across update() (T5.4 regression: duplicated header / static text)
+// ---------------------------------------------------------------------------
+
+/** A MockEl subtree as plain data, for "looks identical" comparisons. */
+function snapshot(node: MockEl): unknown {
+  return { tag: node.tagName, cls: node.className, text: node.textContent, kids: node.children.map(snapshot) };
+}
+
+/** One render pass, keyed by name like Obsidian: same key → same Setting. */
+function renderPass(tab: ArchivistSettingTab, settings: Map<string, Setting>): void {
+  for (const row of allRows(tab)) {
+    if (!('render' in row) || typeof row.render !== 'function') continue;
+    const setting = settings.get(row.name) ?? new Setting({});
+    settings.set(row.name, setting);
+    _reconcileRenderRow(setting, row as SettingDefinitionRender & { desc?: string });
+  }
+}
+
+describe('ArchivistSettingTab from a 0.11.x data.json — render rows across update()', () => {
+  it('toggling the active window on/off/on leaves every render row exactly as first drawn', async () => {
+    const h = await bootFromFixture({ email: 'user@example.org' });
+    await h.tab.refresh();
+    const settings = new Map<string, Setting>();
+    renderPass(h.tab, settings);
+    const first = new Map([...settings].map(([name, s]) => [name, snapshot(s.settingEl as unknown as MockEl)]));
+
+    for (const on of [false, true, false, true]) {
+      await h.tab.setControlValue('schedule.active_window_enabled', on);
+      renderPass(h.tab, settings);
+    }
+
+    const root = (name: string): MockEl => settings.get(name)?.settingEl as unknown as MockEl;
+    expect(root('header').querySelectorAll('.archivist-version-header')).toHaveLength(1);
+    const disclosure = [...settings.keys()].filter((name) =>
+      root(name).querySelectorAll('.archivist-static-text').some((p) => p.textContent === S.OAUTH_TOKEN_DISCLOSURE),
+    );
+    expect(disclosure).toHaveLength(1);
+    expect(root(disclosure[0]).querySelectorAll('.archivist-static-text')).toHaveLength(1);
+    for (const [name, setting] of settings) {
+      expect(snapshot(setting.settingEl as unknown as MockEl), name).toEqual(first.get(name));
+    }
   });
 });

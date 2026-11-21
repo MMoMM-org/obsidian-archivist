@@ -4,7 +4,7 @@
 // builder's internal name, then asserts the DOM looks like today's tab.
 
 import { describe, expect, it, vi } from 'vitest';
-import { Setting, type ButtonComponent, type MockEl } from '../fixtures/obsidian-mock';
+import { Setting, _reconcileRenderRow, type ButtonComponent, type MockEl } from '../fixtures/obsidian-mock';
 import { customRowRenderers } from '../../src/ui/settings/customRows';
 import type {
   ActionRowFieldSpec,
@@ -223,5 +223,89 @@ describe('customRowRenderers.actionRow', () => {
     const [connect] = setting._buttons;
     expect(connect._destructive).toBe(false);
     expect(connect._cta).toBe(false);
+  });
+});
+
+// Obsidian keeps a render row's Setting across update() when its key is
+// unchanged, runs the previous cleanup, clear()s the Setting (controlEl only),
+// resets name/desc and renders again (see _reconcileRenderRow). Each renderer
+// must leave exactly one copy of its content after any number of passes.
+describe('customRowRenderers on a Setting reused across update()', () => {
+  type Draw = (setting: import('obsidian').Setting) => void | (() => void);
+
+  function renderPasses(name: string, draw: Draw, passes = 3, desc?: string): MockSetting {
+    const setting = new Setting({}) as MockSetting;
+    const def = { name, desc, render: (s: Setting) => draw(asObsidian(s as MockSetting)) };
+    for (let i = 0; i < passes; i++) _reconcileRenderRow(setting, def);
+    return setting;
+  }
+
+  function classTokens(setting: MockSetting): string[] {
+    return el(setting.settingEl).className.split(' ');
+  }
+
+  it('header: one version header with one set of spans and links', () => {
+    const setting = renderPasses('header', (s) => customRowRenderers.header(s, INFO));
+
+    const headers = el(setting.settingEl).querySelectorAll('.archivist-version-header');
+    expect(headers).toHaveLength(1);
+    expect(texts(headers[0].querySelectorAll('a'))).toEqual(['Marcus', 'Documentation']);
+    expect(el(setting.infoEl).children).toHaveLength(3);
+    expect(el(setting.nameEl).textContent).toBe('');
+  });
+
+  it('static: one paragraph of text', () => {
+    const spec: StaticTextSpec = { kind: 'static', text: 'Tokens are kept in Obsidian.' };
+    const setting = renderPasses('static:dropbox:0', (s) => customRowRenderers.static(s, spec));
+
+    expect(texts(el(setting.settingEl).querySelectorAll('.archivist-static-text'))).toEqual([
+      'Tokens are kept in Obsidian.',
+    ]);
+    expect(el(setting.infoEl).children).toHaveLength(3);
+    expect(el(setting.nameEl).textContent).toBe('');
+  });
+
+  it('banner: one message, each class once, one set of buttons', () => {
+    const spec = banner({ action: { label: 'Resolve', onClick: () => {} }, onDismiss: () => {} });
+    const setting = renderPasses('banner:QUOTA', (s) => customRowRenderers.banner(s, spec));
+
+    expect(el(setting.nameEl).textContent).toBe('Dropbox is full.');
+    expect(classTokens(setting).filter((c) => c.startsWith('archivist-banner'))).toEqual([
+      'archivist-banner',
+      'archivist-banner-warn',
+    ]);
+    expect(setting._buttons.map((b) => b._text)).toEqual(['Resolve', 'Dismiss']);
+    expect(el(setting.controlEl).children).toHaveLength(2);
+  });
+
+  it('banner: its cleanup removes exactly the classes it added', () => {
+    const setting = new Setting({}) as MockSetting;
+    const cleanup = customRowRenderers.banner(asObsidian(setting), banner({ severity: 'error' }));
+
+    expect(typeof cleanup).toBe('function');
+    (cleanup as () => void)();
+
+    expect(classTokens(setting)).toEqual(['setting-item']);
+  });
+
+  it('link: one link row with one anchor', () => {
+    const spec: LinkFieldSpec = { kind: 'link', label: 'Learn more', href: 'https://example.org/docs' };
+    const setting = renderPasses('Learn more', (s) => customRowRenderers.link(s, spec));
+
+    expect(el(setting.nameEl).querySelectorAll('.archivist-link-row')).toHaveLength(1);
+    expect(el(setting.nameEl).querySelectorAll('a')).toHaveLength(1);
+  });
+
+  it('actionRow: one set of buttons, name and description', () => {
+    const spec = actionRow(
+      [{ label: 'Re-authenticate', onClick: () => {} }, { label: 'Disconnect', destructive: true, onClick: () => {} }],
+      'Connected as a@b.c',
+    );
+    const setting = renderPasses('Account', (s) => customRowRenderers.actionRow(s, spec), 3, spec.description);
+
+    expect(setting._buttons.map((b) => b._text)).toEqual(['Re-authenticate', 'Disconnect']);
+    expect(el(setting.controlEl).children).toHaveLength(2);
+    expect(el(setting.nameEl).textContent).toBe('Account');
+    expect(el(setting.descEl).textContent).toBe('Connected as a@b.c');
   });
 });

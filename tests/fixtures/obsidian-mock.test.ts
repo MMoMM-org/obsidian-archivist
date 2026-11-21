@@ -10,6 +10,7 @@ import {
   PluginSettingTab,
   Setting,
   SettingTab,
+  _reconcileRenderRow,
   _setMockApiVersion,
   debounce,
   requireApiVersion,
@@ -188,6 +189,84 @@ describe('mock Setting', () => {
 
     expect(container.children.length).toBe(before + 1);
     expect(container.children[before]).toBe(setting.settingEl);
+  });
+
+  it('clear() empties controlEl and drops recorded buttons but keeps infoEl content', () => {
+    const setting = new Setting({}).setName('Row');
+    setting.addButton(() => {});
+    (setting.infoEl as MockEl).createDiv({ cls: 'extra' });
+
+    setting.clear();
+
+    expect((setting.controlEl as MockEl).children).toHaveLength(0);
+    expect(setting._buttons).toHaveLength(0);
+    expect((setting.infoEl as MockEl).querySelectorAll('.extra')).toHaveLength(1);
+    expect((setting.nameEl as MockEl).textContent).toBe('Row');
+  });
+});
+
+// Mirrors the 1.14/1.15 runtime: a keyed render row that survives update()
+// keeps its Setting; Obsidian runs the previous cleanup, clear()s the Setting,
+// resets name/desc and calls render again on the same Setting.
+describe('mock _reconcileRenderRow', () => {
+  it('runs the previous cleanup, clears, resets name and desc, then re-renders on the same Setting', () => {
+    const setting = new Setting({});
+    const calls: string[] = [];
+    const def = {
+      name: 'row',
+      desc: 'about',
+      render: (s: Setting) => {
+        calls.push(`render:${(s.nameEl as MockEl).textContent}`);
+        s.addButton(() => {});
+        return () => calls.push('cleanup');
+      },
+    };
+
+    _reconcileRenderRow(setting, def);
+    (setting.nameEl as MockEl).setText('changed by render');
+    _reconcileRenderRow(setting, def);
+
+    expect(calls).toEqual(['render:row', 'cleanup', 'render:row']);
+    expect(setting._buttons).toHaveLength(1);
+    expect((setting.descEl as MockEl).textContent).toBe('about');
+  });
+
+  it('resets desc to empty when the definition has none', () => {
+    const setting = new Setting({}).setDesc('stale');
+
+    _reconcileRenderRow(setting, { name: 'row', render: () => {} });
+
+    expect((setting.descEl as MockEl).textContent).toBe('');
+  });
+});
+
+describe('mock element tree', () => {
+  it('remove() detaches the element from its parent', () => {
+    const parent = new Setting({}).infoEl as MockEl;
+    const child = parent.createDiv({ cls: 'gone' });
+
+    child.remove();
+
+    expect(parent.querySelectorAll('.gone')).toHaveLength(0);
+  });
+
+  it('setText replaces child elements, like HTMLElement.setText', () => {
+    const el = new Setting({}).nameEl as MockEl;
+    el.createDiv({ cls: 'child' });
+
+    el.setText('plain');
+
+    expect(el.children).toHaveLength(0);
+    expect(el.textContent).toBe('plain');
+  });
+
+  it('addClass and removeClass accept several classes', () => {
+    const el = new Setting({}).settingEl as MockEl;
+
+    el.addClass('a', 'b', 'c');
+    el.removeClass('a', 'c');
+
+    expect(el.className).toBe('setting-item b');
   });
 });
 

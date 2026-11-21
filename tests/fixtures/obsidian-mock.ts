@@ -722,7 +722,14 @@ export class Setting {
     this.nameEl = this.infoEl.createDiv({ cls: 'setting-item-name' });
     this.descEl = this.infoEl.createDiv({ cls: 'setting-item-description' });
     this.controlEl = this.settingEl.createDiv({ cls: 'setting-item-control' });
-    if (isMockEl(container)) container.children.push(this.settingEl);
+    if (isMockEl(container)) appendChild(container, this.settingEl);
+  }
+  /** Mirrors Setting.clear() in the 1.15 runtime: only controlEl is emptied. */
+  clear(): this {
+    this.controlEl.empty();
+    this._buttons = [];
+    this.settingEl.removeClass('is-invalid');
+    return this;
   }
   setName(n: string): this {
     this.nameEl.setText(n);
@@ -757,6 +764,30 @@ export class Setting {
   addSlider(_cb: (s: unknown) => void): this {
     return this;
   }
+}
+
+// _reconcileRenderRow — what Obsidian 1.14/1.15 does with a `render` row on
+// every render pass. A row whose key survives update() keeps its Setting; the
+// runtime then runs the previous render's cleanup, calls Setting.clear(),
+// resets name and description from the definition and calls render again on
+// that same Setting (app.js: `yoe(h); h.setting.clear(); uoe(h, ...)`).
+interface RenderRowDef {
+  name?: string;
+  desc?: string;
+  render: (setting: Setting, group: unknown) => void | (() => void);
+}
+
+const renderCleanups = new WeakMap<Setting, () => void>();
+
+export function _reconcileRenderRow(setting: Setting, def: RenderRowDef): void {
+  const cleanup = renderCleanups.get(setting);
+  renderCleanups.delete(setting);
+  cleanup?.();
+  setting.clear();
+  setting.setName(def.name ?? '');
+  setting.setDesc(def.desc ?? '');
+  const next = def.render(setting, {});
+  if (next) renderCleanups.set(setting, next);
 }
 
 // requireApiVersion — numeric dotted-version compare against a mock runtime
@@ -822,9 +853,10 @@ export interface MockEl {
   ): MockEl;
   createDiv(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
   createSpan(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
+  /** Replace all children with plain text (mirrors Obsidian HTMLElement.setText). */
   setText(text: string): void;
-  addClass(cls: string): void;
-  removeClass(cls: string): void;
+  addClass(...classes: string[]): void;
+  removeClass(...classes: string[]): void;
   /** Detach the element from its parent (mirrors HTMLElement.remove()). */
   remove(): void;
   /** Remove all child elements (mirrors Obsidian HTMLElement.empty()). */
@@ -848,6 +880,15 @@ export interface MockEl {
   querySelectorAll<T extends MockEl = MockEl>(selector: string): T[];
 }
 
+// Child -> parent links for remove(). A WeakMap rather than a `parent` field so
+// MockEl trees stay acyclic for deep-equality assertions.
+const parentOf = new WeakMap<MockEl, MockEl>();
+
+function appendChild(parent: MockEl, child: MockEl): void {
+  parent.children.push(child);
+  parentOf.set(child, parent);
+}
+
 function makeMockEl(tag: string): MockEl {
   const el: MockEl = {
     tagName: tag,
@@ -863,7 +904,7 @@ function makeMockEl(tag: string): MockEl {
       if (opts.cls !== undefined) child.className = opts.cls;
       if (opts.attr) child.attrs = { ...opts.attr };
       if (opts.href !== undefined) child.attrs.href = opts.href;
-      el.children.push(child);
+      appendChild(el, child);
       return child;
     },
     createDiv(opts = {}) {
@@ -877,21 +918,24 @@ function makeMockEl(tag: string): MockEl {
       return el.createEl('span', opts);
     },
     setText(text) {
+      el.children.length = 0;
       el.textContent = text;
     },
-    addClass(cls) {
+    addClass(...classes) {
       const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
-      if (!tokens.includes(cls)) tokens.push(cls);
+      for (const cls of classes) if (!tokens.includes(cls)) tokens.push(cls);
       el.className = tokens.join(' ');
     },
-    removeClass(cls) {
+    removeClass(...classes) {
       const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
-      el.className = tokens.filter((t) => t !== cls).join(' ');
+      el.className = tokens.filter((t) => !classes.includes(t)).join(' ');
     },
     remove() {
-      // Detach is a no-op in this stub; tests that need parent-child tracking
-      // would need a richer scaffold. Existing tests only assert teardown is
-      // called, not the parent-side state.
+      const parent = parentOf.get(el);
+      if (!parent) return;
+      const idx = parent.children.indexOf(el);
+      if (idx >= 0) parent.children.splice(idx, 1);
+      parentOf.delete(el);
     },
     empty() {
       el.children.length = 0;
