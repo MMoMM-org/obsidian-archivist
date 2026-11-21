@@ -1260,6 +1260,7 @@ export default class ArchivistPlugin extends Plugin {
       noticeCenter,
       context: settingsContext,
       logger: this.logger,
+      register: (fn) => this.register(fn),
     });
     this.addSettingTab(this.settingsTab);
 

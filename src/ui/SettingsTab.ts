@@ -8,8 +8,12 @@
 //     key → spec registry.
 //   - getControlValue / setControlValue: route Obsidian's control reads and
 //     writes back to the emitting spec, behind the legacy write guard.
-//   - refresh(): re-fetches the async fields (device, Dropbox account, usage)
-//     and re-renders through a debounced update().
+//   - refresh orchestration (SDD Complex Logic): a NoticeCenter banner change
+//     and every header render (open + each re-render) feed a debounced
+//     update(); the header render re-fetches the async fields (device, Dropbox
+//     account, usage) and only schedules update() when a value changed, so the
+//     open → fetch → update → fetch loop stops after one round. refresh()
+//     forces the update().
 //
 // Sections stay DOM-free and describe rows through SectionHost; the non-input
 // rows are drawn by settings/customRows.ts.
@@ -23,7 +27,13 @@ import {
   type SettingDefinitionItem,
 } from 'obsidian';
 import type { NoticeCenter, PersistentBanner } from './NoticeCenter';
-import type { BannerSpec, HeaderInfo, OnChangeResult, SectionHost } from './settings/SectionHost';
+import type {
+  BannerSpec,
+  CustomRowRenderers,
+  HeaderInfo,
+  OnChangeResult,
+  SectionHost,
+} from './settings/SectionHost';
 import { DefinitionBuilderHost, guardWrite, type InputFieldSpec } from './settings/DefinitionBuilderHost';
 import { customRowRenderers } from './settings/customRows';
 import type { SettingsContext } from './settings/context';
@@ -68,6 +78,15 @@ export interface ArchivistSettingTabDeps {
   context: SettingsContext;
   /** Plugin logger; failed control writes are logged as metadata only. */
   logger: Logger;
+  /** Plugin-lifetime cleanup registration (Component.register); runs on unload. */
+  register: (teardown: () => void) => void;
+}
+
+interface AsyncFields {
+  deviceId: string;
+  designated: boolean;
+  email: string | null;
+  used: number;
 }
 
 export class ArchivistSettingTab extends PluginSettingTab {
@@ -76,6 +95,18 @@ export class ArchivistSettingTab extends PluginSettingTab {
   /** Serializes control writes so they apply in request order; never rejects. */
   private writeChain: Promise<void> = Promise.resolve();
   private readonly scheduleUpdate = debounce(() => this.update(), UPDATE_DEBOUNCE_MS, false);
+  /** Applied designated writes; a fetch that saw this change keeps the written value. */
+  private designatedWrites = 0;
+  private disposed = false;
+  /** Shared row renderers, except the header also starts the async-field fetch. */
+  private readonly renderers: CustomRowRenderers = {
+    ...customRowRenderers,
+    header: (setting, info) => {
+      const cleanup = customRowRenderers.header(setting, info);
+      void this.refreshAsyncFields(false);
+      return cleanup;
+    },
+  };
 
   constructor(
     app: App,
@@ -84,11 +115,22 @@ export class ArchivistSettingTab extends PluginSettingTab {
     super(app, deps.plugin);
     // styles.css scopes .archivist-static-text / .archivist-doc-link under it.
     this.containerEl.addClass('archivist-settings');
+    this.subscribeBanners();
+  }
+
+  /** Live banners: rebuild on every change; unsubscribe on plugin unload. */
+  private subscribeBanners(): void {
+    const unsubscribe = this.deps.noticeCenter.subscribePersistentBanners(() => this.scheduleUpdate());
+    this.deps.register(() => {
+      unsubscribe();
+      this.disposed = true;
+      this.scheduleUpdate.cancel();
+    });
   }
 
   /** Synchronous by contract: no await, no I/O. Replaces this build's registry. */
   getSettingDefinitions(): SettingDefinitionItem[] {
-    const builder = new DefinitionBuilderHost(customRowRenderers);
+    const builder = new DefinitionBuilderHost(this.renderers);
     builder.header(headerInfoOf(this.deps.plugin.manifest));
     for (const banner of this.deps.noticeCenter.getPersistentBanners()) {
       builder.topBanner(persistentToBannerSpec(banner));
@@ -125,6 +167,7 @@ export class ArchivistSettingTab extends PluginSettingTab {
     const applied = await this.applyChange(key, spec, guarded.value);
     if (applied && key === DESIGNATED_KEY) {
       this.deps.context.deviceDesignated = guarded.value === true;
+      this.designatedWrites += 1;
     }
     this.scheduleUpdate();
   }
@@ -156,30 +199,57 @@ export class ArchivistSettingTab extends PluginSettingTab {
     }
   }
 
+  /**
+   * One fetch at a time (`refreshing`); update() only on a change or `force`.
+   * The guard is always reset, so a failure never wedges later refreshes.
+   */
   private async refreshAsyncFields(force: boolean): Promise<void> {
     if (this.refreshing) return;
     this.refreshing = true;
+    const writesAtStart = this.designatedWrites;
     try {
-      const ctx = this.deps.context;
-      const [deviceId, designated, email, used] = await Promise.all([
-        ctx.device.getDeviceId().catch(() => ctx.deviceId),
-        ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
-        ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
-        ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
-      ]);
-      const changed =
-        ctx.deviceId !== deviceId ||
-        ctx.deviceDesignated !== designated ||
-        ctx.dropboxAccountEmail !== email ||
-        ctx.dropboxUsedBytes !== used;
-      ctx.deviceId = deviceId;
-      ctx.deviceDesignated = designated;
-      ctx.dropboxAccountEmail = email;
-      ctx.dropboxUsedBytes = used;
-      if (changed || force) this.scheduleUpdate();
+      const fetched = await this.fetchAsyncFields();
+      const changed = this.applyFetched(fetched, writesAtStart !== this.designatedWrites);
+      if ((changed || force) && !this.disposed) this.scheduleUpdate();
+    } catch (err) {
+      this.deps.logger.warn('settings_refresh_failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       this.refreshing = false;
     }
+  }
+
+  /** Each fetch falls back to the cached ctx value when it rejects. */
+  private async fetchAsyncFields(): Promise<AsyncFields> {
+    const ctx = this.deps.context;
+    const [deviceId, designated, email, used] = await Promise.all([
+      ctx.device.getDeviceId().catch(() => ctx.deviceId),
+      ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
+      ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
+      ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
+    ]);
+    return { deviceId, designated, email, used };
+  }
+
+  /**
+   * Writes the fetched values into ctx and reports whether any changed. When a
+   * designated toggle was applied while the fetch ran, its read is stale and
+   * the written value is kept.
+   */
+  private applyFetched(f: AsyncFields, keepDesignated: boolean): boolean {
+    const ctx = this.deps.context;
+    const designated = keepDesignated ? ctx.deviceDesignated : f.designated;
+    const changed =
+      ctx.deviceId !== f.deviceId ||
+      ctx.deviceDesignated !== designated ||
+      ctx.dropboxAccountEmail !== f.email ||
+      ctx.dropboxUsedBytes !== f.used;
+    ctx.deviceId = f.deviceId;
+    ctx.deviceDesignated = designated;
+    ctx.dropboxAccountEmail = f.email;
+    ctx.dropboxUsedBytes = f.used;
+    return changed;
   }
 }
 

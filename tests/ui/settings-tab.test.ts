@@ -46,6 +46,12 @@ interface Harness {
   /** Makes every later takeOwnership() call reject with `err`. */
   failTakeOwnership: (err: Error) => void;
   setBanners: (banners: PersistentBanner[]) => void;
+  /** Sets the banners and notifies every live NoticeCenter subscriber. */
+  emitBanners: (banners: PersistentBanner[]) => void;
+  /** Number of live NoticeCenter banner subscribers. */
+  subscriberCount: () => number;
+  /** Teardowns the tab handed to deps.register, in order. */
+  teardowns: Array<() => void>;
 }
 
 interface HarnessOptions {
@@ -112,10 +118,17 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     confirm: async () => true,
   };
 
+  let subscribers: Array<() => void> = [];
   const noticeCenter = {
     getPersistentBanners: () => banners,
-    subscribePersistentBanners: () => () => {},
+    subscribePersistentBanners: (handler: () => void) => {
+      subscribers.push(handler);
+      return () => {
+        subscribers = subscribers.filter((s) => s !== handler);
+      };
+    },
   } as unknown as NoticeCenter;
+  const teardowns: Array<() => void> = [];
 
   const plugin = {
     manifest: {
@@ -128,7 +141,16 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
   } as unknown as Plugin;
 
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
-  const tab = new ArchivistSettingTab({} as App, { plugin, noticeCenter, context: ctx, logger }) as Harness['tab'];
+  const register = (fn: () => void): void => {
+    teardowns.push(fn);
+  };
+  const tab = new ArchivistSettingTab({} as App, {
+    plugin,
+    noticeCenter,
+    context: ctx,
+    logger,
+    register,
+  }) as Harness['tab'];
   return {
     tab,
     ctx,
@@ -145,6 +167,12 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     setBanners: (next) => {
       banners = next;
     },
+    emitBanners: (next) => {
+      banners = next;
+      for (const handler of [...subscribers]) handler();
+    },
+    subscriberCount: () => subscribers.length,
+    teardowns,
   };
 }
 
@@ -590,6 +618,326 @@ describe('ArchivistSettingTab — class shape', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refresh orchestration (T3.2)
+// ---------------------------------------------------------------------------
+//
+// Visibility: the mock's update() only records the call and rebuilds the
+// definitions; it has no notion of an open modal. In Obsidian, update()
+// re-renders when the tab is shown and otherwise only refreshes the search
+// index, so "open" vs "closed" is modelled by whether the header row has been
+// rendered (Obsidian renders it only while the tab is shown). The tab must
+// call update() the same way in both cases. A re-render after update() is
+// modelled by rendering the header row again by hand.
+
+interface AsyncValues {
+  deviceId: string;
+  designated: boolean;
+  email: string | null;
+  used: number;
+}
+
+interface FetchStub {
+  /** Number of refreshAsyncFields fetches started (one getDeviceId call each). */
+  calls: () => number;
+}
+
+/** Makes the async surfaces resolve with `values`, defaulting to the cached ctx (no change). */
+function stubFetch(h: Harness, values: Partial<AsyncValues> = {}): FetchStub {
+  const v: AsyncValues = {
+    deviceId: h.ctx.deviceId,
+    designated: h.ctx.deviceDesignated,
+    email: h.ctx.dropboxAccountEmail,
+    used: h.ctx.dropboxUsedBytes,
+    ...values,
+  };
+  let calls = 0;
+  h.ctx.device.getDeviceId = () => {
+    calls += 1;
+    return Promise.resolve(v.deviceId);
+  };
+  h.ctx.device.isDesignated = () => Promise.resolve(v.designated);
+  h.ctx.dropbox.getAccountEmail = () => Promise.resolve(v.email);
+  h.ctx.dropbox.getUsedBytes = () => Promise.resolve(v.used);
+  return { calls: () => calls };
+}
+
+interface ValueDeferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (err: Error) => void;
+}
+
+function valueDeferred<T>(): ValueDeferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (err: Error) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Renders the header row the way Obsidian does on every renderTab. */
+function renderHeader(tab: ArchivistSettingTab): void {
+  const [top] = groupsOf(tab);
+  const header = itemsOf(top).find((d) => d.name === 'header') as SettingDefinitionRender;
+  header.render(new Setting({}) as unknown as ObsidianSetting, {} as SettingGroup);
+}
+
+/** Lets an in-flight fetch whose surfaces have settled run to completion. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
+function accountDesc(tab: ArchivistSettingTab): string | undefined {
+  const row = itemsOf(groupByHeading(tab, S.SETTINGS_SECTION_DROPBOX)).find((d) => d.name === 'Account');
+  return row?.desc as string | undefined;
+}
+
+async function withUnhandledSpy(body: (onUnhandled: ReturnType<typeof vi.fn>) => Promise<void>): Promise<void> {
+  const onUnhandled = vi.fn();
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await body(onUnhandled);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+}
+
+describe('ArchivistSettingTab — refresh orchestration', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ['open (header rendered)', true],
+    ['closed (never rendered)', false],
+  ])('a NoticeCenter banner change calls update() 150 ms later with the tab %s', async (_label, open) => {
+    const h = makeHarness();
+    stubFetch(h);
+    if (open) {
+      renderHeader(h.tab);
+      await settle();
+    }
+    h.emitBanners([{ code: 'AUTH_LOST', message: 'auth lost' }]);
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS - 1);
+    expect(h.tab._updateCalls).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(h.tab._updateCalls).toBe(1);
+    const [top] = h.tab.settingItems as SettingDefinitionGroup[];
+    expect(namesOf(top)).toContain('banner:AUTH_LOST');
+  });
+
+  it('coalesces a burst of 3 banner changes inside 150 ms into one update(), 150 ms after the first', () => {
+    const h = makeHarness();
+    h.emitBanners([{ code: 'A', message: 'a' }]);
+    vi.advanceTimersByTime(50);
+    h.emitBanners([{ code: 'B', message: 'b' }]);
+    vi.advanceTimersByTime(50);
+    h.emitBanners([{ code: 'C', message: 'c' }]);
+    vi.advanceTimersByTime(49);
+    expect(h.tab._updateCalls).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(h.tab._updateCalls).toBe(1);
+    vi.advanceTimersByTime(1000);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('building definitions alone starts no fetch; the header render starts exactly one', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h);
+    h.tab.getSettingDefinitions();
+    await settle();
+    expect(fetch.calls()).toBe(0);
+    renderHeader(h.tab);
+    await settle();
+    expect(fetch.calls()).toBe(1);
+  });
+
+  it('a fetch with no change does not call update()', async () => {
+    const h = makeHarness();
+    stubFetch(h);
+    renderHeader(h.tab);
+    await settle();
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(0);
+  });
+
+  it('a fetch with a change calls update() exactly once', async () => {
+    const h = makeHarness();
+    stubFetch(h, { used: 5 * GB });
+    renderHeader(h.tab);
+    await settle();
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(1);
+    expect(h.ctx.dropboxUsedBytes).toBe(5 * GB);
+  });
+
+  it('skips a second fetch while one is in flight, and runs one after it settles', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h);
+    const email = valueDeferred<string | null>();
+    h.ctx.dropbox.getAccountEmail = () => email.promise;
+    renderHeader(h.tab);
+    renderHeader(h.tab);
+    await settle();
+    expect(fetch.calls()).toBe(1);
+
+    email.resolve(null);
+    await settle();
+    renderHeader(h.tab);
+    await settle();
+    expect(fetch.calls()).toBe(2);
+  });
+
+  it('a rejected fetch keeps the cached value, raises nothing, and a later fetch still runs', async () => {
+    await withUnhandledSpy(async (onUnhandled) => {
+      const h = makeHarness();
+      h.ctx.dropboxAccountEmail = 'cached@b.c';
+      const fetch = stubFetch(h);
+      h.ctx.dropbox.getAccountEmail = () => Promise.reject(new Error('network down'));
+      renderHeader(h.tab);
+      await settle();
+      expect(h.ctx.dropboxAccountEmail).toBe('cached@b.c');
+      vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+      expect(h.tab._updateCalls).toBe(0);
+
+      renderHeader(h.tab);
+      await settle();
+      expect(fetch.calls()).toBe(2);
+      await flushRejections();
+      expect(onUnhandled).not.toHaveBeenCalled();
+    });
+  });
+
+  it('a surface that throws synchronously is logged, raises nothing, and resets the guard (try/finally)', async () => {
+    await withUnhandledSpy(async (onUnhandled) => {
+      const h = makeHarness();
+      const fetch = stubFetch(h);
+      const healthy = h.ctx.dropbox.getUsedBytes;
+      h.ctx.dropbox.getUsedBytes = () => {
+        throw new Error('probe gone');
+      };
+      renderHeader(h.tab);
+      await settle();
+      expect(h.logger.warn).toHaveBeenCalledWith('settings_refresh_failed', { error: 'probe gone' });
+
+      h.ctx.dropbox.getUsedBytes = healthy;
+      renderHeader(h.tab);
+      await settle();
+      expect(fetch.calls()).toBe(2);
+      await flushRejections();
+      expect(onUnhandled).not.toHaveBeenCalled();
+    });
+  });
+
+  it('plugin teardown during an in-flight fetch completes without throwing, schedules nothing, and resets the guard', async () => {
+    await withUnhandledSpy(async (onUnhandled) => {
+      const h = makeHarness();
+      const fetch = stubFetch(h, { used: 7 * GB });
+      const email = valueDeferred<string | null>();
+      h.ctx.dropbox.getAccountEmail = () => email.promise;
+      renderHeader(h.tab);
+      await settle();
+
+      for (const teardown of h.teardowns) teardown();
+      email.reject(new Error('client destroyed'));
+      await settle();
+      vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+      expect(h.tab._updateCalls).toBe(0);
+
+      await h.tab.refresh();
+      expect(fetch.calls()).toBe(2);
+      await flushRejections();
+      expect(onUnhandled).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refresh() calls update() once even when the fetch changed values', async () => {
+    const h = makeHarness();
+    stubFetch(h, { email: 'a@b.c' });
+    await h.tab.refresh();
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('traced walkthrough — open after OAuth: 2 fetches, 1 update()', async () => {
+    const h = makeHarness();
+    const fetch = stubFetch(h, { email: 'a@b.c' });
+    expect(h.ctx.dropboxAccountEmail).toBeNull();
+
+    renderHeader(h.tab); // 1: user opens tab
+    await settle(); // 2: fetch resolves with a@b.c → changed
+    expect(h.ctx.dropboxAccountEmail).toBe('a@b.c');
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(1);
+
+    renderHeader(h.tab); // 3: update() re-renders → header render again
+    await settle(); // 4: same email → no change → stop
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(fetch.calls()).toBe(2);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('registers one teardown through deps.register that unsubscribes from NoticeCenter', () => {
+    const h = makeHarness();
+    expect(h.subscriberCount()).toBe(1);
+    expect(h.teardowns).toHaveLength(1);
+
+    h.teardowns[0]();
+    expect(h.subscriberCount()).toBe(0);
+    h.emitBanners([{ code: 'AUTH_LOST', message: 'x' }]);
+    vi.advanceTimersByTime(10 * UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(0);
+  });
+
+  it('switches the Account row between disconnected and connected on the next build', async () => {
+    const h = makeHarness();
+    expect(accountDesc(h.tab)).toBe(S.OAUTH_NOT_CONNECTED);
+
+    stubFetch(h, { email: 'a@b.c' });
+    renderHeader(h.tab);
+    await settle();
+    expect(accountDesc(h.tab)).toBe(S.OAUTH_CONNECTED_AS('a@b.c'));
+
+    stubFetch(h, { email: null });
+    await h.tab.refresh();
+    expect(accountDesc(h.tab)).toBe(S.OAUTH_NOT_CONNECTED);
+  });
+
+  it('a fetch that began before a designated toggle finished does not overwrite the toggled value', async () => {
+    const h = makeHarness({ deviceDesignated: false });
+    stubFetch(h);
+    const designated = valueDeferred<boolean>();
+    h.ctx.device.isDesignated = () => designated.promise;
+    renderHeader(h.tab); // fetch reads ownership before the toggle
+
+    await h.tab.setControlValue('ui.device_designated', true);
+    designated.resolve(false); // stale read lands after the write
+    await settle();
+
+    expect(h.ctx.deviceDesignated).toBe(true);
+    h.tab.getSettingDefinitions();
+    expect(h.tab.getControlValue('ui.device_designated')).toBe(true);
+  });
+
+  it('a fetch that began after the designated toggle finished still applies the fetched ownership', async () => {
+    const h = makeHarness({ deviceDesignated: false });
+    h.tab.getSettingDefinitions();
+    await h.tab.setControlValue('ui.device_designated', true);
+
+    stubFetch(h, { designated: false }); // another device took ownership since
+    renderHeader(h.tab);
+    await settle();
+    expect(h.ctx.deviceDesignated).toBe(false);
   });
 });
 
