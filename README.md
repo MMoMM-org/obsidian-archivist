@@ -171,6 +171,11 @@ This is your **break-glass recovery tool**. The full walkthrough — where to ge
 Open Obsidian **Settings → Community Plugins → Browse**, search for
 **Archivist**, click **Install**, then **Enable**.
 
+Archivist 0.12.0 and later need **Obsidian 1.14.4 or newer**. On older
+Obsidian, Community Plugins offers only the last 0.11.x release, and that
+install receives no further updates. Update Obsidian to 1.14.4 or newer to
+get 0.12.0 and later.
+
 For manual install, BRAT (unreleased main builds), prerequisites,
 verification, and update mechanics, see
 [docs/installation.md](docs/installation.md).
