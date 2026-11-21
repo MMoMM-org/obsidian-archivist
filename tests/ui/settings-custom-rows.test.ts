@@ -309,3 +309,59 @@ describe('customRowRenderers on a Setting reused across update()', () => {
     expect(el(setting.descEl).textContent).toBe('Connected as a@b.c');
   });
 });
+
+// A runtime that runs a render's cleanup only on teardown (possibly 1.14.4 —
+// unverified) re-renders into the same Setting with neither the cleanup nor
+// clear() in between. Header and static must still drop their previous output
+// themselves; banner's classes are idempotent by classList semantics.
+describe('customRowRenderers re-rendered without cleanup or clear()', () => {
+  type Draw = (setting: import('obsidian').Setting) => void | (() => void);
+
+  function drawRepeatedly(draw: Draw, passes = 3): MockSetting {
+    const setting = suppliedSetting('internal');
+    for (let i = 0; i < passes; i++) draw(asObsidian(setting));
+    return setting;
+  }
+
+  it('header: one version header in infoEl', () => {
+    const setting = drawRepeatedly((s) => customRowRenderers.header(s, INFO));
+
+    const headers = el(setting.infoEl).querySelectorAll('.archivist-version-header');
+    expect(headers).toHaveLength(1);
+    expect(texts(headers[0].querySelectorAll('a'))).toEqual(['Marcus', 'Documentation']);
+    expect(el(setting.infoEl).children).toHaveLength(3);
+  });
+
+  it('static: one paragraph of text in infoEl', () => {
+    const spec: StaticTextSpec = { kind: 'static', text: 'Tokens are kept in Obsidian.' };
+    const setting = drawRepeatedly((s) => customRowRenderers.static(s, spec));
+
+    expect(texts(el(setting.infoEl).querySelectorAll('.archivist-static-text'))).toEqual([
+      'Tokens are kept in Obsidian.',
+    ]);
+    expect(el(setting.infoEl).children).toHaveLength(3);
+  });
+
+  it('banner: each class once and the message', () => {
+    const setting = drawRepeatedly((s) => customRowRenderers.banner(s, banner({ severity: 'error' })));
+
+    expect(el(setting.settingEl).className.split(' ')).toEqual([
+      'setting-item',
+      'archivist-banner',
+      'archivist-banner-error',
+    ]);
+    expect(el(setting.nameEl).textContent).toBe('Dropbox is full.');
+  });
+
+  it('a late cleanup after redraws removes the current copy and is harmless twice', () => {
+    const setting = suppliedSetting('header');
+    const first = customRowRenderers.header(asObsidian(setting), INFO) as () => void;
+    const second = customRowRenderers.header(asObsidian(setting), INFO) as () => void;
+
+    first();
+    expect(el(setting.infoEl).querySelectorAll('.archivist-version-header')).toHaveLength(1);
+    second();
+    second();
+    expect(el(setting.infoEl).querySelectorAll('.archivist-version-header')).toHaveLength(0);
+  });
+});

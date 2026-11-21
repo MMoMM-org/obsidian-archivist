@@ -15,6 +15,11 @@
 // are rebuilt by Obsidian, but anything a renderer appends to infoEl or adds
 // to settingEl's classes persists. Those renderers return a cleanup that
 // removes exactly what they added, so every pass leaves one copy.
+//
+// The cleanup-between-passes order is unverified on the 1.14.4 minimum, so
+// header and static also drop their previous element before drawing (tracked
+// per Setting in a WeakMap — independent of the DOM query API). Banner needs
+// no tracking: re-adding the same classes is a classList no-op.
 
 import type { Setting } from 'obsidian';
 import type {
@@ -28,9 +33,26 @@ import type {
 
 type Cleanup = () => void;
 
+const drawnInInfo = new WeakMap<Setting, HTMLElement>();
+
+/**
+ * Removes what the previous pass drew into this Setting's infoEl, then draws
+ * and records the new element. The cleanup removes it; repeating it is a no-op.
+ */
+function drawIntoInfo(setting: Setting, draw: (infoEl: HTMLElement) => HTMLElement): Cleanup {
+  drawnInInfo.get(setting)?.remove();
+  const drawn = draw(setting.infoEl);
+  drawnInInfo.set(setting, drawn);
+  return () => drawn.remove();
+}
+
 function renderHeader(setting: Setting, info: HeaderInfo): Cleanup {
   setting.nameEl.empty();
-  const header = setting.infoEl.createDiv({ cls: 'archivist-version-header' });
+  return drawIntoInfo(setting, (infoEl) => drawHeader(infoEl, info));
+}
+
+function drawHeader(infoEl: HTMLElement, info: HeaderInfo): HTMLElement {
+  const header = infoEl.createDiv({ cls: 'archivist-version-header' });
   header.createSpan({ text: `${info.pluginName} `, cls: 'archivist-plugin-name' });
   header.createSpan({ text: `v${info.version}` });
   if (info.authorName) {
@@ -39,7 +61,7 @@ function renderHeader(setting: Setting, info: HeaderInfo): Cleanup {
   }
   header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
   header.createEl('a', { text: 'Documentation', href: info.docsUrl });
-  return () => header.remove();
+  return header;
 }
 
 function renderBanner(setting: Setting, spec: BannerSpec): Cleanup {
@@ -65,8 +87,9 @@ function renderBanner(setting: Setting, spec: BannerSpec): Cleanup {
 
 function renderStatic(setting: Setting, spec: StaticTextSpec): Cleanup {
   setting.nameEl.empty();
-  const text = setting.infoEl.createEl('p', { text: spec.text, cls: 'archivist-static-text' });
-  return () => text.remove();
+  return drawIntoInfo(setting, (infoEl) =>
+    infoEl.createEl('p', { text: spec.text, cls: 'archivist-static-text' }),
+  );
 }
 
 // No cleanup: the anchor lives in nameEl, which Obsidian resets via setName.

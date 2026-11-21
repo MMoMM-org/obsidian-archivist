@@ -779,10 +779,18 @@ interface RenderRowDef {
 
 const renderCleanups = new WeakMap<Setting, () => void>();
 
-export function _reconcileRenderRow(setting: Setting, def: RenderRowDef): void {
+/**
+ * `runCleanup: false` models a runtime that only runs a render's cleanup on
+ * teardown, never between passes — renderers must stay idempotent without it.
+ */
+export function _reconcileRenderRow(
+  setting: Setting,
+  def: RenderRowDef,
+  { runCleanup = true }: { runCleanup?: boolean } = {},
+): void {
   const cleanup = renderCleanups.get(setting);
   renderCleanups.delete(setting);
-  cleanup?.();
+  if (runCleanup) cleanup?.();
   setting.clear();
   setting.setName(def.name ?? '');
   setting.setDesc(def.desc ?? '');

@@ -529,12 +529,12 @@ function snapshot(node: MockEl): unknown {
 }
 
 /** One render pass, keyed by name like Obsidian: same key → same Setting. */
-function renderPass(tab: ArchivistSettingTab, settings: Map<string, Setting>): void {
+function renderPass(tab: ArchivistSettingTab, settings: Map<string, Setting>, runCleanup = true): void {
   for (const row of allRows(tab)) {
     if (!('render' in row) || typeof row.render !== 'function') continue;
     const setting = settings.get(row.name) ?? new Setting({});
     settings.set(row.name, setting);
-    _reconcileRenderRow(setting, row as SettingDefinitionRender & { desc?: string });
+    _reconcileRenderRow(setting, row as SettingDefinitionRender & { desc?: string }, { runCleanup });
   }
 }
 
@@ -558,6 +558,31 @@ describe('ArchivistSettingTab from a 0.11.x data.json — render rows across upd
     );
     expect(disclosure).toHaveLength(1);
     expect(root(disclosure[0]).querySelectorAll('.archivist-static-text')).toHaveLength(1);
+    for (const [name, setting] of settings) {
+      expect(snapshot(setting.settingEl as unknown as MockEl), name).toEqual(first.get(name));
+    }
+  });
+  // A runtime that runs cleanups only on teardown must not stack rows either.
+  it('the same toggle sequence without the cleanups between passes still leaves one copy of each row', async () => {
+    const h = await bootFromFixture({ email: 'user@example.org' });
+    await h.tab.refresh();
+    const settings = new Map<string, Setting>();
+    renderPass(h.tab, settings, false);
+    const first = new Map([...settings].map(([name, s]) => [name, snapshot(s.settingEl as unknown as MockEl)]));
+
+    for (const on of [false, true, false, true]) {
+      await h.tab.setControlValue('schedule.active_window_enabled', on);
+      renderPass(h.tab, settings, false);
+    }
+
+    const root = (name: string): MockEl => settings.get(name)?.settingEl as unknown as MockEl;
+    expect(root('header').querySelectorAll('.archivist-version-header')).toHaveLength(1);
+    const tokens = [...settings.values()].flatMap((s) =>
+      (s.settingEl as unknown as MockEl)
+        .querySelectorAll('.archivist-static-text')
+        .filter((p) => p.textContent === S.OAUTH_TOKEN_DISCLOSURE),
+    );
+    expect(tokens).toHaveLength(1);
     for (const [name, setting] of settings) {
       expect(snapshot(setting.settingEl as unknown as MockEl), name).toEqual(first.get(name));
     }
