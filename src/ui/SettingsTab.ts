@@ -23,10 +23,11 @@ import {
   type SettingDefinitionItem,
 } from 'obsidian';
 import type { NoticeCenter, PersistentBanner } from './NoticeCenter';
-import type { BannerSpec, HeaderInfo, SectionHost } from './settings/SectionHost';
+import type { BannerSpec, HeaderInfo, OnChangeResult, SectionHost } from './settings/SectionHost';
 import { DefinitionBuilderHost, guardWrite, type InputFieldSpec } from './settings/DefinitionBuilderHost';
 import { customRowRenderers } from './settings/customRows';
 import type { SettingsContext } from './settings/context';
+import type { Logger } from '../infra/Logger';
 import { renderBackupSchedule } from './settings/sections/BackupSchedule';
 import { renderRetention } from './settings/sections/Retention';
 import { renderNotifications } from './settings/sections/Notifications';
@@ -65,11 +66,15 @@ export interface ArchivistSettingTabDeps {
   noticeCenter: NoticeCenter;
   /** Snapshot of dependencies needed by section renderers. */
   context: SettingsContext;
+  /** Plugin logger; failed control writes are logged as metadata only. */
+  logger: Logger;
 }
 
 export class ArchivistSettingTab extends PluginSettingTab {
   private registry = new Map<string, InputFieldSpec>();
   private refreshing = false;
+  /** Serializes control writes so they apply in request order; never rejects. */
+  private writeChain: Promise<void> = Promise.resolve();
   private readonly scheduleUpdate = debounce(() => this.update(), UPDATE_DEBOUNCE_MS, false);
 
   constructor(
@@ -99,10 +104,20 @@ export class ArchivistSettingTab extends PluginSettingTab {
   }
 
   /**
+   * Queues the write behind any in-flight one and resolves once it has been
+   * applied, so quick toggles settle in request order (last request wins).
+   */
+  setControlValue(key: string, value: unknown): Promise<void> {
+    const write = this.writeChain.then(() => this.applyWrite(key, value));
+    this.writeChain = write.catch(() => undefined);
+    return write;
+  }
+
+  /**
    * Write guard → the emitting spec's onChange → debounced update(). Unknown
    * (stale) keys and guard rejections are dropped silently, as today.
    */
-  async setControlValue(key: string, value: unknown): Promise<void> {
+  private async applyWrite(key: string, value: unknown): Promise<void> {
     const spec = this.registry.get(key);
     if (!spec) return;
     const guarded = guardWrite(spec, value);
@@ -130,10 +145,13 @@ export class ArchivistSettingTab extends PluginSettingTab {
    */
   private async applyChange(key: string, spec: InputFieldSpec, value: unknown): Promise<boolean> {
     try {
-      await (spec.onChange as (v: unknown) => void | Promise<void>)(value);
+      await (spec.onChange as (v: unknown) => OnChangeResult)(value);
       return true;
     } catch (err) {
-      console.error(`Archivist: applying setting "${key}" failed`, err);
+      this.deps.logger.error('setting_apply_failed', {
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return false;
     }
   }

@@ -21,6 +21,7 @@ import { Setting, type MockEl } from '../fixtures/obsidian-mock';
 import { ArchivistSettingTab, persistentToBannerSpec } from '../../src/ui/SettingsTab';
 import type { NoticeCenter, PersistentBanner } from '../../src/ui/NoticeCenter';
 import type { SettingsContext } from '../../src/ui/settings/context';
+import type { Logger } from '../../src/infra/Logger';
 import { DEFAULT_SETTINGS, type PluginSettings } from '../../src/model/Settings';
 import { S } from '../../src/ui/strings';
 
@@ -38,6 +39,8 @@ interface Harness {
   updateSettings: ReturnType<typeof vi.fn>;
   takeOwnership: ReturnType<typeof vi.fn>;
   releaseOwnership: ReturnType<typeof vi.fn>;
+  /** Fake plugin logger; every method is a spy. */
+  logger: { [K in keyof Logger]: ReturnType<typeof vi.fn> };
   /** Makes every later updateSettings() call reject with `err`. */
   failSaves: (err: Error) => void;
   /** Makes every later takeOwnership() call reject with `err`. */
@@ -124,10 +127,12 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     },
   } as unknown as Plugin;
 
-  const tab = new ArchivistSettingTab({} as App, { plugin, noticeCenter, context: ctx }) as Harness['tab'];
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  const tab = new ArchivistSettingTab({} as App, { plugin, noticeCenter, context: ctx, logger }) as Harness['tab'];
   return {
     tab,
     ctx,
+    logger,
     updateSettings,
     takeOwnership,
     releaseOwnership,
@@ -159,6 +164,17 @@ function groupByHeading(tab: ArchivistSettingTab, heading: string): SettingDefin
   const group = groupsOf(tab).find((g) => g.heading === heading);
   if (!group) throw new Error(`no group "${heading}"`);
   return group;
+}
+
+interface Deferred {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
 }
 
 /** Lets pending microtasks and Node's unhandled-rejection pass run. */
@@ -233,7 +249,7 @@ describe('ArchivistSettingTab — getSettingDefinitions', () => {
     const { tab } = makeHarness();
     const keys = groupsOf(tab)
       .flatMap(itemsOf)
-      .flatMap((d) => ('control' in d ? [d.control.key] : []));
+      .flatMap((d) => (d.control ? [d.control.key] : []));
     expect(keys).toEqual(
       expect.arrayContaining([
         'ui.device_designated',
@@ -419,6 +435,74 @@ describe('ArchivistSettingTab — setControlValue', () => {
     await h.tab.setControlValue('notifications.toast_on_error', true);
     vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
     expect(h.tab._updateCalls).toBe(2);
+  });
+
+  it('defers update() until a pending save has settled', async () => {
+    const h = makeHarness();
+    const save = deferred();
+    h.ctx.updateSettings = () => save.promise;
+    h.tab.getSettingDefinitions();
+
+    const write = h.tab.setControlValue('notifications.toast_on_error', false);
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS + 1);
+    expect(h.tab._updateCalls).toBe(0);
+
+    save.resolve();
+    await write;
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS + 1);
+    expect(h.tab._updateCalls).toBe(1);
+  });
+
+  it('serializes quick designated toggles: last request wins even when ownership calls settle out of order', async () => {
+    const onUnhandled = vi.fn();
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const h = makeHarness({ deviceDesignated: false });
+      const take = deferred();
+      const release = deferred();
+      const calls: string[] = [];
+      h.ctx.device.takeOwnership = () => (calls.push('take'), take.promise);
+      h.ctx.device.releaseOwnership = () => (calls.push('release'), release.promise);
+      h.tab.getSettingDefinitions();
+
+      const on = h.tab.setControlValue('ui.device_designated', true);
+      const off = h.tab.setControlValue('ui.device_designated', false);
+      release.resolve();
+      await Promise.resolve();
+      take.resolve();
+      await Promise.all([on, off]);
+
+      expect(calls).toEqual(['take', 'release']);
+      expect(h.ctx.deviceDesignated).toBe(false);
+      await flushRejections();
+      expect(onUnhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('keeps applying later writes after an earlier write failed', async () => {
+    const h = makeHarness();
+    h.failSaves(new Error('disk full'));
+    h.tab.getSettingDefinitions();
+    const first = h.tab.setControlValue('advanced.dry_run_mode', true);
+    h.ctx.updateSettings = () => Promise.resolve();
+    const second = h.tab.setControlValue('ui.device_designated', false);
+    await Promise.all([first, second]);
+    expect(h.ctx.deviceDesignated).toBe(false);
+  });
+
+  it('logs a failed write through the plugin logger with the key and without the value', async () => {
+    const h = makeHarness();
+    h.failSaves(new Error('disk full'));
+    h.tab.getSettingDefinitions();
+    await h.tab.setControlValue('advanced.vault_prefix', 'secret-prefix');
+
+    expect(h.logger.error).toHaveBeenCalledTimes(1);
+    const [event, payload] = h.logger.error.mock.calls[0] as [string, Record<string, unknown>];
+    expect(event).toBe('setting_apply_failed');
+    expect(payload).toMatchObject({ key: 'advanced.vault_prefix' });
+    expect(JSON.stringify(payload)).not.toContain('secret-prefix');
   });
 
   it('coalesces rapid toggling inside 150 ms into one update() and saves the last value', async () => {
