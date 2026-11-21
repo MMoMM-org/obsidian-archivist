@@ -3,8 +3,8 @@
 // test hands the renderer a mock Setting whose name was already set to the
 // builder's internal name, then asserts the DOM looks like today's tab.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Setting, _setMockApiVersion, type ButtonComponent, type MockEl } from '../fixtures/obsidian-mock';
+import { describe, expect, it, vi } from 'vitest';
+import { Setting, type ButtonComponent, type MockEl } from '../fixtures/obsidian-mock';
 import { customRowRenderers } from '../../src/ui/settings/customRows';
 import type {
   ActionRowFieldSpec,
@@ -213,28 +213,6 @@ describe('customRowRenderers.actionRow', () => {
     expect([reauth._cta, upgrade._cta, disconnect._cta]).toEqual([false, true, false]);
     disconnect._onClick?.({});
     expect(onDisconnect).toHaveBeenCalledOnce();
-  });
-
-  describe('before Obsidian 1.13 (no setDestructive)', () => {
-    afterEach(() => _setMockApiVersion('1.14.4'));
-
-    it('falls back to the mod-warning class on destructive actions only', () => {
-      _setMockApiVersion('1.11.4');
-      const setting = suppliedSetting('Account');
-
-      customRowRenderers.actionRow(
-        asObsidian(setting),
-        actionRow([
-          { label: 'Re-authenticate', onClick: () => {} },
-          { label: 'Disconnect', destructive: true, onClick: () => {} },
-        ]),
-      );
-
-      const [reauth, disconnect] = setting._buttons;
-      expect(disconnect._destructive).toBe(false);
-      expect(el(disconnect.buttonEl).className).toBe('mod-warning');
-      expect(el(reauth.buttonEl).className).toBe('');
-    });
   });
 
   it('renders a lone neutral action (Connect) with neither destructive nor CTA styling', () => {

@@ -8,7 +8,7 @@
 // name (e.g. `banner:<code>`) is cleared from `nameEl` so it never leaks into
 // the UI. Only Setting and createEl APIs are used — no innerHTML.
 
-import { requireApiVersion, type ButtonComponent, type Setting } from 'obsidian';
+import type { Setting } from 'obsidian';
 import type {
   ActionRowFieldSpec,
   BannerSpec,
@@ -61,17 +61,6 @@ function renderLink(setting: Setting, spec: LinkFieldSpec): void {
   wrapper.createEl('a', { text: spec.label, href: spec.href, cls: 'archivist-doc-link' });
 }
 
-// setDestructive() arrived in Obsidian 1.13.0; minAppVersion is 1.11.4 until
-// spec 002 T3.3 raises it to 1.14.4, which can drop this guard. The fallback
-// applies the same `mod-warning` class the deprecated setWarning() set.
-function markDestructive(btn: ButtonComponent): void {
-  if (requireApiVersion('1.13.0')) {
-    btn.setDestructive();
-  } else {
-    btn.buttonEl.addClass('mod-warning');
-  }
-}
-
 function renderActionRow(setting: Setting, spec: ActionRowFieldSpec): void {
   setting.setName(spec.label);
   if (spec.description) setting.setDesc(spec.description);
@@ -79,7 +68,7 @@ function renderActionRow(setting: Setting, spec: ActionRowFieldSpec): void {
     setting.addButton((btn) => {
       btn.setButtonText(action.label).onClick(action.onClick);
       if (action.cta) btn.setCta();
-      if (action.destructive) markDestructive(btn);
+      if (action.destructive) btn.setDestructive();
     });
   }
 }

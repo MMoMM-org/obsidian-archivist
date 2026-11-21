@@ -40,12 +40,13 @@ describe('manifest.json', () => {
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it("minAppVersion equals '1.11.4' (ADR-21: required for app.secretStorage)", () => {
-    // ADR-21 bumps this from 1.5.0 → 1.11.4 because TokenStore now uses
-    // app.secretStorage (introduced in Obsidian 1.11.4). The
-    // obsidianmd/no-unsupported-api eslint rule enforces the matching pair
-    // at build time.
-    expect(manifest.minAppVersion).toBe('1.11.4');
+  it('minAppVersion is at least 1.11.4 (ADR-21: required for app.secretStorage)', () => {
+    // ADR-21 raised the floor from 1.5.0 to 1.11.4 because TokenStore uses
+    // app.secretStorage (introduced in Obsidian 1.11.4). Spec 002 raised it
+    // further; the exact current value is pinned in tests/release-metadata.test.ts,
+    // so this test only guards the secretStorage lower bound.
+    const [major, minor, patch] = String(manifest.minAppVersion).split('.').map(Number);
+    expect(major * 1e6 + minor * 1e3 + patch).toBeGreaterThanOrEqual(1 * 1e6 + 11 * 1e3 + 4);
   });
 
   it('isDesktopOnly is true (mobile deferred post-V1 per ADR-12)', () => {
