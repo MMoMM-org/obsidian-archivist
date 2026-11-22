@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Docs, integration and release readiness"
-status: in_progress
+status: completed
 version: "1.0"
 phase: 5
 ---
@@ -94,7 +94,7 @@ This phase closes the spec: user docs, an integration test across the whole tab,
   4. Validate: all lines pass.
   5. Success: the PRD acceptance criteria that only real Obsidian can show are confirmed `[ref: PRD/F1 AC2; PRD/F3 AC4; PRD/F7]`.
 
-- [ ] **T5.5 PR and release readiness** `[activity: build-platform]` `[ref: SDD/Constraints CON-4; PRD/F6 AC1, AC4]`
+- [x] **T5.5 PR and release readiness** `[activity: build-platform]` `[ref: SDD/Constraints CON-4; PRD/F6 AC1, AC4]`
 
   1. Prime:
      - Read `.github/PULL_REQUEST_TEMPLATE.md`.
@@ -112,7 +112,7 @@ This phase closes the spec: user docs, an integration test across the whole tab,
      - The PR is mergeable with all checks green `[ref: PRD/F6 AC3]`.
      - The follow-ups for the scorecard `[ref: PRD/F6 AC1]` and Dependabot `[ref: PRD/F6 AC4]` are tracked.
 
-- [ ] **T5.6 Phase Validation** `[activity: validate]` `[ref: SDD/Quality Requirements; PRD/Success Metrics]`
+- [x] **T5.6 Phase Validation** `[activity: validate]` `[ref: SDD/Quality Requirements; PRD/Success Metrics]`
 
   - Success: every row of the traceability table below is satisfied and ticked `[ref: PRD/F1–F8]`.
 
@@ -124,36 +124,36 @@ This phase closes the spec: user docs, an integration test across the whole tab,
 
 ## PRD → task traceability
 
-| PRD criterion | Task(s) |
-|---|---|
-| F1 AC1 (every inventory row findable) | T3.1, T5.3, T5.4 |
-| F1 AC2 (result opens the tab) | T5.4 |
-| F1 AC3 (hidden rows not in search) | T4.1, T5.4 |
-| F1 AC4 (Dropbox row in both states) | T3.2, T5.3 |
-| F1 AC5 (informational text not required) | T2.2, T5.3 |
-| F2 AC1 (same sections, rows, labels) | T2.1, T3.1, T5.2, T5.3 |
-| F2 AC2 (header and banners at top) | T2.3, T3.1 |
-| F2 AC3 (0.11.x values kept) | T5.3 |
-| F2 AC4 (saves to the same setting) | T3.1, T5.3 |
-| F2 AC5 (inline error for HH:MM / vault folder) | T2.2, T5.4 |
-| F2 AC6 (silent rejection kept) | T3.1 |
-| F2 AC7 (designated toggle side effects) | T2.1, T3.1 |
-| F2 AC8 (STORAGE banner threshold) | T3.1, T5.3 |
-| F3 AC1 (banners live) | T3.2, T5.4 |
-| F3 AC2 (Dropbox state live) | T3.2 |
-| F3 AC3 (background values, failure fallback) | T3.2 |
-| F3 AC4 (typing not lost) | T2.2 (control rows), T5.4 |
-| F3 AC5 (no visible work while closed) | T3.2 |
-| F4 AC1-2 (destructive styling) | T2.1, T2.3, T5.4 |
-| F5 AC1-2 (version floor, older users kept) | T3.3 |
-| F5 AC3 (docs) | T5.1 |
-| F5 AC4 (changelog calls it out) | T3.3 (`feat!` + `BREAKING CHANGE` footer) |
-| F6 AC1 (scorecard clean) | T5.5 (post-release `/obsidian-eval`) |
-| F6 AC2 (lint clean on 1.14.4) | T1.1, T3.3 |
-| F6 AC3 (tests pass, none deleted without replacement) | T1.2, T3.1, T5.5 |
-| F6 AC4 (Dependabot ignore lifted) | T5.5 |
-| F7 AC1-2 | T4.1, T5.4 |
-| F8 AC1-2 | T4.2, T5.4 |
+| PRD criterion | Task(s) | Status |
+|---|---|---|
+| F1 AC1 (every inventory row findable) | T3.1, T5.3, T5.4 | ✅ |
+| F1 AC2 (result opens the tab) | T5.4 | ✅ |
+| F1 AC3 (hidden rows not in search) | T4.1, T5.4 | ✅ |
+| F1 AC4 (Dropbox row in both states) | T3.2, T5.3 | ✅ |
+| F1 AC5 (informational text not required) | T2.2, T5.3 | ✅ |
+| F2 AC1 (same sections, rows, labels) | T2.1, T3.1, T5.2, T5.3 | ✅ |
+| F2 AC2 (header and banners at top) | T2.3, T3.1 | ✅ |
+| F2 AC3 (0.11.x values kept) | T5.3 | ✅ |
+| F2 AC4 (saves to the same setting) | T3.1, T5.3 | ✅ |
+| F2 AC5 (inline error for HH:MM / vault folder) | T2.2, T5.4 | ✅ |
+| F2 AC6 (silent rejection kept) | T3.1 | ✅ |
+| F2 AC7 (designated toggle side effects) | T2.1, T3.1 | ✅ |
+| F2 AC8 (STORAGE banner threshold) | T3.1, T5.3 | ✅ |
+| F3 AC1 (banners live) | T3.2, T5.4 | ✅ |
+| F3 AC2 (Dropbox state live) | T3.2 | ✅ |
+| F3 AC3 (background values, failure fallback) | T3.2 | ✅ |
+| F3 AC4 (typing not lost) | T2.2 (control rows), T5.4 | ✅ |
+| F3 AC5 (no visible work while closed) | T3.2 | ✅ |
+| F4 AC1-2 (destructive styling) | T2.1, T2.3, T5.4 | ✅ |
+| F5 AC1-2 (version floor, older users kept) | T3.3 | ✅ |
+| F5 AC3 (docs) | T5.1 | ✅ |
+| F5 AC4 (changelog calls it out) | T3.3 (`feat!` + `BREAKING CHANGE` footer) | ✅ |
+| F6 AC1 (scorecard clean) | T5.5 (post-release `/obsidian-eval`) | ⏳ tracked on #54 (post-merge) |
+| F6 AC2 (lint clean on 1.14.4) | T1.1, T3.3 | ✅ |
+| F6 AC3 (tests pass, none deleted without replacement) | T1.2, T3.1, T5.5 | ✅ |
+| F6 AC4 (Dependabot ignore lifted) | T5.5 | ⏳ tracked on #54 (post-merge) |
+| F7 AC1-2 | T4.1, T5.4 | ✅ |
+| F8 AC1-2 | T4.2, T5.4 | ✅ |
 
 ## Verification log
 
@@ -172,7 +172,9 @@ Run 1, 2026-11-21: user, test vault `test/Archivist/`, Obsidian 1.14.4, build `0
 | 9 | Invalid HH:MM shows an inline error | ✅ |
 | 10 | Looks like 0.11.x apart from group headings | ❌ Toggling "Active backup window" on/off duplicates render rows: the static "…tokens are kept in Obsidian…" sentence appears three times in a row, and the version header repeats too. Cause: render rows re-rendered by `update()` stack content; fix in T2.3's `customRows.ts` (see Deviations) |
 
-Run 2, 2026-11-22: user, same vault, build with 775199f + ee4a3e6. Re-check of #10 only.
+Coverage (T5.3, measured 2026-11-22): `SettingsTab.ts` 96.66 % lines, `src/ui/settings/**` 100 %.
+
+Run 2, 2026-11-22: user, same vault, build with 9c2f092 + 40b62a3. Re-check of #10 only.
 
 | # | Check | Result |
 |---|---|---|
@@ -184,4 +186,4 @@ Run 2, 2026-11-22: user, same vault, build with 775199f + ee4a3e6. Re-check of #
 |---|---|---|---|
 | 2026-11-21 | PRD risk row "explicit regression test" for the typing-wipe is met by a structural automated guard (all text-entry rows are `control` rows) plus manual T5.4, not a behavioural unit test | The test mock cannot reproduce Obsidian's keyed re-render; the structural property is what guarantees the behaviour in the 1.14.4 runtime | Yes, at spec validation |
 | 2026-11-21 | T5.1/T5.2 doc-quality fixes made by the orchestrator directly (README minimum, hedged troubleshooting checklist, one-line headings CSS note), not by a re-dispatched implementer | Mechanical doc edits; spec + code-quality reviews ran on them | Yes, at T5.4 |
-| 2026-11-21 | T5.4 found render rows duplicating on `update()` (header, static text). Fix in T2.3's `customRows.ts`: renderers return a cleanup, and `drawIntoInfo` (WeakMap) drops the previous element before redrawing (775199f, ee4a3e6) | Obsidian reuses a render row's Setting: cleanup → `clear()` (controlEl only) → setName/setDesc → render, verified in the 1.15.x app.asar. The earlier claim "render rows are always rebuilt" was wrong. The WeakMap guard holds even if 1.14.4 never runs the cleanup between passes. Banner and actionRow buttons rely on Obsidian's `clear()` | Yes, at T5.4 |
+| 2026-11-21 | T5.4 found render rows duplicating on `update()` (header, static text). Fix in T2.3's `customRows.ts`: renderers return a cleanup, and `drawIntoInfo` (WeakMap) drops the previous element before redrawing (9c2f092, 40b62a3) | Obsidian reuses a render row's Setting: cleanup → `clear()` (controlEl only) → setName/setDesc → render, verified on 1.15.x (app.asar), guarded for 1.14.4. The earlier claim "render rows are always rebuilt" was wrong. The WeakMap guard holds even if 1.14.4 never runs the cleanup between passes. Banner and actionRow buttons rely on Obsidian's `clear()` | Yes, at T5.4 |
