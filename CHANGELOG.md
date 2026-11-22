@@ -1,3 +1,16 @@
+## [0.12.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.7...0.12.0) (2026-11-22)
+
+### ⚠ BREAKING CHANGES
+
+* Archivist now requires Obsidian 1.14.4 or newer. Installs on older Obsidian stay on the last 0.11.x release; update Obsidian to receive 0.12.0 and later.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UDmBgiqBAaJhyCv7qTcEop
+
+### Features
+
+* declarative settings — searchable in Obsidian settings search ([#116](https://github.com/MMoMM-org/obsidian-archivist/issues/116)) ([e5bd370](https://github.com/MMoMM-org/obsidian-archivist/commit/e5bd370ce11040230cf0c7965550d533fd444e22)), closes [#54](https://github.com/MMoMM-org/obsidian-archivist/issues/54)
+
 ## [0.11.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.6...0.11.7) (2026-08-31)
 
 ### Bug Fixes
