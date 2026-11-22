@@ -5,10 +5,10 @@
 | Field | Value |
 |-------|-------|
 | **Created** | 2026-11-20 |
-| **Current Phase** | Ready |
+| **Current Phase** | Implemented |
 | **Decomposition tier** | Incremental |
 | **Model tier** | hard |
-| **Last Updated** | 2026-11-21 |
+| **Last Updated** | 2026-11-22 |
 
 ## Documents
 
@@ -47,6 +47,7 @@
 | 2026-11-21 | Plan written: 5 phases, 20 tasks | Incremental tier; TDD per task; T3.3 ships as `feat!` → 0.12.0 (`.releaserc` breaking→minor keeps pre-1.0). |
 | 2026-11-21 | Spec validation (4 perspectives): 5 FAIL / ~20 WARN, all fixed | Key corrections: Obsidian `debounce` 3rd arg is `resetTimer` (→ `false`, not leading-edge); versions.json snapshot (old entries map to 1.5.0); refresh guard `try/finally`; Constitution L1 write-failure + ownership-failure tests; NoticeCenter path `src/ui/`; explicit F8 synonym table; evolution/2026-11 entry; T4.1→T4.2 serialised (shared file). Typing-wipe test downgraded to structural guard + manual check — logged as deviation in plan/phase-5.md. |
 | 2026-11-21 | Phase → Ready | PRD, SDD, PLAN complete; readiness HIGH. |
+| 2026-11-22 | Implementation complete | PR #116 (feat/54-declarative-settings, rebased on 0.11.7). Phases 1–5 done; 1630 tests, lint 0 errors, CI green. minAppVersion 1.11.4 → 1.14.4, `feat!` → release 0.12.0. Post-merge follow-ups (Dependabot unignore, scorecard re-check, optional handoff) tracked on #54. |
 
 ## Research Summary
 
