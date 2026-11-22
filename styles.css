@@ -34,23 +34,7 @@
 	color: var(--text-faint);
 }
 
-/* ─── Section headings: left-aligned + dividers between sections ─── */
-
-.archivist-settings h2 {
-	text-align: left;
-	margin-top: 28px;
-	padding-top: 18px;
-	border-top: 1px solid var(--background-modifier-border);
-	font-size: var(--font-ui-medium);
-	font-weight: var(--font-semibold);
-	color: var(--text-normal);
-}
-
-.archivist-settings h2:first-of-type {
-	margin-top: 8px;
-	padding-top: 0;
-	border-top: none;
-}
+/* Section headings are Obsidian-rendered setting groups (no custom rules). */
 
 /* ─── Static descriptive paragraphs ──────────────────────────────── */
 
@@ -74,19 +58,6 @@
 
 .archivist-settings .archivist-doc-link:hover {
 	text-decoration: underline;
-}
-
-/* ─── Inline validation errors (renderText) ──────────────────────── */
-
-.archivist-settings .archivist-validation-error {
-	color: var(--text-error);
-	font-size: var(--font-smallest);
-	padding: 4px 0 6px 0;
-	margin-top: -4px;
-}
-
-.archivist-settings .archivist-validation-error.is-hidden {
-	display: none;
 }
 
 /* ─── Persistent banners (NoticeCenter) ──────────────────────────── */

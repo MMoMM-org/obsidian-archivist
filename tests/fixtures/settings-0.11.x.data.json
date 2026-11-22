@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.1",
+  "vault_id": "5b1f7c2e-8d4a-4e3b-9a61-0c2d7e9f4a18",
+  "settings": {
+    "schema_version": "1.1",
+    "retention": {
+      "always_keep_n": 5,
+      "never_prune_window_days": 7,
+      "recent_hours": 48,
+      "daily_days": 45,
+      "monthly_years": 5,
+      "storage_hard_limit_gb": 50,
+      "storage_warn_at_percent": 90
+    },
+    "schedule": {
+      "full_cadence": "biweekly",
+      "full_day_of_week": 3,
+      "full_time_of_day": "02:30",
+      "inc_interval_minutes": 30,
+      "active_window_enabled": true,
+      "active_window_start": "07:15",
+      "active_window_end": "23:45",
+      "startup_grace_minutes": 20,
+      "quiet_after_event_minutes": 5
+    },
+    "notifications": {
+      "preflight_notice_enabled": false,
+      "toast_after_inc": true,
+      "toast_after_full": false,
+      "toast_on_error": false
+    },
+    "advanced": {
+      "reconcile_scan_enabled": false,
+      "exclusion_globs": ["Private/**", "*.tmp"],
+      "dry_run_mode": true,
+      "vault_prefix": "my-vault_01",
+      "diagnostic_logging": true,
+      "upload_parallelism": 4,
+      "chunk_size_mb": 16
+    },
+    "ui": {
+      "preview_plugin_advisory_dismissed": true
+    }
+  }
+}

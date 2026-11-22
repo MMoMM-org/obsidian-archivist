@@ -478,34 +478,269 @@ export class Notice {
 // tests/fixtures/recording-section-host.ts). The stubs exist so modules that
 // `import { PluginSettingTab, Setting } from 'obsidian'` can load in vitest.
 
-export class PluginSettingTab {
-  app: App;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  plugin: any;
-  containerEl: { empty: () => void; createEl: (...args: unknown[]) => unknown; createDiv: (...args: unknown[]) => unknown };
+// SettingTab — Obsidian 1.13+ declarative surface (spec 002, T1.2). Mirrors
+// 1.14.4 runtime behaviour: update() re-runs getSettingDefinitions() and
+// stores the result in settingItems; refreshDomState() is a recording no-op
+// (the mock has no DOM to re-evaluate predicates against). Definitions are
+// typed loosely — src compiles against the real d.ts, not this mock.
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(app: App, plugin: any) {
+type MockContainerEl = {
+  /** Test introspection: classes added via addClass(), in order. */
+  _classes: string[];
+  addClass: (...classes: string[]) => void;
+  empty: () => void;
+  createEl: (...args: unknown[]) => unknown;
+  createDiv: (...args: unknown[]) => unknown;
+};
+
+function makeMockContainerEl(): MockContainerEl {
+  const classes: string[] = [];
+  return {
+    _classes: classes,
+    addClass: (...cls: string[]): void => {
+      for (const c of cls) if (classes.indexOf(c) === -1) classes.push(c);
+    },
+    empty: (): void => {},
+    createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+    createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
+  };
+}
+
+function readDotted(root: unknown, key: string): unknown {
+  let node: unknown = root;
+  for (const part of key.split('.')) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node;
+}
+
+function writeDotted(root: Record<string, unknown>, key: string, value: unknown): void {
+  const parts = key.split('.');
+  const last = parts.pop() as string;
+  let node = root;
+  for (const part of parts) {
+    const next = node[part];
+    if (next === null || typeof next !== 'object') node[part] = {};
+    node = node[part] as Record<string, unknown>;
+  }
+  node[last] = value;
+}
+
+export class SettingTab {
+  app: App;
+  containerEl: MockContainerEl;
+  settingItems: unknown[] = [];
+
+  /** Test introspection: number of update() calls. */
+  _updateCalls = 0;
+  /** Test introspection: number of refreshDomState() calls. */
+  _refreshDomStateCalls = 0;
+  /** Test introspection: every setControlValue(key, value) call, in order. */
+  _setControlValueCalls: Array<[string, unknown]> = [];
+  /** Backing store for the base getControlValue/setControlValue (stands in for vault config). */
+  _config: Record<string, unknown> = {};
+
+  constructor(app: App) {
     this.app = app;
-    this.plugin = plugin;
-    this.containerEl = {
-      empty: (): void => {},
-      createEl: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
-      createDiv: (): unknown => ({ createEl: (): unknown => ({}), createSpan: (): unknown => ({}) }),
-    };
+    this.containerEl = makeMockContainerEl();
+  }
+
+  getSettingDefinitions(): unknown[] {
+    return [];
+  }
+
+  update(): void {
+    this._updateCalls += 1;
+    this.settingItems = this.getSettingDefinitions();
+  }
+
+  getControlValue(key: string): unknown {
+    return readDotted(this._config, key);
+  }
+
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    this._setControlValueCalls.push([key, value]);
+    writeDotted(this._config, key, value);
+  }
+
+  refreshDomState(): void {
+    this._refreshDomStateCalls += 1;
   }
 
   display(): void {}
   hide(): void {}
 }
 
-export class Setting {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  constructor(_container: unknown) {}
-  setName(_n: string): this {
+export class PluginSettingTab extends SettingTab {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  plugin: any;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  constructor(app: App, plugin: any) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  /** Reads `this.plugin.settings` by dotted key, like 1.14.4. */
+  getControlValue(key: string): unknown {
+    return readDotted(this.plugin?.settings, key);
+  }
+
+  /** Mutates `this.plugin.settings` by dotted key and persists via saveData. */
+  setControlValue(key: string, value: unknown): void | Promise<void> {
+    this._setControlValueCalls.push([key, value]);
+    if (this.plugin.settings === null || typeof this.plugin.settings !== 'object') this.plugin.settings = {};
+    writeDotted(this.plugin.settings, key, value);
+    if (typeof this.plugin.saveData === 'function') return this.plugin.saveData(this.plugin.settings);
+  }
+}
+
+// ButtonComponent — recording stub (spec 002, T1.2). Tracks the styling state
+// so later phases can assert destructive / CTA styling without a DOM.
+export class ButtonComponent {
+  buttonEl: unknown;
+  _destructive = false;
+  _cta = false;
+  _disabled = false;
+  _text = '';
+  _tooltip = '';
+  _onClick: ((evt: unknown) => unknown) | null = null;
+
+  constructor(containerEl: unknown) {
+    this.buttonEl = containerEl;
+  }
+
+  setButtonText(text: string): this {
+    this._text = text;
     return this;
   }
-  setDesc(_d: string): this {
+  setTooltip(tooltip: string): this {
+    this._tooltip = tooltip;
+    return this;
+  }
+  setDisabled(disabled: boolean): this {
+    this._disabled = disabled;
+    return this;
+  }
+  setCta(): this {
+    this._cta = true;
+    return this;
+  }
+  removeCta(): this {
+    this._cta = false;
+    return this;
+  }
+  setDestructive(): this {
+    this._destructive = true;
+    return this;
+  }
+  removeDestructive(): this {
+    this._destructive = false;
+    return this;
+  }
+  onClick(cb: (evt: unknown) => unknown): this {
+    this._onClick = cb;
+    return this;
+  }
+}
+
+// debounce — Obsidian semantics (verified on 1.14.4). The third argument is
+// resetTimer, NOT leading-edge: with false a burst fires once, `timeout` ms
+// after the FIRST call; with true every call pushes the timer out, so it
+// fires `timeout` ms after the LAST call. The latest arguments win. Driven by
+// window.setTimeout so vitest fake timers control it.
+
+export interface Debouncer<T extends unknown[], V> {
+  (...args: [...T]): this;
+  cancel(): this;
+  run(): V | void;
+}
+
+export function debounce<T extends unknown[], V>(
+  cb: (...args: [...T]) => V,
+  timeout = 0,
+  resetTimer = false,
+): Debouncer<T, V> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingArgs: [...T] | null = null;
+
+  const fire = (): V => {
+    timer = null;
+    const args = pendingArgs as [...T];
+    pendingArgs = null;
+    return cb(...args);
+  };
+
+  const debounced = function (...args: [...T]): Debouncer<T, V> {
+    pendingArgs = args;
+    if (timer !== null) {
+      if (!resetTimer) return debounced;
+      window.clearTimeout(timer);
+    }
+    timer = window.setTimeout(fire, timeout);
+    return debounced;
+  } as Debouncer<T, V>;
+
+  debounced.cancel = (): Debouncer<T, V> => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+    pendingArgs = null;
+    return debounced;
+  };
+
+  debounced.run = (): V | void => {
+    if (timer === null) return undefined;
+    window.clearTimeout(timer);
+    return fire();
+  };
+
+  return debounced;
+}
+
+// Setting — element-backed stub (spec 002, T2.3). Mirrors the real row
+// structure (settingEl > infoEl > nameEl + descEl, controlEl) so custom-row
+// renderers can draw into the Setting they are handed. addButton creates a
+// recording ButtonComponent; `_buttons` keeps them in creation order.
+function isMockEl(value: unknown): value is MockEl {
+  return typeof value === 'object' && value !== null && Array.isArray((value as MockEl).children);
+}
+
+export class Setting {
+  settingEl: MockEl;
+  infoEl: MockEl;
+  nameEl: MockEl;
+  descEl: MockEl;
+  controlEl: MockEl;
+  /** Test introspection: every ButtonComponent created by addButton, in order. */
+  _buttons: ButtonComponent[] = [];
+
+  constructor(container: unknown) {
+    this.settingEl = makeMockEl('div');
+    this.settingEl.className = 'setting-item';
+    this.infoEl = this.settingEl.createDiv({ cls: 'setting-item-info' });
+    this.nameEl = this.infoEl.createDiv({ cls: 'setting-item-name' });
+    this.descEl = this.infoEl.createDiv({ cls: 'setting-item-description' });
+    this.controlEl = this.settingEl.createDiv({ cls: 'setting-item-control' });
+    if (isMockEl(container)) appendChild(container, this.settingEl);
+  }
+  /** Mirrors Setting.clear() in the 1.15.x runtime: only controlEl is emptied. */
+  clear(): this {
+    this.controlEl.empty();
+    this._buttons = [];
+    this.settingEl.removeClass('is-invalid');
+    return this;
+  }
+  setName(n: string): this {
+    this.nameEl.setText(n);
+    return this;
+  }
+  setDesc(d: string): this {
+    this.descEl.setText(d);
+    return this;
+  }
+  setClass(cls: string): this {
+    this.settingEl.addClass(cls);
     return this;
   }
   addText(_cb: (t: unknown) => void): this {
@@ -520,12 +755,66 @@ export class Setting {
   addDropdown(_cb: (d: unknown) => void): this {
     return this;
   }
-  addButton(_cb: (b: unknown) => void): this {
+  addButton(cb: (b: ButtonComponent) => unknown): this {
+    const button = new ButtonComponent(this.controlEl.createEl('button'));
+    this._buttons.push(button);
+    cb(button);
     return this;
   }
   addSlider(_cb: (s: unknown) => void): this {
     return this;
   }
+}
+
+// _reconcileRenderRow — what Obsidian 1.14/1.15 does with a `render` row on
+// every render pass. A row whose key survives update() keeps its Setting; the
+// runtime then runs the previous render's cleanup, calls Setting.clear(),
+// resets name and description from the definition and calls render again on
+// that same Setting (app.js: `yoe(h); h.setting.clear(); uoe(h, ...)`).
+interface RenderRowDef {
+  name?: string;
+  desc?: string;
+  render: (setting: Setting, group: unknown) => void | (() => void);
+}
+
+const renderCleanups = new WeakMap<Setting, () => void>();
+
+/**
+ * `runCleanup: false` models a runtime that only runs a render's cleanup on
+ * teardown, never between passes — renderers must stay idempotent without it.
+ */
+export function _reconcileRenderRow(
+  setting: Setting,
+  def: RenderRowDef,
+  { runCleanup = true }: { runCleanup?: boolean } = {},
+): void {
+  const cleanup = renderCleanups.get(setting);
+  renderCleanups.delete(setting);
+  if (runCleanup) cleanup?.();
+  setting.clear();
+  setting.setName(def.name ?? '');
+  setting.setDesc(def.desc ?? '');
+  const next = def.render(setting, {});
+  if (next) renderCleanups.set(setting, next);
+}
+
+// requireApiVersion — numeric dotted-version compare against a mock runtime
+// version (default 1.14.4). Tests downgrade it with _setMockApiVersion to
+// exercise pre-1.13 fallbacks, and restore it afterwards.
+let mockApiVersion = '1.14.4';
+
+export function _setMockApiVersion(version: string): void {
+  mockApiVersion = version;
+}
+
+export function requireApiVersion(version: string): boolean {
+  const have = mockApiVersion.split('.').map(Number);
+  const need = version.split('.').map(Number);
+  for (let i = 0; i < Math.max(have.length, need.length); i++) {
+    const diff = (have[i] ?? 0) - (need[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return true;
 }
 
 export function setIcon(_el: unknown, _iconName: string): void {}
@@ -568,13 +857,14 @@ export interface MockEl {
   listeners: Map<string, Array<(e: { key: string; preventDefault: () => void }) => void>>;
   createEl<T extends string>(
     tag: T,
-    opts?: { text?: string; cls?: string; attr?: Record<string, string> },
+    opts?: { text?: string; cls?: string; href?: string; attr?: Record<string, string> },
   ): MockEl;
   createDiv(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
   createSpan(opts?: { text?: string; cls?: string; attr?: Record<string, string> }): MockEl;
+  /** Replace all children with plain text (mirrors Obsidian HTMLElement.setText). */
   setText(text: string): void;
-  addClass(cls: string): void;
-  removeClass(cls: string): void;
+  addClass(...classes: string[]): void;
+  removeClass(...classes: string[]): void;
   /** Detach the element from its parent (mirrors HTMLElement.remove()). */
   remove(): void;
   /** Remove all child elements (mirrors Obsidian HTMLElement.empty()). */
@@ -598,6 +888,15 @@ export interface MockEl {
   querySelectorAll<T extends MockEl = MockEl>(selector: string): T[];
 }
 
+// Child -> parent links for remove(). A WeakMap rather than a `parent` field so
+// MockEl trees stay acyclic for deep-equality assertions.
+const parentOf = new WeakMap<MockEl, MockEl>();
+
+function appendChild(parent: MockEl, child: MockEl): void {
+  parent.children.push(child);
+  parentOf.set(child, parent);
+}
+
 function makeMockEl(tag: string): MockEl {
   const el: MockEl = {
     tagName: tag,
@@ -612,7 +911,8 @@ function makeMockEl(tag: string): MockEl {
       if (opts.text !== undefined) child.textContent = opts.text;
       if (opts.cls !== undefined) child.className = opts.cls;
       if (opts.attr) child.attrs = { ...opts.attr };
-      el.children.push(child);
+      if (opts.href !== undefined) child.attrs.href = opts.href;
+      appendChild(el, child);
       return child;
     },
     createDiv(opts = {}) {
@@ -626,21 +926,24 @@ function makeMockEl(tag: string): MockEl {
       return el.createEl('span', opts);
     },
     setText(text) {
+      el.children.length = 0;
       el.textContent = text;
     },
-    addClass(cls) {
+    addClass(...classes) {
       const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
-      if (!tokens.includes(cls)) tokens.push(cls);
+      for (const cls of classes) if (!tokens.includes(cls)) tokens.push(cls);
       el.className = tokens.join(' ');
     },
-    removeClass(cls) {
+    removeClass(...classes) {
       const tokens = el.className ? el.className.split(/\s+/).filter(Boolean) : [];
-      el.className = tokens.filter((t) => t !== cls).join(' ');
+      el.className = tokens.filter((t) => !classes.includes(t)).join(' ');
     },
     remove() {
-      // Detach is a no-op in this stub; tests that need parent-child tracking
-      // would need a richer scaffold. Existing tests only assert teardown is
-      // called, not the parent-side state.
+      const parent = parentOf.get(el);
+      if (!parent) return;
+      const idx = parent.children.indexOf(el);
+      if (idx >= 0) parent.children.splice(idx, 1);
+      parentOf.delete(el);
     },
     empty() {
       el.children.length = 0;

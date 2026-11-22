@@ -2,34 +2,64 @@
 //
 // Each renderer (renderBackupSchedule / renderRetention / ...) takes a
 // SectionHost and describes the UI declaratively. Production wiring
-// (SettingsTab.display) constructs an `ObsidianSectionHost` that materialises
-// each call as `new Setting(containerEl)...` per Obsidian's plugin API; tests
-// pass a `RecordingSectionHost` that collects a flat list of field specs and
-// asserts structure without touching the DOM.
+// (ArchivistSettingTab.getSettingDefinitions) passes a `DefinitionBuilderHost`
+// that turns each call into an Obsidian setting definition; tests pass a
+// `RecordingSectionHost` that collects a flat list of field specs and asserts
+// structure without touching the DOM.
 //
 // Invariant: NO direct `innerHTML` or `createElement` in the renderers — only
-// the ObsidianSectionHost implementation touches DOM, and it routes every
-// field through Obsidian's Setting class (CSP + plugin-review requirement).
+// settings/customRows.ts touches DOM, inside the `Setting` Obsidian hands to
+// each render row (CSP + plugin-review requirement).
 
-export interface TextFieldSpec {
+import type { Setting } from 'obsidian';
+
+/**
+ * Declarative-settings metadata shared by every row kind (spec 002).
+ * Search synonyms come from `S.ALIASES_*` (PRD F8).
+ */
+export interface RowMeta {
+  /** Evaluated on each render; absent = always visible. */
+  visible?: () => boolean;
+  /** Extra search terms. Only meaningful on searchable rows. */
+  aliases?: readonly string[];
+}
+
+/**
+ * Input kinds persist a value, so each carries a stable `key`: the dotted
+ * `PluginSettings` path it edits (e.g. `schedule.full_cadence`), unique within
+ * its section. Rows that are not backed by `data.json` use the reserved `ui.`
+ * prefix (e.g. `ui.device_designated`).
+ */
+export interface InputMeta extends RowMeta {
+  key: string;
+}
+
+/**
+ * What an input's `onChange` may return. A returned promise (the save or
+ * ownership call) is awaited and caught by the settings tab, so a failure
+ * never becomes an unhandled rejection.
+ */
+export type OnChangeResult = void | Promise<void>;
+
+export interface TextFieldSpec extends InputMeta {
   kind: 'text';
   label: string;
   description?: string;
   value: string;
   placeholder?: string;
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
   validate?: (v: string) => string | null;
 }
 
-export interface ToggleFieldSpec {
+export interface ToggleFieldSpec extends InputMeta {
   kind: 'toggle';
   label: string;
   description?: string;
   value: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (v: boolean) => OnChangeResult;
 }
 
-export interface NumberFieldSpec {
+export interface NumberFieldSpec extends InputMeta {
   kind: 'number';
   label: string;
   description?: string;
@@ -37,7 +67,7 @@ export interface NumberFieldSpec {
   min?: number;
   max?: number;
   step?: number;
-  onChange: (v: number) => void;
+  onChange: (v: number) => OnChangeResult;
   validate?: (v: number) => string | null;
 }
 
@@ -46,25 +76,25 @@ export interface DropdownOption {
   label: string;
 }
 
-export interface DropdownFieldSpec {
+export interface DropdownFieldSpec extends InputMeta {
   kind: 'dropdown';
   label: string;
   description?: string;
   value: string;
   options: DropdownOption[];
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
 }
 
-export interface TextareaFieldSpec {
+export interface TextareaFieldSpec extends InputMeta {
   kind: 'textarea';
   label: string;
   description?: string;
   value: string;
-  onChange: (v: string) => void;
+  onChange: (v: string) => OnChangeResult;
   validate?: (v: string) => string | null;
 }
 
-export interface SliderFieldSpec {
+export interface SliderFieldSpec extends InputMeta {
   kind: 'slider';
   label: string;
   description?: string;
@@ -72,10 +102,10 @@ export interface SliderFieldSpec {
   min: number;
   max: number;
   step: number;
-  onChange: (v: number) => void;
+  onChange: (v: number) => OnChangeResult;
 }
 
-export interface ButtonFieldSpec {
+export interface ButtonFieldSpec extends RowMeta {
   kind: 'button';
   label: string;
   cta?: boolean;
@@ -88,20 +118,20 @@ export interface ButtonFieldSpec {
  * where the "stateful display" (Connected as …) and the "actions" (Re-auth /
  * Disconnect) belong together visually rather than as separate Setting rows.
  */
-export interface ActionRowFieldSpec {
+export interface ActionRowFieldSpec extends RowMeta {
   kind: 'actionRow';
   label: string;
   description?: string;
   actions: Array<{
     label: string;
     cta?: boolean;
-    /** Renders with Obsidian's `mod-warning` class — used for destructive actions. */
-    warning?: boolean;
+    /** Marks a destructive action (e.g. Disconnect); styled as destructive by the host. */
+    destructive?: boolean;
     onClick: () => void;
   }>;
 }
 
-export interface ReadOnlyFieldSpec {
+export interface ReadOnlyFieldSpec extends RowMeta {
   kind: 'readonly';
   label: string;
   description?: string;
@@ -109,18 +139,18 @@ export interface ReadOnlyFieldSpec {
   copyable?: boolean;
 }
 
-export interface StaticTextSpec {
+export interface StaticTextSpec extends RowMeta {
   kind: 'static';
   text: string;
 }
 
-export interface LinkFieldSpec {
+export interface LinkFieldSpec extends RowMeta {
   kind: 'link';
   label: string;
   href: string;
 }
 
-export interface BannerSpec {
+export interface BannerSpec extends RowMeta {
   kind: 'banner';
   code: string;
   message: string;
@@ -156,4 +186,26 @@ export interface SectionHost {
    * renderers can request top-level banner placement.
    */
   topBanner(spec: BannerSpec): void;
+}
+
+/** Plugin identity shown in the settings-tab header row. */
+export interface HeaderInfo {
+  pluginName: string;
+  version: string;
+  /** Display name with any `<email>` suffix already stripped; absent = no author link. */
+  authorName?: string;
+  authorUrl?: string;
+  docsUrl: string;
+}
+
+/**
+ * Draws the non-input rows into an Obsidian `Setting` the declarative builder
+ * hands over. A returned function is the row's cleanup hook.
+ */
+export interface CustomRowRenderers {
+  header(setting: Setting, info: HeaderInfo): void | (() => void);
+  banner(setting: Setting, spec: BannerSpec): void | (() => void);
+  static(setting: Setting, spec: StaticTextSpec): void | (() => void);
+  link(setting: Setting, spec: LinkFieldSpec): void | (() => void);
+  actionRow(setting: Setting, spec: ActionRowFieldSpec): void | (() => void);
 }

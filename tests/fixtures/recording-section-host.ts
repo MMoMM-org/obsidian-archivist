@@ -1,13 +1,25 @@
 // Recording SectionHost — test utility. Collects every heading/field/banner
 // call made by a section renderer so tests can assert against the spec list
 // without touching the DOM.
+//
+// Declarative metadata (spec 002): each recorded field also captures the
+// spec's `key` (input kinds only), `visible` and `aliases`. `findField`
+// mirrors Obsidian, which hides a row whose `visible()` returns false — pass
+// `{ includeHidden: true }` to look up such a row anyway.
 
-import type { BannerSpec, FieldSpec, SectionHost } from '../../src/ui/settings/SectionHost';
+import type { BannerSpec, FieldSpec, RowMeta, SectionHost } from '../../src/ui/settings/SectionHost';
+
+export type RecordedField = { kind: 'field'; spec: FieldSpec; key?: string } & RowMeta;
 
 export type RecordedEntry =
   | { kind: 'heading'; text: string }
-  | { kind: 'field'; spec: FieldSpec }
+  | RecordedField
   | { kind: 'topBanner'; spec: BannerSpec };
+
+export interface FindFieldOptions {
+  /** Also return specs whose `visible()` currently returns false. */
+  includeHidden?: boolean;
+}
 
 export class RecordingSectionHost implements SectionHost {
   readonly entries: RecordedEntry[] = [];
@@ -17,7 +29,8 @@ export class RecordingSectionHost implements SectionHost {
   }
 
   field(spec: FieldSpec): void {
-    this.entries.push({ kind: 'field', spec });
+    const key = 'key' in spec ? spec.key : undefined;
+    this.entries.push({ kind: 'field', spec, key, visible: spec.visible, aliases: spec.aliases });
   }
 
   topBanner(spec: BannerSpec): void {
@@ -30,17 +43,29 @@ export class RecordingSectionHost implements SectionHost {
     return this.entries.filter((e): e is { kind: 'heading'; text: string } => e.kind === 'heading').map((e) => e.text);
   }
 
+  fieldEntries(): RecordedField[] {
+    return this.entries.filter((e): e is RecordedField => e.kind === 'field');
+  }
+
   fields(): FieldSpec[] {
-    return this.entries.filter((e): e is { kind: 'field'; spec: FieldSpec } => e.kind === 'field').map((e) => e.spec);
+    return this.fieldEntries().map((e) => e.spec);
   }
 
   topBanners(): BannerSpec[] {
     return this.entries.filter((e): e is { kind: 'topBanner'; spec: BannerSpec } => e.kind === 'topBanner').map((e) => e.spec);
   }
 
-  findField<K extends FieldSpec['kind']>(kind: K, label: string): Extract<FieldSpec, { kind: K }> | undefined {
-    return this.fields().find(
-      (f) => f.kind === kind && 'label' in f && f.label === label,
-    ) as Extract<FieldSpec, { kind: K }> | undefined;
+  findField<K extends FieldSpec['kind']>(
+    kind: K,
+    label: string,
+    options: FindFieldOptions = {},
+  ): Extract<FieldSpec, { kind: K }> | undefined {
+    return this.fieldEntries().find(
+      (e) =>
+        e.spec.kind === kind &&
+        'label' in e.spec &&
+        e.spec.label === label &&
+        (options.includeHidden === true || e.visible === undefined || e.visible()),
+    )?.spec as Extract<FieldSpec, { kind: K }> | undefined;
   }
 }

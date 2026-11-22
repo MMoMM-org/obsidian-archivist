@@ -1,33 +1,42 @@
-// SettingsTab — Obsidian PluginSettingTab host + section orchestration (T7.6).
+// SettingsTab — Archivist's declarative settings tab (spec 002, ADR-1/2/3).
 //
-// Five sections rendered top-to-bottom in the documented order:
-//   1. Backup Schedule   (T7.7)
-//   2. Retention         (T7.8)
-//   3. Notifications     (T7.9)
-//   4. Advanced          (T7.9)
-//   5. Dropbox           (T7.10)
+// Obsidian 1.13+ builds the tab from `getSettingDefinitions()`, which makes
+// every row searchable. This class is the thin Obsidian contract around the
+// five section renderers (src/ui/settings/sections/*.ts):
+//   - getSettingDefinitions: runs the header, the persistent banners and the
+//     sections through a fresh DefinitionBuilderHost and keeps the per-build
+//     key → spec registry.
+//   - getControlValue / setControlValue: route Obsidian's control reads and
+//     writes back to the emitting spec, behind the legacy write guard.
+//   - refresh orchestration (SDD Complex Logic): a NoticeCenter banner change
+//     and every header render (open + each re-render) feed a debounced
+//     update(); the header render re-fetches the async fields (device, Dropbox
+//     account, usage) and only schedules update() when a value changed, so the open →
+//     fetch → update → fetch loop stops after one round. refresh() forces the update().
 //
-// Each section's rendering logic lives in src/ui/settings/sections/*.ts as a
-// pure function that takes a SectionHost + context. This file:
-//   - Owns the PluginSettingTab lifecycle
-//   - Renders the persistent-banner slot at the top (driven by NoticeCenter)
-//   - Constructs an ObsidianSectionHost over the containerEl and delegates
-//     to each section renderer in order
-//   - Subscribes to NoticeCenter banner updates; re-renders on change
-//
-// Tests exercise section renderers directly with a RecordingSectionHost —
-// no DOM / PluginSettingTab machinery needed.
+// Sections stay DOM-free and describe rows through SectionHost; the non-input
+// rows are drawn by settings/customRows.ts.
 
-import { PluginSettingTab, Setting, type App, type Plugin } from 'obsidian';
+import {
+  debounce,
+  PluginSettingTab,
+  type App,
+  type Plugin,
+  type PluginManifest,
+  type SettingDefinitionItem,
+} from 'obsidian';
 import type { NoticeCenter, PersistentBanner } from './NoticeCenter';
 import type {
-  FieldSpec,
-  SectionHost,
   BannerSpec,
-  LinkFieldSpec,
-  ActionRowFieldSpec,
+  CustomRowRenderers,
+  HeaderInfo,
+  OnChangeResult,
+  SectionHost,
 } from './settings/SectionHost';
+import { DefinitionBuilderHost, guardWrite, type InputFieldSpec } from './settings/DefinitionBuilderHost';
+import { customRowRenderers } from './settings/customRows';
 import type { SettingsContext } from './settings/context';
+import type { Logger } from '../infra/Logger';
 import { renderBackupSchedule } from './settings/sections/BackupSchedule';
 import { renderRetention } from './settings/sections/Retention';
 import { renderNotifications } from './settings/sections/Notifications';
@@ -36,142 +45,249 @@ import { renderDropbox } from './settings/sections/Dropbox';
 
 const PLUGIN_README_URL = 'https://github.com/MMoMM-org/obsidian-archivist#readme';
 
+/** Coalescing window for update(); resetTimer=false fires after the FIRST call of a burst. */
+const UPDATE_DEBOUNCE_MS = 150;
+
+/** Reserved control key of the designated-device toggle (not a PluginSettings field). */
+const DESIGNATED_KEY = 'ui.device_designated';
+
+type SectionRenderer = (host: SectionHost, ctx: SettingsContext) => void;
+
+/** Documented top-to-bottom section order. */
+const SECTIONS: readonly SectionRenderer[] = [
+  renderBackupSchedule,
+  renderRetention,
+  renderNotifications,
+  renderAdvanced,
+  renderDropbox,
+];
+
+/** Banner codes that pause backups or need user action — shown as errors. */
+const ERROR_BANNER_CODES: ReadonlySet<string> = new Set([
+  'AUTH_LOST',
+  'DEVICE_CONFLICT',
+  'VAULT_ID_MISMATCH',
+  'VAULT_META_CORRUPT',
+]);
+
 export interface ArchivistSettingTabDeps {
   plugin: Plugin;
   noticeCenter: NoticeCenter;
   /** Snapshot of dependencies needed by section renderers. */
   context: SettingsContext;
+  /** Plugin logger; failed control writes are logged as metadata only. */
+  logger: Logger;
+  /** Plugin-lifetime cleanup registration (Component.register); runs on unload. */
+  register: (teardown: () => void) => void;
+}
+
+interface AsyncFields {
+  deviceId: string;
+  designated: boolean;
+  email: string | null;
+  used: number;
 }
 
 export class ArchivistSettingTab extends PluginSettingTab {
-  private unsubscribeBanners: (() => void) | null = null;
-  private refreshing = false;
+  private registry = new Map<string, InputFieldSpec>();
+  /** The running fetch chain (incl. forced follow-ups); null when idle. */
+  private inFlight: Promise<void> | null = null;
+  /** A refresh() arrived during the in-flight fetch; run one more forced fetch. */
+  private pendingForce = false;
+  /** Serializes control writes so they apply in request order; never rejects. */
+  private writeChain: Promise<void> = Promise.resolve();
+  private readonly scheduleUpdate = debounce(() => this.update(), UPDATE_DEBOUNCE_MS, false);
+  /** Applied designated writes; a fetch that saw this change keeps the written value. */
+  private designatedWrites = 0;
+  private disposed = false;
+  /** Shared row renderers, except the header also starts the async-field fetch. */
+  private readonly renderers: CustomRowRenderers = {
+    ...customRowRenderers,
+    header: (setting, info) => {
+      const cleanup = customRowRenderers.header(setting, info);
+      void this.refreshAsyncFields(false);
+      return cleanup;
+    },
+  };
 
   constructor(
     app: App,
     private readonly deps: ArchivistSettingTabDeps,
   ) {
     super(app, deps.plugin);
+    // styles.css scopes .archivist-static-text / .archivist-doc-link under it.
+    this.containerEl.addClass('archivist-settings');
+    this.subscribeBanners();
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.addClass('archivist-settings');
+  /** Live banners: rebuild on every change; unsubscribe on plugin unload. */
+  private subscribeBanners(): void {
+    const unsubscribe = this.deps.noticeCenter.subscribePersistentBanners(() => this.scheduleUpdate());
+    this.deps.register(() => {
+      unsubscribe();
+      this.disposed = true;
+      this.scheduleUpdate.cancel();
+    });
+  }
 
-    this.renderHeader(containerEl);
-
-    const host = new ObsidianSectionHost(containerEl, this.deps.context);
-
-    // Persistent-banner slot — latest from NoticeCenter, mapped to BannerSpec.
-    for (const b of this.deps.noticeCenter.getPersistentBanners()) {
-      host.topBanner(persistentToBannerSpec(b));
+  /** Synchronous by contract: no await, no I/O. Replaces this build's registry. */
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const builder = new DefinitionBuilderHost(this.renderers);
+    builder.header(headerInfoOf(this.deps.plugin.manifest));
+    for (const banner of this.deps.noticeCenter.getPersistentBanners()) {
+      builder.topBanner(persistentToBannerSpec(banner));
     }
+    for (const render of SECTIONS) render(builder, this.deps.context);
+    const { items, registry } = builder.result();
+    this.registry = registry;
+    return items;
+  }
 
-    renderBackupSchedule(host, this.deps.context);
-    renderRetention(host, this.deps.context);
-    renderNotifications(host, this.deps.context);
-    renderAdvanced(host, this.deps.context);
-    renderDropbox(host, this.deps.context);
+  getControlValue(key: string): unknown {
+    return this.registry.get(key)?.value;
+  }
 
-    this.subscribeBannerUpdates();
+  /**
+   * Queues the write behind any in-flight one and resolves once it has been
+   * applied, so quick toggles settle in request order (last request wins).
+   */
+  setControlValue(key: string, value: unknown): Promise<void> {
+    const write = this.writeChain.then(() => this.applyWrite(key, value));
+    this.writeChain = write.catch(() => undefined);
+    return write;
+  }
 
-    // Background refresh of async fields (Dropbox account email, device id,
-    // etc.) — re-renders if anything changed since last paint. Important for:
-    //   - First open after enable: tokens may have been written by a prior run
-    //   - After OAuth callback: settings tab needs to reflect connected state
-    //   - After Disconnect: settings tab needs to switch to empty state
-    if (!this.refreshing) {
-      void this.refreshAsyncFields(/* forceRedisplay = */ false);
+  /**
+   * Write guard → the emitting spec's onChange → debounced update(). Unknown
+   * (stale) keys and guard rejections are dropped silently, as today.
+   */
+  private async applyWrite(key: string, value: unknown): Promise<void> {
+    const spec = this.registry.get(key);
+    if (!spec) return;
+    const guarded = guardWrite(spec, value);
+    if (!guarded.accept) return;
+    const applied = await this.applyChange(key, spec, guarded.value);
+    if (applied && key === DESIGNATED_KEY) {
+      this.deps.context.deviceDesignated = guarded.value === true;
+      this.designatedWrites += 1;
+    }
+    if (!this.disposed) this.scheduleUpdate();
+  }
+
+  /** After OAuth / disconnect / token change: re-fetch, then always update(). */
+  async refresh(): Promise<void> {
+    await this.refreshAsyncFields(/* force = */ true);
+  }
+
+  /**
+   * Runs spec.onChange and awaits whatever it returns, so a failed save or
+   * ownership change never becomes an unhandled rejection. Returns false when
+   * it failed; the scheduled update() then re-reads the stored state.
+   */
+  private async applyChange(key: string, spec: InputFieldSpec, value: unknown): Promise<boolean> {
+    try {
+      await (spec.onChange as (v: unknown) => OnChangeResult)(value);
+      return true;
+    } catch (err) {
+      this.deps.logger.error('setting_apply_failed', {
+        key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
     }
   }
 
   /**
-   * Public refresh — call after OAuth callback / disconnect / token mutation.
-   * Forces a re-render even if values haven't changed (defensive: ensures UI
-   * mirrors the latest backing state).
+   * One fetch chain at a time. A skipped header fetch is dropped; a skipped
+   * forced one queues a single follow-up and resolves when the chain is done.
    */
-  async refresh(): Promise<void> {
-    await this.refreshAsyncFields(/* forceRedisplay = */ true);
+  private refreshAsyncFields(force: boolean): Promise<void> {
+    if (this.inFlight) {
+      if (force) this.pendingForce = true;
+      return force ? this.inFlight : Promise.resolve();
+    }
+    // Assigned before runFetches can reach its finally: its body opens with await.
+    this.inFlight = this.runFetches(force);
+    return this.inFlight;
   }
 
-  hide(): void {
-    this.unsubscribeBanners?.();
-    this.unsubscribeBanners = null;
-  }
-
-  private subscribeBannerUpdates(): void {
-    this.unsubscribeBanners?.();
-    this.unsubscribeBanners = this.deps.noticeCenter.subscribePersistentBanners(() => {
-      // Cheapest implementation: re-render the entire tab. Banner changes are
-      // rare (quota, auth-lost, device-conflict) so cost is acceptable.
-      this.display();
-    });
-  }
-
-  private async refreshAsyncFields(forceRedisplay: boolean): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
+  /** Bounded loop; clears the guard in the exit turn, so no refresh() gets a finished chain. */
+  private async runFetches(force: boolean): Promise<void> {
     try {
-      const ctx = this.deps.context;
-      const [deviceId, designated, email, used] = await Promise.all([
-        ctx.device.getDeviceId().catch(() => ctx.deviceId),
-        ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
-        ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
-        ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
-      ]);
-      const changed =
-        ctx.deviceId !== deviceId ||
-        ctx.deviceDesignated !== designated ||
-        ctx.dropboxAccountEmail !== email ||
-        ctx.dropboxUsedBytes !== used;
-      ctx.deviceId = deviceId;
-      ctx.deviceDesignated = designated;
-      ctx.dropboxAccountEmail = email;
-      ctx.dropboxUsedBytes = used;
-      if (changed || forceRedisplay) {
-        this.display();
+      await this.fetchOnce(force);
+      while (this.pendingForce && !this.disposed) {
+        this.pendingForce = false;
+        await this.fetchOnce(true);
       }
     } finally {
-      this.refreshing = false;
+      this.inFlight = null;
     }
   }
 
-  private renderHeader(containerEl: HTMLElement): void {
-    const manifest = this.deps.plugin.manifest as typeof this.deps.plugin.manifest & {
-      author?: string;
-      authorUrl?: string;
-    };
-    const rawAuthor = manifest.author ?? '';
-    const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
-
-    const header = containerEl.createDiv({ cls: 'archivist-version-header' });
-    header.createSpan({ text: `${manifest.name} `, cls: 'archivist-plugin-name' });
-    header.createSpan({ text: `v${manifest.version}` });
-
-    if (authorName) {
-      header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-      header.createEl('a', {
-        text: authorName,
-        href: manifest.authorUrl ?? PLUGIN_README_URL,
+  /** Never rejects; update() on a change, or always when forced (even on failure). */
+  private async fetchOnce(force: boolean): Promise<void> {
+    const writesAtStart = this.designatedWrites;
+    let changed = false;
+    try {
+      const fetched = await this.fetchAsyncFields();
+      changed = this.applyFetched(fetched, writesAtStart !== this.designatedWrites);
+    } catch (err) {
+      this.deps.logger.warn('settings_refresh_failed', {
+        error: err instanceof Error ? err.message : String(err),
       });
     }
-    header.createSpan({ text: ' · ', cls: 'archivist-header-sep' });
-    header.createEl('a', { text: 'Documentation', href: PLUGIN_README_URL });
+    if ((changed || force) && !this.disposed) this.scheduleUpdate();
+  }
+
+  /** Each fetch falls back to the cached ctx value when it rejects. */
+  private async fetchAsyncFields(): Promise<AsyncFields> {
+    const ctx = this.deps.context;
+    const [deviceId, designated, email, used] = await Promise.all([
+      ctx.device.getDeviceId().catch(() => ctx.deviceId),
+      ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
+      ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
+      ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
+    ]);
+    return { deviceId, designated, email, used };
+  }
+
+  /**
+   * Writes the fetched values into ctx and reports whether any changed. When a
+   * designated toggle was applied while the fetch ran, its read is stale and
+   * the written value is kept.
+   */
+  private applyFetched(f: AsyncFields, keepDesignated: boolean): boolean {
+    const ctx = this.deps.context;
+    const designated = keepDesignated ? ctx.deviceDesignated : f.designated;
+    const changed =
+      ctx.deviceId !== f.deviceId ||
+      ctx.deviceDesignated !== designated ||
+      ctx.dropboxAccountEmail !== f.email ||
+      ctx.dropboxUsedBytes !== f.used;
+    ctx.deviceId = f.deviceId;
+    ctx.deviceDesignated = designated;
+    ctx.dropboxAccountEmail = f.email;
+    ctx.dropboxUsedBytes = f.used;
+    return changed;
   }
 }
 
+/** Header identity from the manifest; drops any `<email>` suffix from the author. */
+function headerInfoOf(manifest: PluginManifest): HeaderInfo {
+  const rawAuthor = manifest.author ?? '';
+  const authorName = (rawAuthor.split('<')[0] ?? rawAuthor).trim();
+  return {
+    pluginName: manifest.name,
+    version: manifest.version,
+    authorName: authorName || undefined,
+    authorUrl: manifest.authorUrl,
+    docsUrl: PLUGIN_README_URL,
+  };
+}
+
 export function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
-  // Map known codes to severity. Default to 'warn' for anything else.
-  // VAULT_ID_MISMATCH / VAULT_META_CORRUPT pause the backup loop entirely —
-  // an error-class condition, not a soft warning.
-  const errorCodes = new Set([
-    'AUTH_LOST',
-    'DEVICE_CONFLICT',
-    'VAULT_ID_MISMATCH',
-    'VAULT_META_CORRUPT',
-  ]);
-  const severity: BannerSpec['severity'] = errorCodes.has(b.code) ? 'error' : 'warn';
+  // Default to 'warn' for anything not known to pause the backup loop.
+  const severity: BannerSpec['severity'] = ERROR_BANNER_CODES.has(b.code) ? 'error' : 'warn';
   return {
     kind: 'banner',
     code: b.code,
@@ -181,284 +297,4 @@ export function persistentToBannerSpec(b: PersistentBanner): BannerSpec {
     dismissLabel: b.dismissLabel,
     onDismiss: b.onDismiss,
   };
-}
-
-// ---------------------------------------------------------------------------
-// ObsidianSectionHost — production adapter that materialises FieldSpec as
-// Obsidian Setting rows. This is the ONLY place that touches the DOM — all
-// section renderers describe the UI via SectionHost methods.
-// ---------------------------------------------------------------------------
-
-class ObsidianSectionHost implements SectionHost {
-  constructor(
-    private readonly container: HTMLElement,
-    private readonly context: SettingsContext,
-  ) {}
-
-  heading(text: string): void {
-    this.container.createEl('h2', { text });
-  }
-
-  field(spec: FieldSpec): void {
-    switch (spec.kind) {
-      case 'static':
-        this.container.createEl('p', { text: spec.text, cls: 'archivist-static-text' });
-        return;
-      case 'link':
-        this.renderLink(spec);
-        return;
-      case 'banner':
-        this.renderBanner(spec);
-        return;
-      case 'button':
-        this.renderButton(spec);
-        return;
-      case 'actionRow':
-        this.renderActionRow(spec);
-        return;
-      case 'readonly':
-        this.renderReadonly(spec);
-        return;
-      case 'text':
-        this.renderText(spec);
-        return;
-      case 'textarea':
-        this.renderTextarea(spec);
-        return;
-      case 'toggle':
-        this.renderToggle(spec);
-        return;
-      case 'number':
-        this.renderNumber(spec);
-        return;
-      case 'dropdown':
-        this.renderDropdown(spec);
-        return;
-      case 'slider':
-        this.renderSlider(spec);
-        return;
-    }
-  }
-
-  topBanner(spec: BannerSpec): void {
-    this.renderBanner(spec);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Per-field renderers — thin wrappers over Obsidian Setting
-  // ---------------------------------------------------------------------------
-
-  private renderActionRow(spec: ActionRowFieldSpec): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    for (const action of spec.actions) {
-      setting.addButton((btn) => {
-        btn.setButtonText(action.label).onClick(action.onClick);
-        if (action.cta) btn.setCta();
-        if (action.warning) btn.setWarning();
-      });
-    }
-  }
-
-  private renderLink(spec: LinkFieldSpec): void {
-    const wrapper = this.container.createDiv({ cls: 'archivist-link-row' });
-    wrapper.createEl('a', {
-      text: spec.label,
-      href: spec.href,
-      cls: 'archivist-doc-link',
-    });
-  }
-
-  private renderBanner(spec: BannerSpec): void {
-    const cls = `archivist-banner archivist-banner-${spec.severity}`;
-    const el = this.container.createDiv({ cls }) as unknown as HTMLElement;
-    // The internal `spec.code` (e.g. PREDECESSOR, CHAIN_RECOVERY) used to
-    // render as a `[CODE]` prefix in front of the banner message. Removed
-    // because it surfaces engineer-jargon to users; the message itself is
-    // self-describing and the code stays internal for dedup/clear calls.
-    el.createSpan({ text: spec.message });
-    if (spec.action || spec.onDismiss) {
-      const setting = new Setting(el);
-      if (spec.action) {
-        setting.addButton((btn) => {
-          btn
-            .setButtonText(spec.action!.label)
-            .setCta()
-            .onClick(() => spec.action!.onClick());
-        });
-      }
-      if (spec.onDismiss) {
-        setting.addButton((btn) => {
-          btn.setButtonText(spec.dismissLabel ?? 'Dismiss').onClick(() => {
-            void spec.onDismiss?.();
-          });
-        });
-      }
-    }
-  }
-
-  private renderButton(spec: { label: string; cta?: boolean; onClick: () => void }): void {
-    const setting = new Setting(this.container);
-    setting.addButton((btn) => {
-      btn.setButtonText(spec.label);
-      if (spec.cta) btn.setCta();
-      btn.onClick(spec.onClick);
-    });
-  }
-
-  private renderReadonly(spec: {
-    label: string;
-    description?: string;
-    value: string;
-    copyable?: boolean;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addText((text) => {
-      text.setValue(spec.value).setDisabled(true);
-    });
-    if (spec.copyable) {
-      setting.addButton((btn) => {
-        btn.setButtonText('Copy').onClick(() => {
-          void this.context.copyToClipboard(spec.value);
-        });
-      });
-    }
-  }
-
-  private renderText(spec: {
-    label: string;
-    description?: string;
-    value: string;
-    placeholder?: string;
-    onChange: (v: string) => void;
-    validate?: (v: string) => string | null;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    // Validation-error element rendered below the input. Hidden via a CSS
-    // class when the current value validates. Without this, a regex-rejected
-    // input is silently swallowed — the user types something that fails
-    // (e.g. a capital letter in vault_prefix) and sees the field appear
-    // "empty" after a tab switch, with no clue why their save didn't take.
-    const errorEl = setting.settingEl.createDiv({
-      cls: 'archivist-validation-error is-hidden',
-    });
-
-    setting.addText((text) => {
-      text.setValue(spec.value);
-      if (spec.placeholder) text.setPlaceholder(spec.placeholder);
-      const handler = (raw: string): void => {
-        const err = spec.validate?.(raw) ?? null;
-        if (err) {
-          text.inputEl.addClass('mod-warning');
-          errorEl.textContent = err;
-          errorEl.removeClass('is-hidden');
-          return;
-        }
-        text.inputEl.removeClass('mod-warning');
-        errorEl.addClass('is-hidden');
-        spec.onChange(raw);
-      };
-      // Direct 'input' listener on the underlying input element guarantees
-      // per-keystroke firing regardless of how Obsidian wires its own
-      // TextComponent.onChange across versions. text.onChange is kept so any
-      // blur-only save path still routes through the same handler — both are
-      // idempotent because spec.onChange itself short-circuits on no-op.
-      text.inputEl.addEventListener('input', () => handler(text.inputEl.value));
-      text.onChange(handler);
-    });
-  }
-
-  private renderTextarea(spec: {
-    label: string;
-    description?: string;
-    value: string;
-    onChange: (v: string) => void;
-    validate?: (v: string) => string | null;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addTextArea((area) => {
-      area.setValue(spec.value);
-      area.onChange((v) => {
-        const err = spec.validate?.(v) ?? null;
-        if (err) return;
-        spec.onChange(v);
-      });
-    });
-  }
-
-  private renderToggle(spec: {
-    label: string;
-    description?: string;
-    value: boolean;
-    onChange: (v: boolean) => void;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addToggle((toggle) => {
-      toggle.setValue(spec.value).onChange(spec.onChange);
-    });
-  }
-
-  private renderNumber(spec: {
-    label: string;
-    description?: string;
-    value: number;
-    min?: number;
-    max?: number;
-    onChange: (v: number) => void;
-    validate?: (v: number) => string | null;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addText((text) => {
-      text.setValue(String(spec.value));
-      text.onChange((raw) => {
-        const n = Number(raw);
-        if (Number.isNaN(n)) return;
-        if (spec.min !== undefined && n < spec.min) return;
-        if (spec.max !== undefined && n > spec.max) return;
-        const err = spec.validate?.(n) ?? null;
-        if (err) return;
-        spec.onChange(n);
-      });
-    });
-  }
-
-  private renderDropdown(spec: {
-    label: string;
-    description?: string;
-    value: string;
-    options: Array<{ value: string; label: string }>;
-    onChange: (v: string) => void;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addDropdown((dd) => {
-      for (const o of spec.options) dd.addOption(o.value, o.label);
-      dd.setValue(spec.value).onChange(spec.onChange);
-    });
-  }
-
-  private renderSlider(spec: {
-    label: string;
-    description?: string;
-    value: number;
-    min: number;
-    max: number;
-    step: number;
-    onChange: (v: number) => void;
-  }): void {
-    const setting = new Setting(this.container).setName(spec.label);
-    if (spec.description) setting.setDesc(spec.description);
-    setting.addSlider((slider) => {
-      slider
-        .setLimits(spec.min, spec.max, spec.step)
-        .setValue(spec.value)
-        .setDynamicTooltip()
-        .onChange(spec.onChange);
-    });
-  }
 }

@@ -42,7 +42,7 @@ export interface SettingsContext {
   getSettings: () => PluginSettings;
   updateSettings: (patch: Partial<PluginSettings>) => Promise<void>;
   /**
-   * Pre-fetched device identity, populated by SettingsTab.display() before
+   * Pre-fetched device identity, refreshed by ArchivistSettingTab.refresh() before
    * rendering. Section renderers are sync; async device lookups would race
    * with the render pass.
    */

@@ -8,7 +8,8 @@
 //   - Incremental interval dropdown (5 / 15 / 30 / 60 min)
 //   - Startup grace period (number input, 1–60 min)
 //   - Quiet period after edits (number input, 1–30 min)
-//   - Active-window toggle + two time pickers (disabled unless toggle on)
+//   - Active-window toggle + two time pickers (always emitted; visible only
+//     while the toggle is on, so they show/hide live and drop out of search)
 
 import type { SectionHost } from '../SectionHost';
 import type { SettingsContext } from '../context';
@@ -48,22 +49,25 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Designated-device toggle -------------------------------------------
   host.field({
     kind: 'toggle',
+    key: 'ui.device_designated',
     label: S.SETTINGS_DESIGNATED_TOGGLE,
     value: ctx.deviceDesignated,
     onChange: (on) => {
-      if (on) void ctx.device.takeOwnership();
-      else void ctx.device.releaseOwnership();
+      // Returned so the settings tab can await and catch an ownership failure.
+      return on ? ctx.device.takeOwnership() : ctx.device.releaseOwnership();
     },
   });
 
   // ---- Full backup cadence / day / time -----------------------------------
   host.field({
     kind: 'dropdown',
+    key: 'schedule.full_cadence',
     label: S.SETTINGS_FULL_CADENCE,
+    aliases: S.ALIASES_FULL_CADENCE,
     value: settings.schedule.full_cadence,
     options: CADENCE_OPTIONS,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_cadence: v as FullCadence },
       });
     },
@@ -71,11 +75,12 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'dropdown',
+    key: 'schedule.full_day_of_week',
     label: 'Full backup day',
     value: String(settings.schedule.full_day_of_week),
     options: DAY_OF_WEEK_OPTIONS,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_day_of_week: Number(v) as DayOfWeek },
       });
     },
@@ -83,11 +88,13 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'text',
+    key: 'schedule.full_time_of_day',
     label: S.SETTINGS_FULL_TIME,
+    aliases: S.ALIASES_FULL_TIME,
     value: settings.schedule.full_time_of_day,
     placeholder: 'HH:MM',
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, full_time_of_day: v },
       });
     },
@@ -97,11 +104,13 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Incremental interval -----------------------------------------------
   host.field({
     kind: 'dropdown',
+    key: 'schedule.inc_interval_minutes',
     label: S.SETTINGS_INC_INTERVAL,
+    aliases: S.ALIASES_INC_INTERVAL,
     value: String(settings.schedule.inc_interval_minutes),
     options: INC_INTERVAL_OPTIONS.map((o) => ({ value: String(o.value), label: o.label })),
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: {
           ...settings.schedule,
           inc_interval_minutes: Number(v) as IncIntervalMinutes,
@@ -113,12 +122,13 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Grace + quiet timers -----------------------------------------------
   host.field({
     kind: 'number',
+    key: 'schedule.startup_grace_minutes',
     label: S.SETTINGS_STARTUP_GRACE,
     value: settings.schedule.startup_grace_minutes,
     min: 1,
     max: 60,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, startup_grace_minutes: v },
       });
     },
@@ -126,12 +136,13 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
 
   host.field({
     kind: 'number',
+    key: 'schedule.quiet_after_event_minutes',
     label: S.SETTINGS_QUIET_PERIOD,
     value: settings.schedule.quiet_after_event_minutes,
     min: 1,
     max: 30,
     onChange: (v) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, quiet_after_event_minutes: v },
       });
     },
@@ -140,41 +151,51 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
   // ---- Active-window toggle + conditional time pickers --------------------
   host.field({
     kind: 'toggle',
+    key: 'schedule.active_window_enabled',
     label: 'Active backup window',
     description: 'Limit backups to a daily time window (e.g. 08:00–22:00).',
+    aliases: S.ALIASES_ACTIVE_WINDOW,
     value: settings.schedule.active_window_enabled,
     onChange: (on) => {
-      void ctx.updateSettings({
+      return ctx.updateSettings({
         schedule: { ...settings.schedule, active_window_enabled: on },
       });
     },
   });
 
-  if (settings.schedule.active_window_enabled) {
-    host.field({
-      kind: 'text',
-      label: 'Active window start',
-      value: settings.schedule.active_window_start,
-      placeholder: 'HH:MM',
-      onChange: (v) => {
-        void ctx.updateSettings({
-          schedule: { ...settings.schedule, active_window_start: v },
-        });
-      },
-      validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
-    });
+  // Always emitted; Obsidian re-evaluates `visible` after every control change,
+  // so flipping the toggle shows/hides both rows (and their search entries)
+  // without re-running this section. onChange reads settings fresh so a write
+  // to one window field never reverts a just-written value of the other.
+  const windowOn = (): boolean => ctx.getSettings().schedule.active_window_enabled;
 
-    host.field({
-      kind: 'text',
-      label: 'Active window end',
-      value: settings.schedule.active_window_end,
-      placeholder: 'HH:MM',
-      onChange: (v) => {
-        void ctx.updateSettings({
-          schedule: { ...settings.schedule, active_window_end: v },
-        });
-      },
-      validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
-    });
-  }
+  host.field({
+    kind: 'text',
+    key: 'schedule.active_window_start',
+    label: 'Active window start',
+    value: settings.schedule.active_window_start,
+    placeholder: 'HH:MM',
+    visible: windowOn,
+    onChange: (v) => {
+      return ctx.updateSettings({
+        schedule: { ...ctx.getSettings().schedule, active_window_start: v },
+      });
+    },
+    validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
+  });
+
+  host.field({
+    kind: 'text',
+    key: 'schedule.active_window_end',
+    label: 'Active window end',
+    value: settings.schedule.active_window_end,
+    placeholder: 'HH:MM',
+    visible: windowOn,
+    onChange: (v) => {
+      return ctx.updateSettings({
+        schedule: { ...ctx.getSettings().schedule, active_window_end: v },
+      });
+    },
+    validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
+  });
 }

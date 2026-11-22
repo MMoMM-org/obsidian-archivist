@@ -108,7 +108,7 @@ describe('renderDropbox — disconnected', () => {
     expect(harness.beginAuthCalls).toBe(1);
   });
 
-  it('Connect action is rendered without CTA / warning styling', () => {
+  it('Connect action is rendered without CTA / destructive styling', () => {
     // Themes that override --interactive-accent or --text-on-accent can render
     // mod-cta buttons unreadable (e.g. white text on a white button bg). The
     // standard button uses --text-normal on --interactive-normal — a pair that
@@ -118,7 +118,7 @@ describe('renderDropbox — disconnected', () => {
     renderDropbox(host, makeCtx({ email: null }).ctx);
     const action = host.findField('actionRow', 'Account')?.actions[0];
     expect(action?.cta).toBeFalsy();
-    expect(action?.warning).toBeFalsy();
+    expect(action?.destructive).toBeFalsy();
   });
 
   it('renders plaintext-token disclosure in disconnected state', () => {
@@ -151,14 +151,14 @@ describe('renderDropbox — connected', () => {
     expect(labels).toEqual([S.OAUTH_REAUTHENTICATE_BUTTON, S.OAUTH_DISCONNECT_BUTTON]);
   });
 
-  it('Disconnect action is flagged as warning (destructive)', () => {
+  it('Disconnect action is flagged destructive, Re-authenticate is not', () => {
     const host = new RecordingSectionHost();
     renderDropbox(host, makeCtx({ email: 'x@y.z' }).ctx);
     const actions = host.findField('actionRow', 'Account')?.actions ?? [];
     const reauth = actions.find((a) => a.label === S.OAUTH_REAUTHENTICATE_BUTTON);
     const disconnect = actions.find((a) => a.label === S.OAUTH_DISCONNECT_BUTTON);
-    expect(reauth?.warning).toBeFalsy();
-    expect(disconnect?.warning).toBe(true);
+    expect(reauth?.destructive).toBeFalsy();
+    expect(disconnect?.destructive).toBe(true);
   });
 
   it('Re-authenticate invokes beginAuth', () => {

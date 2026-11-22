@@ -39,85 +39,94 @@ export function renderRetention(host: SectionHost, ctx: SettingsContext): void {
   // floor prevents that.
   host.field({
     kind: 'number',
+    key: 'retention.always_keep_n',
     label: S.SETTINGS_RETENTION_ALWAYS_KEEP_N,
     description: S.SETTINGS_RETENTION_ALWAYS_KEEP_N_DESC,
     value: r.always_keep_n,
     min: 0,
     max: 100,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { always_keep_n: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { always_keep_n: v }) });
     },
   });
 
   // ---- Tier inputs --------------------------------------------------------
   host.field({
     kind: 'number',
+    key: 'retention.recent_hours',
     label: S.SETTINGS_RETENTION_RECENT_HOURS,
     description: 'Keep every snapshot captured in the last N hours (0–168).',
     value: r.recent_hours,
     min: 0,
     max: 168,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { recent_hours: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { recent_hours: v }) });
     },
   });
 
   host.field({
     kind: 'number',
+    key: 'retention.never_prune_window_days',
     label: S.SETTINGS_RETENTION_NEVER_PRUNE,
     description: 'Keep every snapshot in this window (0–14 days).',
     value: r.never_prune_window_days,
     min: 0,
     max: 14,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { never_prune_window_days: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { never_prune_window_days: v }) });
     },
   });
 
   host.field({
     kind: 'number',
+    key: 'retention.daily_days',
     label: S.SETTINGS_RETENTION_DAILY_DAYS,
     description: 'After the never-prune window, keep one snapshot per day (0–90).',
+    aliases: S.ALIASES_RETENTION_DAILY_DAYS,
     value: r.daily_days,
     min: 0,
     max: 90,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { daily_days: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { daily_days: v }) });
     },
   });
 
   host.field({
     kind: 'number',
+    key: 'retention.monthly_years',
     label: S.SETTINGS_RETENTION_MONTHLY_YEARS,
     description: 'After daily window, keep one per month (0–10 years).',
     value: r.monthly_years,
     min: 0,
     max: 10,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { monthly_years: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { monthly_years: v }) });
     },
   });
 
   // ---- Storage cap + warn percent ----------------------------------------
   host.field({
     kind: 'number',
+    key: 'retention.storage_hard_limit_gb',
     label: S.SETTINGS_STORAGE_HARD_LIMIT,
+    aliases: S.ALIASES_STORAGE_HARD_LIMIT,
     value: r.storage_hard_limit_gb,
     min: 1,
     max: 10_000,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { storage_hard_limit_gb: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { storage_hard_limit_gb: v }) });
     },
   });
 
   host.field({
     kind: 'number',
+    key: 'retention.storage_warn_at_percent',
     label: S.SETTINGS_STORAGE_WARN_AT,
     value: r.storage_warn_at_percent,
     min: 50,
     max: 99,
     onChange: (v) => {
-      void ctx.updateSettings({ retention: mergeRetention(r, { storage_warn_at_percent: v }) });
+      return ctx.updateSettings({ retention: mergeRetention(r, { storage_warn_at_percent: v }) });
     },
   });
 
