@@ -170,7 +170,7 @@ export class ConfirmRestoreModal extends Modal {
 // Production ModalHandle adapter over Obsidian's contentEl
 // ---------------------------------------------------------------------------
 
-function makeContentElHandle(
+export function makeContentElHandle(
   contentEl: HTMLElement,
   modalEl: HTMLElement,
   dismiss: () => void,

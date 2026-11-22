@@ -16,6 +16,7 @@ import { GCService } from './services/GCService';
 import { RepairService } from './services/RepairService';
 import { VaultIdentity } from './services/VaultIdentity';
 import { AdoptVaultModal } from './ui/AdoptVaultModal';
+import { openConfirm } from './ui/ConfirmModal';
 import { ErrorDetailsModal, type ErrorDetailsRecord } from './ui/ErrorDetailsModal';
 import { MaintenanceScheduler } from './services/MaintenanceScheduler';
 import { StorageProbe } from './services/StorageProbe';
@@ -1235,7 +1236,7 @@ export default class ArchivistPlugin extends Plugin {
           clipboard: { writeText: (t: string) => Promise<void> };
         }).clipboard.writeText(text);
       },
-      confirm: () => Promise.resolve(true),
+      confirm: (opts) => openConfirm(this.app, opts),
     };
 
     // Pre-populate every async-sourced settingsContext field so the FIRST

@@ -99,10 +99,10 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   //      a frozen value, so duplicate-save suppression silently broke after
   //      the first save landed.
   // The previous implementation also wrapped the save in an async IIFE that
-  // awaited ctx.confirm — that confirm is currently a stub (`async () => true`)
-  // in main.ts wiring, so the ceremony added latency without prompting the
-  // user. Drop it; if/when a real confirm modal is wired, it becomes a
-  // separate explicit Save action rather than hiding inside per-keystroke
+  // awaited ctx.confirm — at the time a stub (`async () => true`) in main.ts
+  // wiring, so the ceremony added latency without prompting the user. Since
+  // #109 ctx.confirm opens a real dialog; a vault-prefix confirmation would
+  // belong to a separate explicit Save action, never to per-keystroke
   // onChange.
   host.field({
     kind: 'text',
