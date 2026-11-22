@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: Docs, integration and release readiness"
-status: pending
+status: in_progress
 version: "1.0"
 phase: 5
 ---
@@ -30,7 +30,7 @@ phase: 5
 
 This phase closes the spec: user docs, an integration test across the whole tab, manual verification in real Obsidian, and a PR ready for release.
 
-- [ ] **T5.1 User docs state Obsidian 1.14.4** `[activity: technical-writing]` `[parallel: true]` `[ref: PRD/F5 AC3; SDD/Directory Map (docs)]`
+- [x] **T5.1 User docs state Obsidian 1.14.4** `[activity: technical-writing]` `[parallel: true]` `[ref: PRD/F5 AC3; SDD/Directory Map (docs)]`
 
   1. Prime:
      - Read `README.md:107` (the 1.11.4 mention refers to the history of `secretStorage` and stays).
@@ -43,7 +43,7 @@ This phase closes the spec: user docs, an integration test across the whole tab,
   4. Validate: re-run the grep; markdown renders.
   5. Success: the docs and the manifest agree `[ref: PRD/F5 AC3]`.
 
-- [ ] **T5.2 Settings CSS after the heading change** `[activity: design-visual]` `[parallel: true]` `[ref: SDD/User Interface & UX (Tokens)]`
+- [x] **T5.2 Settings CSS after the heading change** `[activity: design-visual]` `[parallel: true]` `[ref: SDD/User Interface & UX (Tokens)]`
 
   1. Prime:
      - Read `styles.css:7-123`, especially the `.archivist-settings h2` rules at 39-55.
@@ -56,7 +56,7 @@ This phase closes the spec: user docs, an integration test across the whole tab,
   4. Validate: `npm run lint:css` passes, and a visual check is done in T5.4.
   5. Success: the tab looks as before apart from the sanctioned group headings `[ref: PRD/F2 AC1]`.
 
-- [ ] **T5.3 Whole-tab integration test from a 0.11.x data.json** `[activity: test-strategy]` `[ref: SDD/Quality Requirements (Reliability); PRD/F1 AC1, F2 AC1-3]`
+- [x] **T5.3 Whole-tab integration test from a 0.11.x data.json** `[activity: test-strategy]` `[ref: SDD/Quality Requirements (Reliability); PRD/F1 AC1, F2 AC1-3]`
 
   1. Prime:
      - Read the existing settings fixtures and migration tests for the `data.json` loading path.
@@ -76,7 +76,7 @@ This phase closes the spec: user docs, an integration test across the whole tab,
      - Upgrade safety is proven: no reset or renamed settings `[ref: PRD/F2 AC3]`.
      - The inventory is complete `[ref: PRD/F1 AC1]`.
 
-- [ ] **T5.4 Manual verification in Obsidian 1.14.4** `[activity: validate]` `[ref: SDD/Quality Requirements; PRD/Success Metrics (Tracking: manual search smoke check)]`
+- [x] **T5.4 Manual verification in Obsidian 1.14.4** `[activity: validate]` `[ref: SDD/Quality Requirements; PRD/Success Metrics (Tracking: manual search smoke check)]`
 
   1. Prime: `npm run build`, then install the build into a test vault on Obsidian 1.14.4 or newer.
   2. Test: run the checklist and record pass/fail per line in this file under "Verification log":
@@ -157,10 +157,31 @@ This phase closes the spec: user docs, an integration test across the whole tab,
 
 ## Verification log
 
-_Filled during T5.4._
+Run 1, 2026-11-21: user, test vault `test/Archivist/`, Obsidian 1.14.4, build `0.11.6-dev.20261121-1442` (the vault's data.json is a real 0.11.x-era config).
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Every inventory label findable via global settings search | ✅ |
+| 2 | Selecting a result opens Archivist's tab at that row | ✅ |
+| 3 | Each F8 alias finds its row | ✅ |
+| 4 | Active-window rows hidden from search while off, appear immediately on toggle | ✅ |
+| 5 | Typing in "Dropbox vault folder" survives a refresh (text + focus) | ✅ |
+| 6 | Banner raised/cleared while open updates live | ✅ |
+| 7 | Disconnect destructive, Re-authenticate neutral | ✅ |
+| 8 | Sliders show their value inline | ✅ |
+| 9 | Invalid HH:MM shows an inline error | ✅ |
+| 10 | Looks like 0.11.x apart from group headings | ❌ Toggling "Active backup window" on/off duplicates render rows: the static "…tokens are kept in Obsidian…" sentence appears three times in a row, and the version header repeats too. Cause: render rows re-rendered by `update()` stack content; fix in T2.3's `customRows.ts` (see Deviations) |
+
+Run 2, 2026-11-22: user, same vault, build with 775199f + ee4a3e6. Re-check of #10 only.
+
+| # | Check | Result |
+|---|---|---|
+| 10 | Looks like 0.11.x apart from group headings; toggling "Active backup window" repeatedly leaves header, static text, banner and Dropbox buttons single | ✅ |
 
 ## Deviations
 
 | Date | Deviation | Rationale | Approved |
 |---|---|---|---|
 | 2026-11-21 | PRD risk row "explicit regression test" for the typing-wipe is met by a structural automated guard (all text-entry rows are `control` rows) plus manual T5.4, not a behavioural unit test | The test mock cannot reproduce Obsidian's keyed re-render; the structural property is what guarantees the behaviour in the 1.14.4 runtime | Yes, at spec validation |
+| 2026-11-21 | T5.1/T5.2 doc-quality fixes made by the orchestrator directly (README minimum, hedged troubleshooting checklist, one-line headings CSS note), not by a re-dispatched implementer | Mechanical doc edits; spec + code-quality reviews ran on them | Yes, at T5.4 |
+| 2026-11-21 | T5.4 found render rows duplicating on `update()` (header, static text). Fix in T2.3's `customRows.ts`: renderers return a cleanup, and `drawIntoInfo` (WeakMap) drops the previous element before redrawing (775199f, ee4a3e6) | Obsidian reuses a render row's Setting: cleanup → `clear()` (controlEl only) → setName/setDesc → render, verified in the 1.15.x app.asar. The earlier claim "render rows are always rebuilt" was wrong. The WeakMap guard holds even if 1.14.4 never runs the cleanup between passes. Banner and actionRow buttons rely on Obsidian's `clear()` | Yes, at T5.4 |
