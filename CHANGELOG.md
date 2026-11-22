@@ -1,3 +1,9 @@
+## [0.12.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.0...0.12.1) (2026-11-22)
+
+### Bug Fixes
+
+* **ci:** push the release commit as the release GitHub App ([#119](https://github.com/MMoMM-org/obsidian-archivist/issues/119)) ([c07bb86](https://github.com/MMoMM-org/obsidian-archivist/commit/c07bb86e1aea25cdf68ad17c077f37600c1b212c)), closes [#118](https://github.com/MMoMM-org/obsidian-archivist/issues/118)
+
 ## [0.12.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.11.7...0.12.0) (2026-11-22)
 
 ### ⚠ BREAKING CHANGES
