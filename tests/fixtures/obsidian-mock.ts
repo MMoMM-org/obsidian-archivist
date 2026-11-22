@@ -724,7 +724,7 @@ export class Setting {
     this.controlEl = this.settingEl.createDiv({ cls: 'setting-item-control' });
     if (isMockEl(container)) appendChild(container, this.settingEl);
   }
-  /** Mirrors Setting.clear() in the 1.15 runtime: only controlEl is emptied. */
+  /** Mirrors Setting.clear() in the 1.15.x runtime: only controlEl is emptied. */
   clear(): this {
     this.controlEl.empty();
     this._buttons = [];

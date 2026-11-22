@@ -15,8 +15,7 @@ function readJson(file: string): Record<string, unknown> {
 
 // Frozen snapshot of every versions.json entry released before spec 002.
 // This is a PREFIX check, not strict equality: version-bump.mjs appends one
-// entry per release (and 0.11.7 arrives from main on rebase), so new entries
-// after the snapshot are expected. What must never happen is a hand edit,
+// entry per release, so new entries after the snapshot are expected. What must never happen is a hand edit,
 // removal or reordering of an already-released entry — Obsidian relies on
 // these to serve older Obsidian builds a compatible plugin version.
 const RELEASED_BEFORE_SPEC_002: ReadonlyArray<readonly [string, string]> = [
@@ -60,6 +59,7 @@ const RELEASED_BEFORE_SPEC_002: ReadonlyArray<readonly [string, string]> = [
   ['0.11.4', '1.11.4'],
   ['0.11.5', '1.11.4'],
   ['0.11.6', '1.11.4'],
+  ['0.11.7', '1.11.4'],
 ];
 
 const SEMVER = /^\d+\.\d+\.\d+$/;

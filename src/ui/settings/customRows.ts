@@ -8,7 +8,7 @@
 // name (e.g. `banner:<code>`) is cleared from `nameEl` so it never leaks into
 // the UI. Only Setting and createEl APIs are used — no innerHTML.
 //
-// Re-render contract (verified in the 1.15.1 app.js): a row whose key survives
+// Re-render contract (verified on 1.15.x, guarded for 1.14.4): a row whose key survives
 // update() keeps its Setting. Obsidian runs the previous render's cleanup,
 // then Setting.clear() — which empties only controlEl — then resets name and
 // description, then calls render again. So buttons and nameEl/descEl content
