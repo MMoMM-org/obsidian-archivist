@@ -177,6 +177,7 @@ export function makeContentElHandle(
 ): ModalHandle {
   let titleEl: HTMLElement | null = null;
   let bodyEl: HTMLElement | null = null;
+  let buttonRowEl: HTMLElement | null = null;
   const controller = new AbortController();
 
   return {
@@ -199,7 +200,9 @@ export function makeContentElHandle(
     },
 
     addButton(label: string, isDefault: boolean, onClick: () => void): void {
-      const btn = contentEl.createEl('button', { text: label });
+      // Obsidian's own button row: right-aligned with a gap between buttons.
+      buttonRowEl ??= contentEl.createDiv({ cls: 'modal-button-container' });
+      const btn = buttonRowEl.createEl('button', { text: label });
       if (isDefault) btn.setAttribute('autofocus', '');
       btn.addEventListener('click', onClick);
     },
