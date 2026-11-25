@@ -44,6 +44,9 @@ const INC_INTERVAL_OPTIONS: Array<{ value: IncIntervalMinutes; label: string }> 
 export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): void {
   host.heading(S.SETTINGS_SECTION_SCHEDULE);
 
+  // Render-time snapshot: initial `value`s only. onChange handlers read
+  // ctx.getSettings() fresh — updateSettings replaces the whole group, so a
+  // spread of this snapshot would revert earlier edits (#110).
   const settings = ctx.getSettings();
 
   // ---- Designated-device toggle -------------------------------------------
@@ -68,7 +71,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     options: CADENCE_OPTIONS,
     onChange: (v) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, full_cadence: v as FullCadence },
+        schedule: { ...ctx.getSettings().schedule, full_cadence: v as FullCadence },
       });
     },
   });
@@ -81,7 +84,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     options: DAY_OF_WEEK_OPTIONS,
     onChange: (v) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, full_day_of_week: Number(v) as DayOfWeek },
+        schedule: { ...ctx.getSettings().schedule, full_day_of_week: Number(v) as DayOfWeek },
       });
     },
   });
@@ -95,7 +98,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     placeholder: 'HH:MM',
     onChange: (v) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, full_time_of_day: v },
+        schedule: { ...ctx.getSettings().schedule, full_time_of_day: v },
       });
     },
     validate: (v) => (HHMM_REGEX.test(v) ? null : 'Expected HH:MM (24-hour).'),
@@ -112,7 +115,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     onChange: (v) => {
       return ctx.updateSettings({
         schedule: {
-          ...settings.schedule,
+          ...ctx.getSettings().schedule,
           inc_interval_minutes: Number(v) as IncIntervalMinutes,
         },
       });
@@ -129,7 +132,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     max: 60,
     onChange: (v) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, startup_grace_minutes: v },
+        schedule: { ...ctx.getSettings().schedule, startup_grace_minutes: v },
       });
     },
   });
@@ -143,7 +146,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     max: 30,
     onChange: (v) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, quiet_after_event_minutes: v },
+        schedule: { ...ctx.getSettings().schedule, quiet_after_event_minutes: v },
       });
     },
   });
@@ -158,7 +161,7 @@ export function renderBackupSchedule(host: SectionHost, ctx: SettingsContext): v
     value: settings.schedule.active_window_enabled,
     onChange: (on) => {
       return ctx.updateSettings({
-        schedule: { ...settings.schedule, active_window_enabled: on },
+        schedule: { ...ctx.getSettings().schedule, active_window_enabled: on },
       });
     },
   });

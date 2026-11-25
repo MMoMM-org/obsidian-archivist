@@ -10,6 +10,9 @@ import { S } from '../../strings';
 export function renderNotifications(host: SectionHost, ctx: SettingsContext): void {
   host.heading(S.SETTINGS_SECTION_NOTIFICATIONS);
 
+  // Render-time snapshot: initial `value`s only. onChange handlers read
+  // ctx.getSettings() fresh — updateSettings replaces the whole group, so a
+  // spread of this snapshot would revert earlier edits (#110).
   const settings = ctx.getSettings();
   const n = settings.notifications;
 
@@ -20,7 +23,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     value: n.preflight_notice_enabled,
     onChange: (v) => {
       return ctx.updateSettings({
-        notifications: { ...n, preflight_notice_enabled: v },
+        notifications: { ...ctx.getSettings().notifications, preflight_notice_enabled: v },
       });
     },
   });
@@ -32,7 +35,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     value: n.toast_after_inc,
     onChange: (v) => {
       return ctx.updateSettings({
-        notifications: { ...n, toast_after_inc: v },
+        notifications: { ...ctx.getSettings().notifications, toast_after_inc: v },
       });
     },
   });
@@ -44,7 +47,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     value: n.toast_after_full,
     onChange: (v) => {
       return ctx.updateSettings({
-        notifications: { ...n, toast_after_full: v },
+        notifications: { ...ctx.getSettings().notifications, toast_after_full: v },
       });
     },
   });
@@ -56,7 +59,7 @@ export function renderNotifications(host: SectionHost, ctx: SettingsContext): vo
     value: n.toast_on_error,
     onChange: (v) => {
       return ctx.updateSettings({
-        notifications: { ...n, toast_on_error: v },
+        notifications: { ...ctx.getSettings().notifications, toast_on_error: v },
       });
     },
   });
