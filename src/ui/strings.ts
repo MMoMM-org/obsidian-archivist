@@ -430,6 +430,9 @@ export const S = {
   SETTINGS_EXCLUSION_GLOBS: 'Exclusion globs',
   SETTINGS_EXCLUSION_GLOBS_HELP:
     'One pattern per line. Supports *, **, ?, and [abc] character classes. Example: .trash/**',
+  SETTINGS_NUMBER_INVALID: 'Enter a number.',
+  SETTINGS_NUMBER_MIN: (min: number) => `Must be at least ${min}.`,
+  SETTINGS_NUMBER_MAX: (max: number) => `Must be at most ${max}.`,
   SETTINGS_DRY_RUN: 'Dry-run mode (no uploads)',
   SETTINGS_DIAGNOSTIC_LOGGING: 'Diagnostic logging (paths visible in logs)',
   SETTINGS_VAULT_PREFIX: 'Dropbox vault folder',

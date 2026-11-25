@@ -7,8 +7,9 @@
 // the widget and calls back through getControlValue/setControlValue); every
 // other kind becomes a `render` row that delegates to the injected
 // `CustomRowRenderers`. The host also keeps the key → spec registry for this
-// build and exports `guardWrite`, the pure accept/reject rule that keeps
-// today's silent-reject write semantics.
+// build and exports `guardWrite`, the pure accept/reject rule run before a
+// write. Rejections are not silent: number, text and textarea controls carry
+// a `validate` that Obsidian shows as an inline error (#111).
 //
 // No DOM here: only Obsidian *types* are imported, and render callbacks just
 // forward the `Setting` Obsidian hands in.
@@ -34,6 +35,7 @@ import type {
   TextFieldSpec,
   ToggleFieldSpec,
 } from './SectionHost';
+import { S } from '../strings';
 
 /** FieldSpec kinds that persist a value and map to an Obsidian `control`. */
 export type InputFieldSpec =
@@ -77,7 +79,9 @@ function baseOf(meta: RowMeta, name: string, desc?: string): SettingDefinitionBa
   return base;
 }
 
-function textValidate(spec: TextFieldSpec): ((v: string) => string | undefined) | undefined {
+function stringValidate(
+  spec: TextFieldSpec | TextareaFieldSpec,
+): ((v: string) => string | undefined) | undefined {
   const validate = spec.validate;
   return validate ? (v) => validate(v) ?? undefined : undefined;
 }
@@ -86,17 +90,20 @@ function controlOf(spec: InputFieldSpec): SettingControl {
   const key = spec.key;
   switch (spec.kind) {
     case 'text':
-      return dropUndefined({ type: 'text', key, placeholder: spec.placeholder, validate: textValidate(spec) });
+      return dropUndefined({ type: 'text', key, placeholder: spec.placeholder, validate: stringValidate(spec) });
     case 'toggle':
       return { type: 'toggle', key };
     case 'number':
-      return dropUndefined({ type: 'number', key, min: spec.min, max: spec.max, step: spec.step });
+      return dropUndefined({
+        type: 'number', key, min: spec.min, max: spec.max, step: spec.step,
+        validate: (v: number) => numberError(spec, v) ?? undefined,
+      });
     case 'dropdown':
       // Integer-like keys iterate in ascending numeric order; every option set
       // emitted today is already ascending, so the visible order is preserved.
       return { type: 'dropdown', key, options: Object.fromEntries(spec.options.map((o) => [o.value, o.label])) };
     case 'textarea':
-      return { type: 'textarea', key };
+      return dropUndefined({ type: 'textarea', key, validate: stringValidate(spec) });
     case 'slider':
       return { type: 'slider', key, min: spec.min, max: spec.max, step: spec.step };
   }
@@ -106,12 +113,20 @@ function dropUndefined<T extends object>(obj: T): T {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
 }
 
+/**
+ * First reason a number is rejected, or null. Shared by the control's inline
+ * error and the write guard, so what is refused and what is explained agree.
+ */
+function numberError(spec: NumberFieldSpec, n: number): string | null {
+  if (Number.isNaN(n)) return S.SETTINGS_NUMBER_INVALID;
+  if (spec.min !== undefined && n < spec.min) return S.SETTINGS_NUMBER_MIN(spec.min);
+  if (spec.max !== undefined && n > spec.max) return S.SETTINGS_NUMBER_MAX(spec.max);
+  return spec.validate?.(n) ?? null;
+}
+
 function guardNumber(spec: NumberFieldSpec, value: unknown): GuardResult {
   const n = typeof value === 'number' ? value : Number(value);
-  if (Number.isNaN(n)) return { accept: false };
-  if (spec.min !== undefined && n < spec.min) return { accept: false };
-  if (spec.max !== undefined && n > spec.max) return { accept: false };
-  if (spec.validate?.(n)) return { accept: false };
+  if (numberError(spec, n) !== null) return { accept: false };
   return { accept: true, value: n };
 }
 
@@ -122,10 +137,9 @@ function guardString(spec: TextFieldSpec | TextareaFieldSpec, value: unknown): G
 }
 
 /**
- * Pure write guard mirroring the legacy imperative tab: number and textarea
- * reject silently on parse/range/validate failure, text re-runs its validator
- * (Obsidian should already have refused, this keeps parity if it did not),
- * the rest pass through. The caller invokes `spec.onChange(value)` on accept.
+ * Pure write guard: number, text and textarea re-run the same checks their
+ * control's `validate` shows inline (Obsidian should already have refused;
+ * this keeps the store safe if it did not), the rest pass through. The caller invokes `spec.onChange(value)` on accept.
  */
 export function guardWrite(spec: InputFieldSpec, value: unknown): GuardResult {
   switch (spec.kind) {

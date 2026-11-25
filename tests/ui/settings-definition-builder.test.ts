@@ -15,6 +15,7 @@ import type { CustomRowRenderers, HeaderInfo, BannerSpec } from '../../src/ui/se
 import { renderBackupSchedule } from '../../src/ui/settings/sections/BackupSchedule';
 import type { SettingsContext } from '../../src/ui/settings/context';
 import { DEFAULT_SETTINGS } from '../../src/model/Settings';
+import { S } from '../../src/ui/strings';
 
 const INFO: HeaderInfo = { pluginName: 'Archivist', version: '1.2.3', docsUrl: 'https://x' };
 const FAKE_SETTING = {} as Setting;
@@ -172,6 +173,41 @@ describe('DefinitionBuilderHost — input kinds become control rows', () => {
     const validate = (d as { control: { validate?: (v: string) => unknown } }).control.validate;
     expect(validate?.('ok')).toBeUndefined();
     expect(validate?.('nope')).toBe('bad value');
+  });
+
+  // #111: number and textarea rejections used to be silent — the typed value
+  // stayed in the field but was never saved. Obsidian shows a string returned
+  // by control.validate as an inline error, so both kinds must provide one.
+  it('number validate: explains NaN, out-of-range and validator failures', () => {
+    const d = single({
+      kind: 'number', key: 'k.n', label: 'N', value: 5, min: 1, max: 60, onChange: () => {},
+      validate: (n) => (n === 13 ? 'not 13' : null),
+    });
+    const validate = (d as { control: { validate?: (v: number) => unknown } }).control.validate;
+    expect(validate).toBeDefined();
+    expect(validate?.(Number.NaN)).toBe(S.SETTINGS_NUMBER_INVALID);
+    expect(validate?.(0)).toBe(S.SETTINGS_NUMBER_MIN(1));
+    expect(validate?.(61)).toBe(S.SETTINGS_NUMBER_MAX(60));
+    expect(validate?.(13)).toBe('not 13');
+    expect(validate?.(1)).toBeUndefined();
+    expect(validate?.(60)).toBeUndefined();
+  });
+
+  it('number validate: bounds are optional', () => {
+    const d = single({ kind: 'number', key: 'k.n', label: 'N', value: 5, onChange: () => {} });
+    const validate = (d as { control: { validate?: (v: number) => unknown } }).control.validate;
+    expect(validate?.(-1000)).toBeUndefined();
+    expect(validate?.(Number.NaN)).toBe(S.SETTINGS_NUMBER_INVALID);
+  });
+
+  it('textarea validate: passes the spec validator message through', () => {
+    const d = single({
+      kind: 'textarea', key: 'k.a', label: 'A', value: '', onChange: () => {},
+      validate: (v) => (v.includes('[') ? 'bad glob' : null),
+    });
+    const validate = (d as { control: { validate?: (v: string) => unknown } }).control.validate;
+    expect(validate?.('a[')).toBe('bad glob');
+    expect(validate?.('ok/**')).toBeUndefined();
   });
 
   it('copies name, desc, aliases and visible from the spec', () => {
