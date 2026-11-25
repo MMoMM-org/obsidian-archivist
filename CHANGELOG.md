@@ -1,3 +1,9 @@
+## [0.12.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.2...0.12.3) (2026-11-25)
+
+### Bug Fixes
+
+* **settings:** merge each edit into fresh settings, not the render snapshot ([#110](https://github.com/MMoMM-org/obsidian-archivist/issues/110)) ([#122](https://github.com/MMoMM-org/obsidian-archivist/issues/122)) ([03cede5](https://github.com/MMoMM-org/obsidian-archivist/commit/03cede5ecd9cc76900ee63b6afbd529c10a9e7ba))
+
 ## [0.12.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.1...0.12.2) (2026-11-25)
 
 ### Bug Fixes
