@@ -21,6 +21,9 @@ const VAULT_PREFIX_REGEX = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   host.heading(S.SETTINGS_SECTION_ADVANCED);
 
+  // Render-time snapshot: initial `value`s only. onChange handlers read
+  // ctx.getSettings() fresh — updateSettings replaces the whole group, so
+  // merging into this snapshot would revert earlier edits (#110).
   const settings = ctx.getSettings();
   const a = settings.advanced;
 
@@ -38,7 +41,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
       return ctx.updateSettings({
-        advanced: merge(a, { exclusion_globs: lines }),
+        advanced: merge(ctx.getSettings().advanced, { exclusion_globs: lines }),
       });
     },
     validate: (raw) => {
@@ -59,7 +62,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     label: S.SETTINGS_RECONCILE_SCAN,
     value: a.reconcile_scan_enabled,
     onChange: (v) => {
-      return ctx.updateSettings({ advanced: merge(a, { reconcile_scan_enabled: v }) });
+      return ctx.updateSettings({ advanced: merge(ctx.getSettings().advanced, { reconcile_scan_enabled: v }) });
     },
   });
 
@@ -71,7 +74,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     aliases: S.ALIASES_DRY_RUN,
     value: a.dry_run_mode,
     onChange: (v) => {
-      return ctx.updateSettings({ advanced: merge(a, { dry_run_mode: v }) });
+      return ctx.updateSettings({ advanced: merge(ctx.getSettings().advanced, { dry_run_mode: v }) });
     },
   });
 
@@ -84,7 +87,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     aliases: S.ALIASES_DIAGNOSTIC_LOGGING,
     value: a.diagnostic_logging,
     onChange: (v) => {
-      return ctx.updateSettings({ advanced: merge(a, { diagnostic_logging: v }) });
+      return ctx.updateSettings({ advanced: merge(ctx.getSettings().advanced, { diagnostic_logging: v }) });
     },
   });
 
@@ -92,7 +95,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
   // Reads the current advanced settings via ctx.getSettings() at change-time
   // rather than the closure-captured `a` from render-time. With per-keystroke
   // onChange firing on the same input, a stale closure caused two real bugs:
-  //   1. `merge(a, { vault_prefix: v })` carried RENDER-TIME values for every
+  //   1. `merge(ctx.getSettings().advanced, { vault_prefix: v })` carried RENDER-TIME values for every
   //      other advanced field, so any concurrent save from a different
   //      section could be overwritten.
   //   2. The `if (v === a.vault_prefix) return` early-return compared against
@@ -135,7 +138,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     max: 8,
     step: 1,
     onChange: (v) => {
-      return ctx.updateSettings({ advanced: merge(a, { upload_parallelism: v }) });
+      return ctx.updateSettings({ advanced: merge(ctx.getSettings().advanced, { upload_parallelism: v }) });
     },
   });
 
@@ -150,7 +153,7 @@ export function renderAdvanced(host: SectionHost, ctx: SettingsContext): void {
     max: 64,
     step: 1,
     onChange: (v) => {
-      return ctx.updateSettings({ advanced: merge(a, { chunk_size_mb: v }) });
+      return ctx.updateSettings({ advanced: merge(ctx.getSettings().advanced, { chunk_size_mb: v }) });
     },
   });
 }
