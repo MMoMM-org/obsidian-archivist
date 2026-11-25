@@ -1,3 +1,9 @@
+## [0.12.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.1...0.12.2) (2026-11-25)
+
+### Bug Fixes
+
+* **settings:** confirm before disconnecting Dropbox ([#109](https://github.com/MMoMM-org/obsidian-archivist/issues/109)) ([#120](https://github.com/MMoMM-org/obsidian-archivist/issues/120)) ([c27a91f](https://github.com/MMoMM-org/obsidian-archivist/commit/c27a91f83ffc19a643339052c58d8d1ed7fd1a87))
+
 ## [0.12.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.0...0.12.1) (2026-11-22)
 
 ### Bug Fixes
