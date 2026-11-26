@@ -72,11 +72,13 @@ function hhmmssNow(): string {
 /**
  * Hard ceiling on the once-per-session chain-integrity walk. Each step
  * is a Dropbox round-trip; at ~200 ms per call, 100 caps the worst-case
- * startup cost at ~20 s. Retention defaults bound the chain to "a few
- * dozen" so this is well above steady-state but well below the previous
- * 1000-link / ~3-min ceiling that bit users with retention disabled.
- * A chain that exceeds this is treated as broken with `reason:
- * 'depth_exceeded'` and the next backup re-bootstraps with a FULL.
+ * background cost at ~20 s. Chain depth is the number of incs since the
+ * last FULL, so it is bounded by `schedule.full_cadence` (and by how
+ * often the vault actually changes — incs need changes), not by
+ * retention: pruning never shortens the distance from an inc to its
+ * FULL ancestor (#64). A chain that exceeds this is treated as broken
+ * with `reason: 'depth_exceeded'` and the next backup re-bootstraps
+ * with a FULL.
  */
 const CHAIN_WALK_MAX_DEPTH = 100;
 
@@ -482,9 +484,10 @@ export class BackupService {
     // the BackupBrowser would keep showing chain_broken on every snapshot
     // newer than the gap. Re-bootstrap with FULL.
     //
-    // Cost: one `downloadJson` per snapshot in the chain. Bounded by retention
-    // (typically <50 for V1 defaults), once per session — acceptable to catch
-    // mid-chain corruption that a single-probe check misses.
+    // Cost: one `downloadJson` per inc since the last FULL (bounded by
+    // full_cadence and CHAIN_WALK_MAX_DEPTH, not by retention), once per
+    // session — acceptable to catch mid-chain corruption that a
+    // single-probe check misses.
     if (!this.dropboxChainVerified) {
       const startId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
       if (startId !== null) {
@@ -814,11 +817,12 @@ export class BackupService {
    * first PATH_NOT_FOUND or pathological condition (cycle, missing
    * parent_id on a non-Full, depth ceiling). Other errors propagate.
    *
-   * Cost: one downloadJson per chain link. Bounded by retention; in V1
-   * defaults that's a few dozen at most. CHAIN_WALK_MAX_DEPTH caps the
-   * worst case at ~100 round-trips so a user with retention disabled
-   * doesn't see a multi-minute startup hang. CHAIN_WALK_DEPTH_WARN logs
-   * a warning at 50 so we notice creeping chain length before it bites.
+   * Cost: one downloadJson per chain link, i.e. per inc since the last
+   * FULL — governed by `schedule.full_cadence`, not by retention.
+   * CHAIN_WALK_MAX_DEPTH caps the worst case at ~100 round-trips (the
+   * walk runs in the background during the first inc of a session, not
+   * on the onload path). CHAIN_WALK_DEPTH_WARN logs a warning at 50 so
+   * we notice creeping chain length before it bites.
    */
   private async walkChainToFull(
     startId: string,
