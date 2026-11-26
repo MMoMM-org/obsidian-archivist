@@ -109,6 +109,13 @@ function makeFakeDropbox(opts: FakeDropboxOptions = {}) {
       if (path === CONTENT_FOLDER || path.startsWith(CONTENT_FOLDER)) {
         return contentEntries;
       }
+      if (path === VAULT_PREFIX) {
+        // Direct children of the vault root, shaped like Dropbox's
+        // path_display (leading slash).
+        return [...store.keys()]
+          .filter((k) => k.startsWith(`${VAULT_PREFIX}/`) && !k.slice(VAULT_PREFIX.length + 1).includes('/'))
+          .map((k): ListFolderEntry => ({ tag: 'file', path: `/${k}` }));
+      }
       return [];
     }),
 
@@ -154,6 +161,7 @@ function makeFakeLogger() {
     info: vi.fn((message: string, payload?: unknown) => { infoCalls.push({ message, payload }); }),
     warn: vi.fn((message: string, payload?: unknown) => { warnCalls.push({ message, payload }); }),
     error: vi.fn((message: string, payload?: unknown) => { errorCalls.push({ message, payload }); }),
+    debug: vi.fn(),
   };
 }
 
@@ -370,7 +378,7 @@ describe('GCService', () => {
       await service.sweep();
 
       const indexPos = sharedCallOrder.indexOf('snapshotIndexStore.read');
-      const listPos = sharedCallOrder.findIndex((e) => e.startsWith('listFolder:'));
+      const listPos = sharedCallOrder.indexOf(`listFolder:${CONTENT_FOLDER}`);
 
       expect(indexPos).toBeGreaterThanOrEqual(0);
       expect(listPos).toBeGreaterThanOrEqual(0);
@@ -588,4 +596,49 @@ describe('GCService', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // #62 — lock probe must not hit files/download when no lock exists
+  // -------------------------------------------------------------------------
+
+  describe('lock probe (#62)', () => {
+    it('does not download gc_lock when the vault root lists no lock', async () => {
+      const h = makeHarness({ snapshotIndex: makeSnapshotIndex([]) });
+      const result = await h.service.sweep();
+      expect(result.state).toBe('swept');
+      expect(h.dropbox.callOrder).not.toContain(`downloadJson:${GC_LOCK}`);
+      expect(h.dropbox.callOrder).toContain(`listFolder:${VAULT_PREFIX}`);
+    });
+
+    it('detects a listed lock regardless of path casing', async () => {
+      const h = makeHarness({ snapshotIndex: makeSnapshotIndex([]) });
+      h.dropbox.listFolder.mockImplementationOnce(async () => [
+        { tag: 'file', path: `/${VAULT_PREFIX.toUpperCase()}/GC_LOCK` },
+      ]);
+      h.dropbox.store.set(GC_LOCK, {
+        schema_version: '1.0',
+        started_at: new Date(h.nowDate.getTime() - 60_000).toISOString(),
+      });
+      const result = await h.service.sweep();
+      expect(result.state).toBe('skipped_locked');
+    });
+
+    it('proceeds when a listed lock is gone by the time it is downloaded', async () => {
+      const h = makeHarness({ snapshotIndex: makeSnapshotIndex([]) });
+      h.dropbox.listFolder.mockImplementationOnce(async () => [
+        { tag: 'file', path: `/${GC_LOCK}` },
+      ]);
+      const result = await h.service.sweep();
+      expect(result.state).toBe('swept');
+      expect(h.dropbox.callOrder).toContain(`downloadJson:${GC_LOCK}`);
+    });
+
+    it('propagates a non-PathError from the vault-root listing', async () => {
+      const h = makeHarness({ snapshotIndex: makeSnapshotIndex([]) });
+      h.dropbox.listFolder.mockImplementationOnce(async () => {
+        throw new NetworkError('NETWORK_ERROR', 'offline', true);
+      });
+      await expect(h.service.sweep()).rejects.toBeInstanceOf(NetworkError);
+      expect(h.dropbox.uploadJsonCalls).toHaveLength(0);
+    });
+  });
 });

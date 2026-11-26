@@ -1,7 +1,8 @@
 // GCService — orphan blob sweep with gc_lock, ROB-012 ordering, and age-gate.
 //
 // Algorithm (T6.4):
-//   1. Read gc_lock; if valid and fresh → abort (skipped_locked).
+//   1. List the vault root; if gc_lock is present, read it; if valid and
+//      fresh → abort (skipped_locked).
 //   2. Write gc_lock.
 //   3. (ROB-012) Read snapshot_index FIRST → build referenced-hash set.
 //      If index unreadable → abort defensively (skipped_no_index); remove lock.
@@ -13,10 +14,10 @@
 // References: SDD/ADR-5, SDD/ADR-20, SDD/Risks/ROB-012, ROB-014.
 
 import { CorruptionError, PathError } from '../model/Errors';
-import type { DropboxClient } from '../infra/DropboxClient';
+import type { DropboxClient, ListFolderEntry } from '../infra/DropboxClient';
 import type { Logger } from '../infra/Logger';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
-import { gcLockPath, contentFolderPath } from '../util/paths';
+import { gcLockPath, contentFolderPath, vaultRoot } from '../util/paths';
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -75,6 +76,7 @@ export class GCService {
   private readonly dropbox: DropboxClient;
   private readonly snapshotIndexStore: SnapshotIndexStore;
   private readonly logger: Logger;
+  private readonly vaultRoot: string;
   private readonly lockPath: string;
   private readonly contentFolder: string;
   private readonly resolveDeviceId: () => string | Promise<string>;
@@ -85,6 +87,7 @@ export class GCService {
     this.dropbox = deps.dropbox;
     this.snapshotIndexStore = deps.snapshotIndexStore;
     this.logger = deps.logger;
+    this.vaultRoot = vaultRoot(deps.vaultPrefix);
     this.lockPath = gcLockPath(deps.vaultPrefix);
     this.contentFolder = contentFolderPath(deps.vaultPrefix);
     this.resolveDeviceId =
@@ -119,6 +122,8 @@ export class GCService {
   // ---------------------------------------------------------------------------
 
   private async checkExistingLock(now: Date): Promise<GCResult | 'proceed'> {
+    if (!(await this.lockIsListed())) return 'proceed';
+
     let raw: unknown;
     try {
       raw = await this.dropbox.downloadJson(this.lockPath);
@@ -153,6 +158,28 @@ export class GCService {
 
     this.logger.info('gc_lock_stale', { started_at: raw.started_at, age_ms: ageMs });
     return 'proceed';
+  }
+
+  /**
+   * Presence check via list_folder on the vault root (#62). Probing with
+   * files/download answers the normal no-lock case with a 409
+   * path/not_found, which the browser logs to DevTools as an error after
+   * every backup and retention run. list_folder answers 200 either way.
+   * Dropbox paths are case-insensitive and path_display carries a leading
+   * slash, so both are normalised before comparing.
+   */
+  private async lockIsListed(): Promise<boolean> {
+    let entries: ListFolderEntry[];
+    try {
+      entries = await this.dropbox.listFolder(this.vaultRoot);
+    } catch (err) {
+      if (err instanceof PathError && err.code === 'PATH_NOT_FOUND') return false;
+      throw err;
+    }
+    const want = this.lockPath.toLowerCase();
+    return entries.some(
+      (e) => e.tag === 'file' && e.path.replace(/^\//, '').toLowerCase() === want,
+    );
   }
 
   // ---------------------------------------------------------------------------
