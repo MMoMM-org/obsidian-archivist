@@ -1,3 +1,9 @@
+## [0.12.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.3...0.12.4) (2026-11-26)
+
+### Bug Fixes
+
+* **settings:** show inline errors for invalid numbers and exclusion globs ([#111](https://github.com/MMoMM-org/obsidian-archivist/issues/111)) ([#123](https://github.com/MMoMM-org/obsidian-archivist/issues/123)) ([12c2e7c](https://github.com/MMoMM-org/obsidian-archivist/commit/12c2e7c59abbfea0c8cf6c1fbf2a046fbab76b6f))
+
 ## [0.12.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.2...0.12.3) (2026-11-25)
 
 ### Bug Fixes
