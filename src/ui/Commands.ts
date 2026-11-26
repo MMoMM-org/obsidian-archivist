@@ -209,7 +209,13 @@ async function runGcOrphanContent(deps: RepairCommandsDeps): Promise<void> {
       const ageMin = Math.round((result.blocking_lock?.age_ms ?? 0) / 60_000);
       deps.notify(S.GC_OK_LOCKED(ageMin), { timeout: 8_000 });
     }
-    deps.logger.info('gc_orphan_content_command_done', { state: result.state });
+    // Counts persist beyond the transient toast — GC is destructive (#63).
+    deps.logger.info('gc_orphan_content_command_done', {
+      state: result.state,
+      deleted_count: result.deleted.length,
+      kept_count: result.kept_count,
+      skipped_age_gate: result.skipped_age_gate,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     deps.notify(S.GC_FAILED(msg), { timeout: 10_000 });

@@ -447,6 +447,28 @@ describe('registerRepairCommands', () => {
     expect(calls.some((c) => c.message === S.GC_OK_SWEPT(2, 7, 3))).toBe(true);
   });
 
+  it('gc: done log entry carries the swept counts (#63)', async () => {
+    const { plugin, captured } = makePluginStub();
+    const { fn: notify } = makeNotify();
+    const logger = makeLogger();
+    registerRepairCommands({
+      plugin,
+      repair: makeRepair({
+        command: 'gc',
+        result: { state: 'swept', deleted: ['a', 'b'], kept_count: 7, skipped_age_gate: 3 },
+      }) as never,
+      notify,
+      logger,
+    });
+    await captured.byId.get('archivist-gc-orphan-content')!.callback!();
+    expect(logger.info).toHaveBeenCalledWith('gc_orphan_content_command_done', {
+      state: 'swept',
+      deleted_count: 2,
+      kept_count: 7,
+      skipped_age_gate: 3,
+    });
+  });
+
   it('gc: skipped_no_index surfaces the no-index toast (M13 + GC_OK_NO_INDEX route)', async () => {
     const { plugin, captured } = makePluginStub();
     const { fn: notify, calls } = makeNotify();
