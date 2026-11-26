@@ -1050,6 +1050,23 @@ describe('ArchivistSettingTab — refresh orchestration', () => {
     expect(h.tab._updateCalls).toBe(0);
   });
 
+  // #113 — the old imperative tab re-subscribed in display(), so refresh()
+  // on a hidden tab added a subscription that outlived hide().
+  it('refresh() on a closed tab keeps the single NoticeCenter subscription (#113)', async () => {
+    const h = makeHarness();
+    stubFetch(h, { email: 'a@b.c' });
+    for (let i = 0; i < 3; i++) {
+      await h.tab.refresh();
+      vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    }
+    expect(h.subscriberCount()).toBe(1);
+
+    const before = h.tab._updateCalls;
+    h.emitBanners([{ code: 'AUTH_LOST', message: 'x' }]);
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS);
+    expect(h.tab._updateCalls).toBe(before + 1);
+  });
+
   it('switches the Account row between disconnected and connected on the next build', async () => {
     const h = makeHarness();
     expect(accountDesc(h.tab)).toBe(S.OAUTH_NOT_CONNECTED);
