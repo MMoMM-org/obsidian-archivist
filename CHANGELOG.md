@@ -1,3 +1,9 @@
+## [0.12.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.6...0.12.7) (2026-11-26)
+
+### Bug Fixes
+
+* **gc:** probe gc_lock via list_folder and log sweep counts ([#62](https://github.com/MMoMM-org/obsidian-archivist/issues/62), [#63](https://github.com/MMoMM-org/obsidian-archivist/issues/63)) ([#130](https://github.com/MMoMM-org/obsidian-archivist/issues/130)) ([b59e4dc](https://github.com/MMoMM-org/obsidian-archivist/commit/b59e4dcaf4ca8da1c28b751a6f25c891fa08f0b7))
+
 ## [0.12.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.5...0.12.6) (2026-11-26)
 
 ### Bug Fixes
