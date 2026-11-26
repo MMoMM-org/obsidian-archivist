@@ -39,12 +39,10 @@ function stubContext(email: string | null): SettingsContext {
   return {
     getSettings: () => DEFAULT_SETTINGS,
     updateSettings: async () => {},
-    deviceId: 'd0',
     deviceDesignated: true,
     dropboxAccountEmail: email,
     dropboxUsedBytes: 0,
     device: {
-      getDeviceId: async () => 'd0',
       isDesignated: async () => true,
       takeOwnership: async () => {},
       releaseOwnership: async () => {},
@@ -60,7 +58,6 @@ function stubContext(email: string | null): SettingsContext {
     },
     getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
     estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 }

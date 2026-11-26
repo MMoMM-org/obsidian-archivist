@@ -213,9 +213,6 @@ export class DefinitionBuilderHost implements SectionHost {
         return { ...baseOf(spec, spec.label), render: (s) => r.link(s, spec) };
       case 'actionRow':
         return { ...baseOf(spec, spec.label, spec.description), render: (s) => r.actionRow(s, spec) };
-      case 'readonly':
-      case 'button':
-        throw new Error(`DefinitionBuilderHost: "${spec.kind}" rows are unsupported (#112)`);
     }
   }
 

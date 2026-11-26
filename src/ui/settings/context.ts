@@ -7,7 +7,6 @@
 import type { PluginSettings } from '../../model/Settings';
 
 export interface DeviceSurface {
-  getDeviceId(): Promise<string>;
   isDesignated(): Promise<boolean>;
   takeOwnership(label?: string): Promise<void>;
   releaseOwnership(): Promise<void>;
@@ -42,11 +41,10 @@ export interface SettingsContext {
   getSettings: () => PluginSettings;
   updateSettings: (patch: Partial<PluginSettings>) => Promise<void>;
   /**
-   * Pre-fetched device identity, refreshed by ArchivistSettingTab.refresh() before
-   * rendering. Section renderers are sync; async device lookups would race
-   * with the render pass.
+   * Pre-fetched designation state, refreshed by ArchivistSettingTab.refresh()
+   * before rendering. Section renderers are sync; async device lookups would
+   * race with the render pass.
    */
-  deviceId: string;
   deviceDesignated: boolean;
   /** Pre-fetched account email. Null when disconnected. */
   dropboxAccountEmail: string | null;
@@ -57,7 +55,6 @@ export interface SettingsContext {
   oauth: OAuthSurface;
   getRetentionProfile: () => RetentionProfile;
   estimateRetention: (profile: RetentionProfile, settings: PluginSettings) => RetentionEstimate;
-  copyToClipboard: (text: string) => Promise<void>;
   /** Opens a confirmation dialog; resolves with the user's choice. */
   confirm: (opts: { title: string; body: string; okLabel: string; cancelLabel: string }) => Promise<boolean>;
 }

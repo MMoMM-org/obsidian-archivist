@@ -105,13 +105,6 @@ export interface SliderFieldSpec extends InputMeta {
   onChange: (v: number) => OnChangeResult;
 }
 
-export interface ButtonFieldSpec extends RowMeta {
-  kind: 'button';
-  label: string;
-  cta?: boolean;
-  onClick: () => void;
-}
-
 /**
  * Compact one-line row that combines a name + description + one or more inline
  * action buttons. Used for state-driven controls like the Dropbox Account row,
@@ -129,14 +122,6 @@ export interface ActionRowFieldSpec extends RowMeta {
     destructive?: boolean;
     onClick: () => void;
   }>;
-}
-
-export interface ReadOnlyFieldSpec extends RowMeta {
-  kind: 'readonly';
-  label: string;
-  description?: string;
-  value: string;
-  copyable?: boolean;
 }
 
 export interface StaticTextSpec extends RowMeta {
@@ -169,9 +154,7 @@ export type FieldSpec =
   | DropdownFieldSpec
   | TextareaFieldSpec
   | SliderFieldSpec
-  | ButtonFieldSpec
   | ActionRowFieldSpec
-  | ReadOnlyFieldSpec
   | StaticTextSpec
   | LinkFieldSpec
   | BannerSpec;

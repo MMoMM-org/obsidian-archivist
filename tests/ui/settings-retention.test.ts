@@ -31,12 +31,10 @@ function makeCtx(opts: StubOpts = {}): {
     updateSettings: async (patch) => {
       updates.push(patch);
     },
-    deviceId: 'd0',
     deviceDesignated: true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: opts.dropboxUsedBytes ?? 0,
     device: {
-      getDeviceId: async () => 'd0',
       isDesignated: async () => true,
       takeOwnership: async () => {},
       releaseOwnership: async () => {},
@@ -55,7 +53,6 @@ function makeCtx(opts: StubOpts = {}): {
       estimateCalls += 1;
       return opts.estimateResult ?? { snapshots: 123, gb: 4.56 };
     },
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 

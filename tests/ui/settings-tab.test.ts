@@ -87,12 +87,10 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
       settings = { ...settings, ...patch };
       return Promise.resolve();
     },
-    deviceId: '7f3a2c01-1111-4111-8111-111111111111',
     deviceDesignated: opts.deviceDesignated ?? true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: opts.usedBytes ?? 0,
     device: {
-      getDeviceId: async () => 'test-device',
       isDesignated: async () => true,
       takeOwnership: () => {
         takeOwnership();
@@ -114,7 +112,6 @@ function makeHarness(opts: HarnessOptions = {}): Harness {
     },
     getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
     estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 
@@ -634,32 +631,29 @@ describe('ArchivistSettingTab — class shape', () => {
 // modelled by rendering the header row again by hand.
 
 interface AsyncValues {
-  deviceId: string;
   designated: boolean;
   email: string | null;
   used: number;
 }
 
 interface FetchStub {
-  /** Number of refreshAsyncFields fetches started (one getDeviceId call each). */
+  /** Number of refreshAsyncFields fetches started (one isDesignated call each). */
   calls: () => number;
 }
 
 /** Makes the async surfaces resolve with `values`, defaulting to the cached ctx (no change). */
 function stubFetch(h: Harness, values: Partial<AsyncValues> = {}): FetchStub {
   const v: AsyncValues = {
-    deviceId: h.ctx.deviceId,
     designated: h.ctx.deviceDesignated,
     email: h.ctx.dropboxAccountEmail,
     used: h.ctx.dropboxUsedBytes,
     ...values,
   };
   let calls = 0;
-  h.ctx.device.getDeviceId = () => {
+  h.ctx.device.isDesignated = () => {
     calls += 1;
-    return Promise.resolve(v.deviceId);
+    return Promise.resolve(v.designated);
   };
-  h.ctx.device.isDesignated = () => Promise.resolve(v.designated);
   h.ctx.dropbox.getAccountEmail = () => Promise.resolve(v.email);
   h.ctx.dropbox.getUsedBytes = () => Promise.resolve(v.used);
   return { calls: () => calls };

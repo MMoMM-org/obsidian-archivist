@@ -1194,12 +1194,10 @@ export default class ArchivistPlugin extends Plugin {
         cachedRef.settings = merged;
         await pluginStore.saveSettings(merged);
       },
-      deviceId: '',
       deviceDesignated: true,
       dropboxAccountEmail: null,
       dropboxUsedBytes: 0,
       device: {
-        getDeviceId: () => deviceCoordinator.getOrCreateDeviceId(),
         isDesignated: () => Promise.resolve(true),
         takeOwnership: (_label?: string) => Promise.resolve(),
         releaseOwnership: () => Promise.resolve(),
@@ -1231,26 +1229,14 @@ export default class ArchivistPlugin extends Plugin {
       },
       getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
       estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-      copyToClipboard: async (text) => {
-        await (navigator as unknown as {
-          clipboard: { writeText: (t: string) => Promise<void> };
-        }).clipboard.writeText(text);
-      },
       confirm: (opts) => openConfirm(this.app, opts),
     };
 
     // Pre-populate every async-sourced settingsContext field so the FIRST
     // refreshAsyncFields tick after the tab opens sees no diff and schedules
     // no extra update(). Skipping this caused a real-world bug in the old
-    // imperative tab: while the user typed into the Vault-prefix textbox, the
-    // async deviceId fetch resolved a few hundred ms later, refreshAsyncFields
-    // saw ctx.deviceId go from '' to a real UUID, rebuilt the whole tab and
-    // wiped the in-progress input — leaving data.json with vault_prefix: ''
-    // even after the user saved twice in a row.
-    settingsContext.deviceId = await deviceCoordinator
-      .getOrCreateDeviceId()
-      .catch(() => settingsContext.deviceId);
-
+    // imperative tab: an async field resolving a few hundred ms after open
+    // rebuilt the whole tab and wiped the in-progress Vault-prefix input.
     const existingTokens = await tokenStore.load().catch(() => null);
     if (existingTokens?.dropbox_account_email) {
       settingsContext.dropboxAccountEmail = existingTokens.dropbox_account_email;
