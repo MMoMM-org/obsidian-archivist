@@ -52,12 +52,10 @@ function stubContext(): SettingsContext {
   return {
     getSettings: () => DEFAULT_SETTINGS,
     updateSettings: async () => {},
-    deviceId: 'd0',
     deviceDesignated: true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: 0,
     device: {
-      getDeviceId: async () => 'd0',
       isDesignated: async () => true,
       takeOwnership: async () => {},
       releaseOwnership: async () => {},
@@ -66,7 +64,6 @@ function stubContext(): SettingsContext {
     oauth: { isConnected: async () => false, beginAuth: async () => {} },
     getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
     estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 }
@@ -311,11 +308,6 @@ describe('DefinitionBuilderHost — non-input kinds become render rows', () => {
     expect(itemsOf(groups(b)[0]!)[0]?.visible).toBe(visible);
   });
 
-  it('readonly and button kinds throw as unsupported (#112)', () => {
-    const b = new DefinitionBuilderHost(fakeRenderers());
-    expect(() => b.field({ kind: 'readonly', label: 'R', value: 'v' })).toThrow(/unsupported.*#112/);
-    expect(() => b.field({ kind: 'button', label: 'B', onClick: () => {} })).toThrow(/unsupported.*#112/);
-  });
 });
 
 describe('DefinitionBuilderHost — key registry', () => {

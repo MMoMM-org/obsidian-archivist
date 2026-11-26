@@ -10,7 +10,6 @@ import { S } from '../../src/ui/strings';
 interface StubOpts {
   settings?: PluginSettings;
   deviceDesignated?: boolean;
-  deviceId?: string;
 }
 
 function makeCtx(opts: StubOpts = {}): {
@@ -29,12 +28,10 @@ function makeCtx(opts: StubOpts = {}): {
     updateSettings: async (patch) => {
       updates.push(patch);
     },
-    deviceId: opts.deviceId ?? '7f3a2c01-aaaa-4bbb-8ccc-dddddddddddd',
     deviceDesignated: opts.deviceDesignated ?? true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: 0,
     device: {
-      getDeviceId: async () => opts.deviceId ?? 'x',
       isDesignated: async () => true,
       takeOwnership: async () => {
         takeOwnershipCalls += 1;
@@ -54,7 +51,6 @@ function makeCtx(opts: StubOpts = {}): {
     },
     getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
     estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 

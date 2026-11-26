@@ -138,12 +138,10 @@ async function bootFromFixture(opts: IntegrationOptions = {}): Promise<Integrati
       cachedRef.settings = merged;
       await store.saveSettings(merged);
     },
-    deviceId: 'device-under-test',
     deviceDesignated: true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: opts.usedBytes ?? 0,
     device: {
-      getDeviceId: async () => 'device-under-test',
       isDesignated: async () => true,
       takeOwnership: () => {
         takeOwnership();
@@ -162,7 +160,6 @@ async function bootFromFixture(opts: IntegrationOptions = {}): Promise<Integrati
     oauth: { isConnected: async () => email !== null, beginAuth: async () => {} },
     getRetentionProfile: () => ({ vault_bytes: 2 * GB, avg_edits_per_day: 40 }),
     estimateRetention: () => ({ snapshots: 123, gb: 4.5 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 

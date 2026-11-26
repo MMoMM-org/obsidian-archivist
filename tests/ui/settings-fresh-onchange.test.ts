@@ -26,12 +26,10 @@ function makeLiveCtx(): SettingsContext {
     updateSettings: async (patch) => {
       settings = { ...settings, ...patch };
     },
-    deviceId: 'd0',
     deviceDesignated: true,
     dropboxAccountEmail: null,
     dropboxUsedBytes: 0,
     device: {
-      getDeviceId: async () => 'd0',
       isDesignated: async () => true,
       takeOwnership: async () => {},
       releaseOwnership: async () => {},
@@ -44,7 +42,6 @@ function makeLiveCtx(): SettingsContext {
     oauth: { isConnected: async () => false, beginAuth: async () => {} },
     getRetentionProfile: () => ({ vault_bytes: 0, avg_edits_per_day: 0 }),
     estimateRetention: () => ({ snapshots: 0, gb: 0 }),
-    copyToClipboard: async () => {},
     confirm: async () => true,
   };
 }

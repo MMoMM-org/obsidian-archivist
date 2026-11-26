@@ -82,7 +82,6 @@ export interface ArchivistSettingTabDeps {
 }
 
 interface AsyncFields {
-  deviceId: string;
   designated: boolean;
   email: string | null;
   used: number;
@@ -242,13 +241,12 @@ export class ArchivistSettingTab extends PluginSettingTab {
   /** Each fetch falls back to the cached ctx value when it rejects. */
   private async fetchAsyncFields(): Promise<AsyncFields> {
     const ctx = this.deps.context;
-    const [deviceId, designated, email, used] = await Promise.all([
-      ctx.device.getDeviceId().catch(() => ctx.deviceId),
+    const [designated, email, used] = await Promise.all([
       ctx.device.isDesignated().catch(() => ctx.deviceDesignated),
       ctx.dropbox.getAccountEmail().catch(() => ctx.dropboxAccountEmail),
       ctx.dropbox.getUsedBytes().catch(() => ctx.dropboxUsedBytes),
     ]);
-    return { deviceId, designated, email, used };
+    return { designated, email, used };
   }
 
   /**
@@ -260,11 +258,9 @@ export class ArchivistSettingTab extends PluginSettingTab {
     const ctx = this.deps.context;
     const designated = keepDesignated ? ctx.deviceDesignated : f.designated;
     const changed =
-      ctx.deviceId !== f.deviceId ||
       ctx.deviceDesignated !== designated ||
       ctx.dropboxAccountEmail !== f.email ||
       ctx.dropboxUsedBytes !== f.used;
-    ctx.deviceId = f.deviceId;
     ctx.deviceDesignated = designated;
     ctx.dropboxAccountEmail = f.email;
     ctx.dropboxUsedBytes = f.used;
