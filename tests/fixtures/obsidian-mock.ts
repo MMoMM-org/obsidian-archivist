@@ -897,7 +897,7 @@ function appendChild(parent: MockEl, child: MockEl): void {
   parentOf.set(child, parent);
 }
 
-function makeMockEl(tag: string): MockEl {
+export function makeMockEl(tag: string): MockEl {
   const el: MockEl = {
     tagName: tag,
     children: [],

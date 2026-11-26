@@ -17,7 +17,7 @@
 // 'mismatch' / 'remote-corrupt' kinds.
 
 import { Modal, type App } from 'obsidian';
-import type { ModalHandle } from './ConfirmRestoreModal';
+import { makeContentElHandle, type ModalHandle } from './ConfirmRestoreModal';
 import { S } from './strings';
 import { captureFocus } from './focus';
 
@@ -151,50 +151,14 @@ export class MismatchRecoveryModal extends Modal {
 
   onOpen(): void {
     this.triggerEl = captureFocus(activeDocument);
-    const handle = this.makeHandle();
+    const handle = makeContentElHandle(this.contentEl, this.modalEl, () => {
+      this.triggerEl?.focus();
+      this.close();
+    });
     renderMismatchRecoveryContent(handle, this.opts);
   }
 
   onClose(): void {
     this.contentEl.empty();
-  }
-
-  private makeHandle(): ModalHandle {
-    let titleEl: HTMLElement | null = null;
-    let bodyEl: HTMLElement | null = null;
-    const controller = new AbortController();
-    const closeFn = (): void => {
-      this.triggerEl?.focus();
-      this.close();
-    };
-    return {
-      setTitle: (title) => {
-        if (!titleEl) titleEl = this.contentEl.createEl('h2');
-        titleEl.textContent = title;
-      },
-      setBody: (body) => {
-        if (!bodyEl) bodyEl = this.contentEl.createEl('p');
-        bodyEl.textContent = body;
-      },
-      addLine: (line) => {
-        this.contentEl.createEl('p', { text: line });
-      },
-      addButton: (label, isDefault, onClick) => {
-        const btn = this.contentEl.createEl('button', { text: label });
-        if (isDefault) btn.setAttribute('autofocus', '');
-        btn.addEventListener('click', onClick);
-      },
-      close: () => {
-        controller.abort();
-        closeFn();
-      },
-      onKeydown: (handler) => {
-        this.modalEl.addEventListener(
-          'keydown',
-          (e: KeyboardEvent) => handler(e.key),
-          { signal: controller.signal },
-        );
-      },
-    };
   }
 }
