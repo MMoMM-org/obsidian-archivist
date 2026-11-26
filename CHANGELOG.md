@@ -1,3 +1,9 @@
+## [0.12.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.4...0.12.5) (2026-11-26)
+
+### Bug Fixes
+
+* **ui:** restore modal focus in popout windows via cross-window instanceOf ([#114](https://github.com/MMoMM-org/obsidian-archivist/issues/114)) ([#126](https://github.com/MMoMM-org/obsidian-archivist/issues/126)) ([dc9a804](https://github.com/MMoMM-org/obsidian-archivist/commit/dc9a804078e651717403dd846f5db9daa25b805f))
+
 ## [0.12.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.3...0.12.4) (2026-11-26)
 
 ### Bug Fixes
