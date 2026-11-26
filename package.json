@@ -15,7 +15,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
-		"lint": "eslint src/ && stylelint styles.css",
+		"lint": "eslint --max-warnings 0 src/ manifest.json LICENSE package.json && stylelint styles.css",
 		"lint:css": "stylelint styles.css",
 		"typecheck": "tsc --noEmit",
 		"audit": "npm audit --audit-level=high --omit=dev"
