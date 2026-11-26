@@ -36,6 +36,7 @@ import {
   registerRetentionCommands,
   registerVerifyVaultOwnershipCommand,
 } from './ui/Commands';
+import { registerDevModalPreviews } from './dev/ModalPreview';
 import { ArchivistSettingTab } from './ui/SettingsTab';
 import { BackupBrowserView, BACKUP_BROWSER_VIEW_TYPE } from './ui/BackupBrowserView';
 import { FileHistoryModal } from './ui/FileHistoryModal';
@@ -1121,6 +1122,7 @@ export default class ArchivistPlugin extends Plugin {
     // Step 14: Commands
     // ---------------------------------------------------------------------------
     registerBackupNowCommand({ plugin: this, fsm, notify });
+    registerDevModalPreviews({ plugin: this });
     registerOpenBackupBrowserCommand({ plugin: this, onOpen: openBrowser });
     registerShowHistoryCommand({
       plugin: this,
