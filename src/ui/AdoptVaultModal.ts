@@ -15,7 +15,7 @@
 // ConfirmRestoreModal so tests can exercise it without Obsidian.
 
 import { Modal, type App } from 'obsidian';
-import type { ModalHandle } from './ConfirmRestoreModal';
+import { makeContentElHandle, type ModalHandle } from './ConfirmRestoreModal';
 import { S } from './strings';
 import { captureFocus } from './focus';
 
@@ -92,54 +92,14 @@ export class AdoptVaultModal extends Modal {
 
   onOpen(): void {
     this.triggerEl = captureFocus(activeDocument);
-    const handle = this.makeHandle();
+    const handle = makeContentElHandle(this.contentEl, this.modalEl, () => {
+      this.triggerEl?.focus();
+      this.close();
+    });
     renderAdoptVaultContent(handle, this.opts);
   }
 
   onClose(): void {
     this.contentEl.empty();
-  }
-
-  /**
-   * Build a ModalHandle over this.contentEl. Mirrors the helper in
-   * ConfirmRestoreModal — same shape, same lifecycle.
-   */
-  private makeHandle(): ModalHandle {
-    let titleEl: HTMLElement | null = null;
-    let bodyEl: HTMLElement | null = null;
-    const controller = new AbortController();
-    const closeFn = (): void => {
-      this.triggerEl?.focus();
-      this.close();
-    };
-    return {
-      setTitle: (title: string): void => {
-        if (!titleEl) titleEl = this.contentEl.createEl('h2');
-        titleEl.textContent = title;
-      },
-      setBody: (body: string): void => {
-        if (!bodyEl) bodyEl = this.contentEl.createEl('p');
-        bodyEl.textContent = body;
-      },
-      addLine: (line: string): void => {
-        this.contentEl.createEl('p', { text: line });
-      },
-      addButton: (label: string, isDefault: boolean, onClick: () => void): void => {
-        const btn = this.contentEl.createEl('button', { text: label });
-        if (isDefault) btn.setAttribute('autofocus', '');
-        btn.addEventListener('click', onClick);
-      },
-      close: (): void => {
-        controller.abort();
-        closeFn();
-      },
-      onKeydown: (handler: (key: string) => void): void => {
-        this.modalEl.addEventListener(
-          'keydown',
-          (e: KeyboardEvent) => handler(e.key),
-          { signal: controller.signal },
-        );
-      },
-    };
   }
 }
