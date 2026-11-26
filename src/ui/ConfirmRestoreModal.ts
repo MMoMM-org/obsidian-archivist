@@ -15,6 +15,7 @@
 
 import { Modal, type App } from 'obsidian';
 import { S } from './strings';
+import { captureFocus } from './focus';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -152,8 +153,7 @@ export class ConfirmRestoreModal extends Modal {
   }
 
   onOpen(): void {
-    const el = activeDocument.activeElement;
-    this.triggerEl = el instanceof HTMLElement ? el : null;
+    this.triggerEl = captureFocus(activeDocument);
     const handle = makeContentElHandle(this.contentEl, this.modalEl, () => {
       this.triggerEl?.focus();
       this.close();

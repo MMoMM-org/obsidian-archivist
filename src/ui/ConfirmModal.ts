@@ -14,6 +14,7 @@
 
 import { Modal, type App } from 'obsidian';
 import { makeContentElHandle, type ModalHandle } from './ConfirmRestoreModal';
+import { captureFocus } from './focus';
 
 export interface ConfirmOpts {
   title: string;
@@ -74,8 +75,7 @@ class ConfirmModal extends Modal {
   }
 
   onOpen(): void {
-    const el = activeDocument.activeElement;
-    this.triggerEl = el?.instanceOf(HTMLElement) ? el : null;
+    this.triggerEl = captureFocus(activeDocument);
     const handle = makeContentElHandle(this.contentEl, this.modalEl, () => {
       this.triggerEl?.focus();
       this.close();
