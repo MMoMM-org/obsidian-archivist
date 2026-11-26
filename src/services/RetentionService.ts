@@ -16,7 +16,7 @@ import { isSnapshotManifest } from '../model/Manifest';
 import type { PluginSettings } from '../model/Settings';
 import type { SnapshotIndex, SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
 import type { SnapshotIndexStore } from './SnapshotIndexStore';
-import { evaluateTiers } from './retention/evaluator';
+import { classifyTiers, evaluateTiers } from './retention/evaluator';
 import { augmentWithAncestors } from './retention/chainIntegrity';
 import { snapshotsDir, snapshotPath } from '../util/paths';
 
@@ -207,10 +207,11 @@ export class RetentionService {
     }
 
     const keepSet = this.computeKeepSet(index, settings, now);
+    const tiers = classifyTiers(index.snapshots, settings.retention, now);
     const wouldPrune: RetentionDryRunRow[] = [];
     const wouldKeep: RetentionDryRunRow[] = [];
     for (const snap of index.snapshots) {
-      const row = toDryRunRow(snap);
+      const row = toDryRunRow(snap, tiers.get(snap.id) ?? null);
       if (keepSet.has(snap.id)) wouldKeep.push(row);
       else wouldPrune.push(row);
     }
@@ -331,11 +332,11 @@ function resolveState(pruned: string[], failed: string[]): RetentionState {
 }
 
 /** Project a SnapshotIndexEntry to the leaner shape returned by dryRun. */
-function toDryRunRow(snap: SnapshotIndexEntry): RetentionDryRunRow {
+function toDryRunRow(snap: SnapshotIndexEntry, tier: SnapshotTier | null): RetentionDryRunRow {
   return {
     id: snap.id,
     type: snap.type,
     created_at: snap.created_at,
-    tier: snap.tier ?? null,
+    tier,
   };
 }

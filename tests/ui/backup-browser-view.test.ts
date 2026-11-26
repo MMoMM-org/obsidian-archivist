@@ -1167,21 +1167,21 @@ describe('groupSnapshotsByDate — DST-safe boundaries', () => {
 // ---------------------------------------------------------------------------
 
 describe('BackupBrowserView tier tag rendering', () => {
-  it('renders BROWSER_TIER_DAILY label for a snapshot with tier "daily"', async () => {
-    const snap: SnapshotIndexEntry = {
-      ...makeSnapshot({ created_at: '2026-04-24T09:00:00Z' }),
-      tier: 'daily',
-    };
+  it('renders BROWSER_TIER_DAILY label for a snapshot that tiersFor classifies as daily (#99)', async () => {
+    const snap: SnapshotIndexEntry = makeSnapshot({ created_at: '2026-04-24T09:00:00Z' });
+    const tiersFor = vi.fn(() => new Map([[snap.id, 'daily' as const]]));
     const deps = makeDeps({
       manifestCache: {
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
       },
+      tiersFor,
       now: () => new Date('2026-04-24T10:00:00Z'),
     });
     const view = new BackupBrowserView(makeLeaf(), deps);
     await view.onOpen();
     const text = collectText(view.contentEl);
     expect(text).toContain(S.BROWSER_TIER_DAILY);
+    expect(tiersFor).toHaveBeenCalledWith([snap]);
   });
 
   it('does not render a tier tag when tier is absent', async () => {
