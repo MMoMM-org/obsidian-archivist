@@ -17,6 +17,7 @@
 import { Modal, type App } from 'obsidian';
 import type { ModalHandle } from './ConfirmRestoreModal';
 import { S } from './strings';
+import { captureFocus } from './focus';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -90,8 +91,7 @@ export class AdoptVaultModal extends Modal {
   }
 
   onOpen(): void {
-    const el = activeDocument.activeElement;
-    this.triggerEl = el instanceof HTMLElement ? el : null;
+    this.triggerEl = captureFocus(activeDocument);
     const handle = this.makeHandle();
     renderAdoptVaultContent(handle, this.opts);
   }

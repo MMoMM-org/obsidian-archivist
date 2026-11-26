@@ -21,6 +21,7 @@ import type { VersionEntry } from '../services/RestoreService';
 import type { SnapshotTier } from '../model/SnapshotIndex';
 import { renderPreview, type PreviewContainerEl } from './PreviewPane';
 import { ConfirmRestoreModal } from './ConfirmRestoreModal';
+import { captureFocus } from './focus';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -376,8 +377,7 @@ export class FileHistoryModal extends Modal {
   }
 
   onOpen(): void {
-    const el = activeDocument.activeElement;
-    this.triggerEl = el instanceof HTMLElement ? el : null;
+    this.triggerEl = captureFocus(activeDocument);
 
     this.contentEl.empty();
     this.listEl = this.contentEl.createDiv({ cls: 'archivist-file-history-list' });
