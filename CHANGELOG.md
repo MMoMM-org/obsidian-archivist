@@ -1,3 +1,9 @@
+## [0.12.6](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.5...0.12.6) (2026-11-26)
+
+### Bug Fixes
+
+* **ui:** space modal buttons in ErrorDetails, MismatchRecovery and AdoptVault ([#121](https://github.com/MMoMM-org/obsidian-archivist/issues/121)) ([#127](https://github.com/MMoMM-org/obsidian-archivist/issues/127)) ([bf4b0ba](https://github.com/MMoMM-org/obsidian-archivist/commit/bf4b0ba746e2d80638f5ed198f1cd967db09b48d)), closes [#120](https://github.com/MMoMM-org/obsidian-archivist/issues/120)
+
 ## [0.12.5](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.4...0.12.5) (2026-11-26)
 
 ### Bug Fixes
