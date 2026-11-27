@@ -26,6 +26,7 @@ import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -67,8 +68,13 @@ export interface BackupBrowserDeps {
   };
   /** Returns true when the given vault-relative path exists in the live vault. */
   vaultHasPath: (path: string) => boolean;
-  /** Toast / notice surface — used to report directory-restore results. */
-  notify?: (message: string) => void;
+  /**
+   * Toast / notice surface — reports restore results. The returned handle
+   * (when present) dismisses a sticky progress notice.
+   */
+  notify?: (message: string, opts?: { timeout?: number }) => { hide(): void } | void;
+  /** Timer for the slow-load hint (#140). Without it the hint is skipped. */
+  schedule?: ScheduleFn;
   /** Inject app for tests (ItemView sets this.app from the leaf in production). */
   app?: App;
   /** Injectable clock for date grouping tests. */
@@ -833,11 +839,27 @@ export class BackupBrowserView extends ItemView {
       this.deps.advisory.saveDismissed,
     );
 
-    // Load snapshots (show loading state immediately)
-    this.snapshotsListEl.setAttribute('aria-busy', 'true');
-    this.snapshotsListEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
+    await this._loadInitialSnapshots();
+  }
 
-    const snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+  /**
+   * First snapshot-list load, also run by the Retry button. A failure used
+   * to leave the column on "Loading" forever with the error only in the
+   * console (#140); now it shows the message and a Retry button.
+   */
+  private async _loadInitialSnapshots(): Promise<void> {
+    this.snapshotsListEl.empty();
+    this.snapshotsListEl.setAttribute('aria-busy', 'true');
+    renderLoading(this.snapshotsListEl, S.BROWSER_LOADING_SNAPSHOTS, this.deps.schedule);
+
+    let snapshots: SnapshotIndexEntry[];
+    try {
+      snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+    } catch (err) {
+      if (this._closed) return;
+      this._renderSnapshotsLoadError(err);
+      return;
+    }
     if (this._closed) return;
     this.snapshots = snapshots;
     this.tiers = this.deps.tiersFor?.(snapshots) ?? new Map();
@@ -852,6 +874,22 @@ export class BackupBrowserView extends ItemView {
       this.tiers,
     );
     this.snapshotsListEl.setAttribute('aria-busy', 'false');
+  }
+
+  private _renderSnapshotsLoadError(err: unknown): void {
+    this.snapshotsListEl.empty();
+    this.snapshotsListEl.setAttribute('aria-busy', 'false');
+    const msg = err instanceof Error ? err.message : String(err);
+    this.snapshotsListEl.createEl('p', {
+      text: `${S.BROWSER_SNAPSHOTS_LOAD_FAILED} ${msg}`,
+      cls: 'archivist-error',
+    });
+    const retryBtn = this.snapshotsListEl.createEl('button', {
+      text: S.BROWSER_RETRY,
+      cls: 'archivist-snapshots-retry',
+    });
+    retryBtn.setAttribute('type', 'button');
+    retryBtn.addEventListener('click', () => { void this._loadInitialSnapshots(); });
   }
 
   onClose(): Promise<void> {
@@ -947,6 +985,9 @@ export class BackupBrowserView extends ItemView {
         now,
         this.tiers,
       );
+    } catch (err) {
+      // The void-ed click handler would otherwise drop this rejection.
+      if (!this._closed) this._renderSnapshotsLoadError(err);
     } finally {
       this._refreshing = false;
       this.refreshBtnEl?.setAttribute('aria-busy', 'false');
@@ -996,7 +1037,7 @@ export class BackupBrowserView extends ItemView {
     // Show loading in the files column while we materialize
     this.filesListEl.empty();
     this.filesListEl.setAttribute('aria-busy', 'true');
-    this.filesListEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
+    renderLoading(this.filesListEl, S.BROWSER_LOADING_FILES, this.deps.schedule);
 
     let state: Record<string, FileEntry>;
     try {
@@ -1413,9 +1454,19 @@ export class BackupBrowserView extends ItemView {
     // at" anchor; the full vault-relative path appears as a muted subtitle.
     this.previewColEl.empty();
     renderPreviewHeader(this.previewColEl, path);
-    this.previewColEl.createEl('p', { text: S.BROWSER_LOADING, cls: 'archivist-loading' });
+    renderLoading(this.previewColEl, S.BROWSER_LOADING_PREVIEW, this.deps.schedule);
 
-    const content = await this.deps.restoreService.fetchContent(capturedSnap.id, path);
+    let content: Uint8Array;
+    try {
+      content = await this.deps.restoreService.fetchContent(capturedSnap.id, path);
+    } catch (err) {
+      if (this._closed || this.selectedSnapshot !== capturedSnap || this.selectedPath !== path) return;
+      this.previewColEl.empty();
+      renderPreviewHeader(this.previewColEl, path);
+      const msg = err instanceof Error ? err.message : String(err);
+      this.previewColEl.createEl('p', { text: msg, cls: 'archivist-error' });
+      return;
+    }
 
     // Fix 1 + Fix 3: bail if snapshot changed or view was closed during await.
     if (this._closed || this.selectedSnapshot !== capturedSnap) return;
@@ -1458,7 +1509,7 @@ export class BackupBrowserView extends ItemView {
       missingDirs: mode === 'in_place' ? computeMissingDirs(path, this.deps.vaultHasPath) : [],
       customBody: mode === 'as_copy' ? S.CONFIRM_RESTORE_AS_COPY_BODY(path, timestamp) : undefined,
       onConfirm: () => {
-        void this._restoreFile(() =>
+        void this._restoreFile(path, () =>
           mode === 'in_place'
             ? this.deps.restoreOperations.restoreInPlace(path, snapshotId)
             : this.deps.restoreOperations.restoreAsCopy(path, snapshotId),
@@ -1472,12 +1523,17 @@ export class BackupBrowserView extends ItemView {
    * Run a single-file restore and report the outcome. Without this the
    * promise was dropped: no notice on success and an unhandled rejection
    * on failure, so a failed restore looked like a slow one (#142).
+   * A sticky "Restoring…" notice covers the wait on a long chain and is
+   * dismissed when the result notice appears (#140).
    */
-  private async _restoreFile(run: () => Promise<unknown>): Promise<void> {
+  private async _restoreFile(path: string, run: () => Promise<unknown>): Promise<void> {
+    const progress = this.deps.notify?.(S.TOAST_RESTORING(path), { timeout: 0 });
     try {
       await run();
+      progress?.hide();
       this.deps.notify?.(S.TOAST_RESTORE_DONE);
     } catch (err) {
+      progress?.hide();
       this.deps.notify?.(mapRestoreErrorToToast(err));
     }
   }

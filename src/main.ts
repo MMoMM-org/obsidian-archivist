@@ -1366,6 +1366,7 @@ export default class ArchivistPlugin extends Plugin {
         },
         vaultHasPath,
         notify,
+        schedule: (fn, ms) => { window.setTimeout(fn, ms); },
         app: this.app,
         tiersFor,
       });
@@ -1382,6 +1383,7 @@ export default class ArchivistPlugin extends Plugin {
         },
         vaultHasPath,
         notify,
+        schedule: (fn, ms) => { window.setTimeout(fn, ms); },
         app: this.app,
         tiersFor,
       });

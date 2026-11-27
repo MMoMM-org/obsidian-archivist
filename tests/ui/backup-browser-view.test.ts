@@ -51,6 +51,7 @@ import {
 import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
 import { S } from '../../src/ui/strings';
+import { SLOW_LOAD_HINT_MS } from '../../src/ui/loadingState';
 import { mapRestoreErrorToToast } from '../../src/ui/restoreErrorToast';
 
 type ConfirmStub = {
@@ -464,7 +465,7 @@ describe('BackupBrowserView loading state', () => {
 
     // At this point, before the snapshots promise resolves, loading indicator should be visible
     const text = collectText(view.contentEl);
-    expect(text).toContain(S.BROWSER_LOADING);
+    expect(text).toContain(S.BROWSER_LOADING_SNAPSHOTS);
 
     // Resolve and finish
     resolveSnapshots([]);
@@ -1053,14 +1054,17 @@ describe('BackupBrowserView deleted-file restore', () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  const progressHide = vi.fn();
+
   // #142: the single-file restore used to drop its promise — no notice on
   // success, unhandled rejection on failure.
   async function clickRestore(
     cls: 'archivist-restore-in-place' | 'archivist-restore-as-copy',
     ops: { restoreInPlace: ReturnType<typeof vi.fn>; restoreAsCopy: ReturnType<typeof vi.fn> },
   ): Promise<ReturnType<typeof vi.fn>> {
+    progressHide.mockClear();
     const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
-    const notify = vi.fn();
+    const notify = vi.fn().mockReturnValue({ hide: progressHide });
     const deps = makeDeps({
       manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
       restoreService: {
@@ -1109,6 +1113,26 @@ describe('BackupBrowserView deleted-file restore', () => {
     });
     expect(notify).toHaveBeenCalledWith(mapRestoreErrorToToast(err));
     expect(notify).not.toHaveBeenCalledWith(S.TOAST_RESTORE_DONE);
+  });
+
+  it('shows a sticky restoring notice and hides it when the result arrives (#140)', async () => {
+    const notify = await clickRestore('archivist-restore-in-place', {
+      restoreInPlace: vi.fn().mockResolvedValue({ ok: true }),
+      restoreAsCopy: vi.fn(),
+    });
+    expect(notify).toHaveBeenNthCalledWith(1, S.TOAST_RESTORING('note.md'), { timeout: 0 });
+    expect(progressHide).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith(S.TOAST_RESTORE_DONE);
+  });
+
+  it('hides the restoring notice when the restore fails (#140)', async () => {
+    const err = new Error('network down');
+    const notify = await clickRestore('archivist-restore-in-place', {
+      restoreInPlace: vi.fn().mockRejectedValue(err),
+      restoreAsCopy: vi.fn(),
+    });
+    expect(progressHide).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith(mapRestoreErrorToToast(err));
   });
 });
 
@@ -2218,3 +2242,92 @@ describe('BackupBrowserView accessibility', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// #140: loading feedback and error state
+// ---------------------------------------------------------------------------
+
+describe('BackupBrowserView loading feedback and error state (#140)', () => {
+  it('adds the slow-load hint once the scheduled timer fires', async () => {
+    let resolveSnapshots!: (v: SnapshotIndexEntry[]) => void;
+    const pending = new Promise<SnapshotIndexEntry[]>((r) => { resolveSnapshots = r; });
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockReturnValue(pending) },
+      schedule: (fn, ms) => { timers.push({ fn, ms }); },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    const openPromise = view.onOpen();
+
+    expect(collectText(view.contentEl)).not.toContain(S.LOADING_SLOW_HINT);
+    expect(timers).toHaveLength(1);
+    expect(timers[0].ms).toBe(SLOW_LOAD_HINT_MS);
+    timers[0].fn();
+    expect(collectText(view.contentEl)).toContain(S.LOADING_SLOW_HINT);
+
+    resolveSnapshots([]);
+    await openPromise;
+  });
+
+  it('shows the error and a Retry button when the first load fails, not Loading', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const listFn = vi.fn()
+      .mockRejectedValueOnce(new Error('Dropbox not connected'))
+      .mockResolvedValueOnce([snap]);
+    const view = new BackupBrowserView(makeLeaf(), makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: listFn },
+    }));
+
+    await view.onOpen();
+
+    const list = findByClass(view.contentEl, 'archivist-snapshots-list') as MockEl;
+    const text = collectText(list);
+    expect(text).toContain(S.BROWSER_SNAPSHOTS_LOAD_FAILED);
+    expect(text).toContain('Dropbox not connected');
+    expect(text).not.toContain(S.BROWSER_LOADING_SNAPSHOTS);
+    expect(list.attrs['aria-busy']).toBe('false');
+
+    const retry = findByClass(list, 'archivist-snapshots-retry') as MockEl;
+    retry.dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(listFn).toHaveBeenCalledTimes(2);
+    expect(collectText(list)).not.toContain(S.BROWSER_SNAPSHOTS_LOAD_FAILED);
+    expect(findByClass(list, 'archivist-snapshots-retry')).toBeUndefined();
+  });
+
+  it('shows the error state when a refresh fails instead of rejecting', async () => {
+    const listFn = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('index corrupt'));
+    const view = new BackupBrowserView(makeLeaf(), makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: listFn },
+    }));
+    await view.onOpen();
+
+    await expect(view._refreshSnapshots()).resolves.toBeUndefined();
+
+    const list = findByClass(view.contentEl, 'archivist-snapshots-list') as MockEl;
+    expect(collectText(list)).toContain('index corrupt');
+    expect(findByClass(list, 'archivist-snapshots-retry')).toBeDefined();
+  });
+
+  it('shows the error in the preview when loading a file version fails', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const view = new BackupBrowserView(makeLeaf(), makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['note.md'])),
+        fetchContent: vi.fn().mockRejectedValue(new Error('blob missing')),
+      },
+    }));
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+
+    await view._selectFile('note.md');
+
+    const preview = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    expect(collectText(preview)).toContain('blob missing');
+    expect(collectText(preview)).not.toContain(S.BROWSER_LOADING_PREVIEW);
+  });
+});

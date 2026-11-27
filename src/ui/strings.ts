@@ -192,6 +192,7 @@ export const S = {
   TOAST_BACKUP_PAUSED_NO_CHANGES: 'Nothing new to back up.',
   TOAST_ERROR_GENERIC: 'Archivist encountered an error. Check settings for details.',
   TOAST_RESTORE_DONE: 'File restored.',
+  TOAST_RESTORING: (path: string): string => `Restoring "${path}"…`,
   CONFIRM_RESTORE_AS_COPY_BODY: (path: string, timestamp: string): string =>
     `A copy of "${path}" from ${timestamp} will be created next to the live file. The live file is not modified.`,
 
@@ -336,7 +337,13 @@ export const S = {
   BROWSER_GROUP_OLDER: 'Older',
 
   // ─── Backup Browser loading + error states ───────────────────────────
-  BROWSER_LOADING: 'Loading…',
+  BROWSER_LOADING_SNAPSHOTS: 'Loading snapshot list from Dropbox…',
+  BROWSER_LOADING_FILES: 'Loading the files of this snapshot from Dropbox…',
+  BROWSER_LOADING_PREVIEW: 'Loading this version from Dropbox…',
+  FILE_VERSIONS_LOADING: 'Loading versions from Dropbox…',
+  LOADING_SLOW_HINT: 'Still working — large vaults take longer.',
+  BROWSER_SNAPSHOTS_LOAD_FAILED: 'Could not load the snapshot list.',
+  BROWSER_RETRY: 'Retry',
   BROWSER_ERROR_CHAIN_BROKEN:
     'A backup history chain has a missing ancestor. Some snapshots may not be restorable.',
 
