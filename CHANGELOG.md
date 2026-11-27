@@ -1,3 +1,9 @@
+## [0.12.9](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.8...0.12.9) (2026-11-27)
+
+### Bug Fixes
+
+* **scheduler:** run scheduled FULLs again after an on-time FULL ([#144](https://github.com/MMoMM-org/obsidian-archivist/issues/144)) ([#145](https://github.com/MMoMM-org/obsidian-archivist/issues/145)) ([7abf003](https://github.com/MMoMM-org/obsidian-archivist/commit/7abf003ebf80712a1e607bab717f1de2e3cea39c))
+
 ## [0.12.8](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.7...0.12.8) (2026-11-27)
 
 ### Bug Fixes
