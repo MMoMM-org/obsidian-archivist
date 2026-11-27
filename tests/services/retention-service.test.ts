@@ -763,6 +763,20 @@ describe('RetentionService', () => {
       }
     });
 
+    it('derives the tier of each kept row from the current settings (#99)', async () => {
+      const entries = [makeIndexEntry(IDS.RECENT1, '2026-04-24T11:00:00.000Z')];
+      const pluginStore = makeFakePluginStore(
+        makeLocalIndex(),
+        makeSettings({ never_prune_window_days: 14 }),
+      );
+      const snapshotIndexStore = makeFakeSnapshotIndexStore(makeSnapshotIndex(entries));
+      const svc = makeService({ pluginStore, snapshotIndexStore });
+
+      const result = await svc.dryRun(NOW);
+
+      expect(result.would_keep.map((r) => r.tier)).toEqual(['never_prune']);
+    });
+
     it('does not delete anything from Dropbox even with prune candidates', async () => {
       const entries = [
         makeIndexEntry(IDS.F1, '2026-01-01T10:00:00.000Z'),

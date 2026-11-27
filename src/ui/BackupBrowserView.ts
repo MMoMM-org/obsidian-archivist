@@ -16,6 +16,7 @@
 
 import { ItemView, prepareFuzzySearch, setIcon, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
+import type { TierLookup } from '../services/retention/evaluator';
 import type { FileEntry } from '../model/Manifest';
 import { ChainError } from '../model/Errors';
 import { renderPreview, maybeShowPreviewAdvisory } from './PreviewPane';
@@ -72,6 +73,8 @@ export interface BackupBrowserDeps {
   app?: App;
   /** Injectable clock for date grouping tests. */
   now?: () => Date;
+  /** Tier label lookup for the snapshot rows; omitted → no tier tags (#99). */
+  tiersFor?: TierLookup;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +343,7 @@ function renderSnapshotsColumn(
   selectedId: string | null,
   onSelect: (snap: SnapshotIndexEntry) => void,
   now: Date,
+  tiers: ReadonlyMap<string, SnapshotTier>,
 ): void {
   container.empty();
 
@@ -362,7 +366,7 @@ function renderSnapshotsColumn(
   for (const [groupLabel, groupSnaps] of groups.entries()) {
     container.createEl('h4', { text: groupLabel, cls: 'archivist-snapshot-group' });
     for (const snap of groupSnaps) {
-      const row = renderSnapshotRow(container, snap, selectedId, onSelect);
+      const row = renderSnapshotRow(container, snap, selectedId, onSelect, tiers.get(snap.id));
       allRows.push(row);
     }
   }
@@ -379,6 +383,7 @@ function renderSnapshotRow(
   snap: SnapshotIndexEntry,
   selectedId: string | null,
   onSelect: (snap: SnapshotIndexEntry) => void,
+  tier: SnapshotTier | undefined,
 ): HTMLElement {
   const row = container.createDiv({ cls: 'archivist-snapshot-row' });
   row.setAttribute('tabindex', '-1');
@@ -391,7 +396,7 @@ function renderSnapshotRow(
   // keep a clean separation from the date — `[full]` / `[inc]` instead of a
   // bare `full` running into the date with no whitespace between spans.
   row.createSpan({ text: `[${snap.type}]`, cls: 'archivist-snapshot-type' });
-  const tierLabel = snapTierLabel(snap.tier);
+  const tierLabel = snapTierLabel(tier);
   if (tierLabel) {
     row.createSpan({ text: tierLabel, cls: 'archivist-snapshot-tier' });
   }
@@ -693,6 +698,8 @@ export class BackupBrowserView extends ItemView {
 
   // State
   private snapshots: SnapshotIndexEntry[] = [];
+  /** Tier label per snapshot id, recomputed whenever the list loads (#99). */
+  private tiers: ReadonlyMap<string, SnapshotTier> = new Map();
   private selectedSnapshot: SnapshotIndexEntry | null = null;
   private selectedPath: string | null = null;
   private selectedDir: string | null = null;
@@ -833,6 +840,7 @@ export class BackupBrowserView extends ItemView {
     const snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
     if (this._closed) return;
     this.snapshots = snapshots;
+    this.tiers = this.deps.tiersFor?.(snapshots) ?? new Map();
 
     const now = this.deps.now ? this.deps.now() : new Date();
     renderSnapshotsColumn(
@@ -841,6 +849,7 @@ export class BackupBrowserView extends ItemView {
       this.selectedSnapshot?.id ?? null,
       (snap) => { void this._selectSnapshot(snap); },
       now,
+      this.tiers,
     );
     this.snapshotsListEl.setAttribute('aria-busy', 'false');
   }
@@ -904,6 +913,7 @@ export class BackupBrowserView extends ItemView {
       const snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
       if (this._closed) return;
       this.snapshots = snapshots;
+      this.tiers = this.deps.tiersFor?.(snapshots) ?? new Map();
 
       const stillSelected = this.selectedSnapshot
         ? snapshots.find((s) => s.id === this.selectedSnapshot!.id) ?? null
@@ -935,6 +945,7 @@ export class BackupBrowserView extends ItemView {
         this.selectedSnapshot?.id ?? null,
         (snap) => { void this._selectSnapshot(snap); },
         now,
+        this.tiers,
       );
     } finally {
       this._refreshing = false;
@@ -969,6 +980,7 @@ export class BackupBrowserView extends ItemView {
         snap.id,
         (s) => { void this._selectSnapshot(s); },
         now,
+        this.tiers,
       );
     }
 

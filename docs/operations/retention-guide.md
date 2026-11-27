@@ -46,6 +46,16 @@ kept by the recent window AND the never-prune window AND probably the
 daily window. That redundancy is fine — Archivist just needs one
 reason to keep a snapshot.
 
+The Backup Browser, the File versions view and the file-history modal
+tag each snapshot with the tier that keeps it: `[never-prune]`,
+`[daily]` or `[monthly]`. When several tiers apply, the tag shows the
+first in that order. The tag is worked out from your current settings
+each time the list is shown, so changing a tier setting changes the
+tags right away. A snapshot with no tag is kept only by the recent
+window, the safety floor or chain integrity, or not at all — use
+[Preview retention](#preview-retention-dry-run) to see what the next
+run would prune.
+
 ## The safety floor
 
 `Settings → Retention → Always keep most-recent snapshots` is a floor

@@ -12,6 +12,7 @@ import { createBackupProgressTracker } from './services/BackupProgress';
 import { DeviceCoordinator } from './services/DeviceCoordinator';
 import { SnapshotIndexStore } from './services/SnapshotIndexStore';
 import { RetentionService } from './services/RetentionService';
+import { classifyTiers, type TierLookup } from './services/retention/evaluator';
 import { GCService } from './services/GCService';
 import { RepairService } from './services/RepairService';
 import { VaultIdentity } from './services/VaultIdentity';
@@ -161,6 +162,10 @@ export default class ArchivistPlugin extends Plugin {
     const cachedRef: { settings: PluginSettings } = { settings };
     this.logger = createLogger(() => cachedRef.settings.advanced.diagnostic_logging);
     this.logger.info('plugin_loaded');
+    // Tier tags in the browser, file-versions view and history modal are
+    // derived from the live retention settings at render time (#99).
+    const tiersFor: TierLookup = (snaps) =>
+      classifyTiers(snaps, cachedRef.settings.retention, new Date());
 
     // ---------------------------------------------------------------------------
     // Step 2: OAuth + protocol handler
@@ -1146,6 +1151,7 @@ export default class ArchivistPlugin extends Plugin {
             );
             const entries = restoreService.listVersionsForPath(path, manifests);
             const stat = await vaultAdapter.stat(path).catch(() => null);
+            const tiers = tiersFor(snapshots);
             new FileHistoryModal(this.app, {
               currentPath: path,
               entries,
@@ -1157,6 +1163,7 @@ export default class ArchivistPlugin extends Plugin {
                 mtime: stat?.mtime ?? 0,
               },
               vaultHasPath,
+              getTier: (id) => tiers.get(id) ?? null,
             }).open();
           } catch (err) {
             this.logger.warn('show_history_command_failed', {
@@ -1297,6 +1304,7 @@ export default class ArchivistPlugin extends Plugin {
         vaultHasPath,
         notify,
         app: this.app,
+        tiersFor,
       });
     });
 
@@ -1312,6 +1320,7 @@ export default class ArchivistPlugin extends Plugin {
         vaultHasPath,
         notify,
         app: this.app,
+        tiersFor,
       });
     });
 

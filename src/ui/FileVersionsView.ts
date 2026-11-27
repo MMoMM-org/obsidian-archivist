@@ -20,6 +20,7 @@
 import { ItemView, MarkdownRenderChild, type WorkspaceLeaf, type App } from 'obsidian';
 import type { SnapshotManifest } from '../model/Manifest';
 import type { SnapshotIndexEntry, SnapshotTier } from '../model/SnapshotIndex';
+import type { TierLookup } from '../services/retention/evaluator';
 import type { VersionEntry } from '../services/RestoreService';
 import { ChainError } from '../model/Errors';
 import {
@@ -74,6 +75,8 @@ export interface FileVersionsViewDeps {
   notify?: (message: string) => void;
   /** Inject app for tests; ItemView sets it from the leaf in production. */
   app?: App;
+  /** Tier label lookup for the version rows; omitted → no tier tags (#99). */
+  tiersFor?: TierLookup;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,8 +118,8 @@ export class FileVersionsView extends ItemView {
 
   private currentPath: string | null = null;
   private versions: VersionEntry[] = [];
-  /** snapshot_id → tier (from SnapshotIndexEntry) for tier-tag rendering. */
-  private tierByID: Map<string, SnapshotTier | null> = new Map();
+  /** snapshot_id → tier (from deps.tiersFor) for tier-tag rendering. */
+  private tierByID: ReadonlyMap<string, SnapshotTier> = new Map();
   private selectedSnapshotId: string | null = null;
   /**
    * The Component scoping the currently-rendered preview. We unload it
@@ -259,7 +262,7 @@ export class FileVersionsView extends ItemView {
     }
     if (this._closed || this.currentPath !== path) return;
 
-    this.tierByID = new Map(snapshots.map((s) => [s.id, s.tier ?? null] as const));
+    this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
 
     // Promise.allSettled — one missing or corrupt manifest must NOT take
     // down the whole view. Successfully-loaded manifests still produce

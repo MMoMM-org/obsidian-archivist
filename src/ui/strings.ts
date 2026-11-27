@@ -295,7 +295,7 @@ export const S = {
   FILE_HISTORY_SHOW_MORE: 'Show 50 more',
   FILE_HISTORY_TIER_DAILY: '[daily]',
   FILE_HISTORY_TIER_MONTHLY: '[monthly]',
-  FILE_HISTORY_TIER_NEVER_PRUNE: '[14-day never-prune]',
+  FILE_HISTORY_TIER_NEVER_PRUNE: '[never-prune]',
   FILE_HISTORY_TIER_INITIAL_TODAY: '[initial today]',
   FILE_HISTORY_BINARY_PLACEHOLDER:
     'Binary file — preview not available. Restore to inspect.',
@@ -345,7 +345,7 @@ export const S = {
   // ─── Backup Browser tier labels (mirror FILE_HISTORY_TIER_* for use in browser) ─
   BROWSER_TIER_DAILY: '[daily]',
   BROWSER_TIER_MONTHLY: '[monthly]',
-  BROWSER_TIER_NEVER_PRUNE: '[14-day never-prune]',
+  BROWSER_TIER_NEVER_PRUNE: '[never-prune]',
 
   // ─── Backup Browser directory restore ───────────────────────────────
   BROWSER_DIR_FILE_COUNT: (n: number): string => `${n} file${n === 1 ? '' : 's'}`,

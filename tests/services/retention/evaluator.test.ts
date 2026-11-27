@@ -18,7 +18,7 @@
 //   - Property: orphan Full with no tier match and no kept descendants → pruned
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { evaluateTiers } from '../../../src/services/retention/evaluator';
+import { classifyTiers, evaluateTiers } from '../../../src/services/retention/evaluator';
 import type { SnapshotIndexEntry } from '../../../src/model/SnapshotIndex';
 import type { RetentionSettings } from '../../../src/model/Settings';
 
@@ -826,6 +826,61 @@ describe('evaluateTiers — property tests', () => {
           expect(kept.has(s.id)).toBe(true);
         }
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyTiers — per-snapshot tier label for the UI and dry-run (#99)
+// ---------------------------------------------------------------------------
+
+describe('classifyTiers (#99)', () => {
+  const NOW = new Date('2026-04-24T12:00:00.000Z');
+
+  it('labels each kept snapshot with its highest tier: never_prune > daily > monthly', () => {
+    const recent = makeSnapshot('2026-04-20T12:00:00.000Z'); // 4 days — never-prune and daily
+    const daily = makeSnapshot('2026-04-01T12:00:00.000Z'); // 23 days — newest of its day
+    const dailyOlder = makeSnapshot('2026-04-01T11:00:00.000Z'); // same day, older
+    const monthly = makeSnapshot('2026-01-15T12:00:00.000Z'); // newest of its month
+    const monthlyOlder = makeSnapshot('2026-01-10T12:00:00.000Z'); // same month, older
+    const ancient = makeSnapshot('2020-01-15T12:00:00.000Z'); // outside every window
+
+    const tiers = classifyTiers(
+      [recent, daily, dailyOlder, monthly, monthlyOlder, ancient],
+      makeSettings(),
+      NOW,
+    );
+
+    expect(tiers.get(recent.id)).toBe('never_prune');
+    expect(tiers.get(daily.id)).toBe('daily');
+    expect(tiers.get(monthly.id)).toBe('monthly');
+    expect(tiers.has(dailyOlder.id)).toBe(false);
+    expect(tiers.has(monthlyOlder.id)).toBe(false);
+    expect(tiers.has(ancient.id)).toBe(false);
+  });
+
+  it('gives no label to a snapshot kept only by the always-keep floor or recent-hours window', () => {
+    const snap = makeSnapshot('2026-04-24T11:00:00.000Z');
+    const settings = makeSettings({
+      always_keep_n: 1,
+      recent_hours: 24,
+      never_prune_window_days: 0,
+      daily_days: 0,
+      monthly_years: 0,
+    });
+
+    expect(evaluateTiers([snap], settings, NOW).has(snap.id)).toBe(true);
+    expect(classifyTiers([snap], settings, NOW).size).toBe(0);
+  });
+
+  it('agrees with evaluateTiers: every labelled snapshot is kept', () => {
+    const snaps = Array.from({ length: 60 }, (_, i) =>
+      makeSnapshot(new Date(NOW.getTime() - i * 2.5 * 86_400_000).toISOString()),
+    );
+    const settings = makeSettings();
+    const kept = evaluateTiers(snaps, settings, NOW);
+    for (const id of classifyTiers(snaps, settings, NOW).keys()) {
+      expect(kept.has(id)).toBe(true);
     }
   });
 });

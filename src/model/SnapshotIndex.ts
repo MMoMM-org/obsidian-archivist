@@ -1,6 +1,7 @@
 import { configInvalid } from './Errors';
 import type { SnapshotType } from './Manifest';
 
+/** Retention tier label. Derived on read by classifyTiers, never stored in the index (#99). */
 export type SnapshotTier = 'never_prune' | 'daily' | 'monthly';
 
 export interface SnapshotIndexEntry {
@@ -10,8 +11,6 @@ export interface SnapshotIndexEntry {
   created_at: string;
   device_id: string;
   blob_hashes: string[];
-  /** Optional retention tier. Populated during retention runs; absent means tier not yet evaluated. */
-  tier?: SnapshotTier | null;
 }
 
 export interface SnapshotIndex {
@@ -24,8 +23,6 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-const VALID_TIERS = new Set<unknown>(['never_prune', 'daily', 'monthly', null]);
-
 export function isSnapshotIndexEntry(v: unknown): v is SnapshotIndexEntry {
   if (!isObject(v)) return false;
   if (typeof v.id !== 'string') return false;
@@ -35,7 +32,6 @@ export function isSnapshotIndexEntry(v: unknown): v is SnapshotIndexEntry {
   if (typeof v.device_id !== 'string') return false;
   if (!Array.isArray(v.blob_hashes)) return false;
   if (v.blob_hashes.some((h) => typeof h !== 'string')) return false;
-  if ('tier' in v && !VALID_TIERS.has(v.tier) && v.tier !== undefined) return false;
   return true;
 }
 

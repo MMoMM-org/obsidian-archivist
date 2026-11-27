@@ -1,12 +1,13 @@
 // T6.1 — Pure retention tier evaluator.
-// No I/O, no logging, no side effects. All inputs explicit, output is a Set<snapshot_id>.
+// No I/O, no logging, no side effects. All inputs explicit. evaluateTiers yields the
+// keep-set; classifyTiers yields the per-snapshot tier label for display.
 //
 // Bucketing note: daily and monthly buckets are anchored to LOCAL wall-clock time.
 // DST transitions (spring-forward 23h day, fall-back 25h day) do not create zero- or
 // 25-hour buckets because the newest-per-bucket rule deduplicates any snapshots that
 // land in the same local date/month string regardless of wall-clock hour count.
 
-import type { SnapshotIndexEntry } from '../../model/SnapshotIndex';
+import type { SnapshotIndexEntry, SnapshotTier } from '../../model/SnapshotIndex';
 import type { RetentionSettings } from '../../model/Settings';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -160,4 +161,37 @@ export function evaluateTiers(
   addAll(applyMonthly(snapshots, settings, now));
 
   return kept;
+}
+
+/** Maps a snapshot list to each labelled snapshot's tier (see classifyTiers). */
+export type TierLookup = (snapshots: SnapshotIndexEntry[]) => ReadonlyMap<string, SnapshotTier>;
+
+/**
+ * Labels each snapshot with the highest-priority tier that keeps it, for the
+ * `[never-prune]` / `[daily]` / `[monthly]` tags in the UI and the dry-run
+ * preview (#99). Priority is never_prune > daily > monthly.
+ *
+ * Derived on read rather than persisted: a tier is a function of the current
+ * settings and clock, so a stored value would go stale as snapshots age
+ * from daily into monthly or out of every window.
+ *
+ * Snapshots kept only by the always-keep floor, the recent-hours window or
+ * chain integrity have no SnapshotTier and get no entry.
+ */
+export function classifyTiers(
+  snapshots: SnapshotIndexEntry[],
+  settings: RetentionSettings,
+  now: Date,
+): Map<string, SnapshotTier> {
+  const nowMs = now.getTime();
+  const tiers = new Map<string, SnapshotTier>();
+  const label = (ids: Set<string>, tier: SnapshotTier): void => {
+    for (const id of ids) if (!tiers.has(id)) tiers.set(id, tier);
+  };
+
+  label(applyNeverPrune(snapshots, settings, nowMs), 'never_prune');
+  label(applyDaily(snapshots, settings, nowMs), 'daily');
+  label(applyMonthly(snapshots, settings, now), 'monthly');
+
+  return tiers;
 }

@@ -57,7 +57,6 @@ function makeSnapshot(id: string, created: string): SnapshotIndexEntry {
     device_id: 'd0',
     blob_hashes: [],
     created_at: created,
-    tier: 'daily',
   };
 }
 
@@ -192,6 +191,50 @@ describe('FileVersionsView render flow', () => {
 
     const rows = findAllByClass(snapsList!, 'archivist-fv-snapshot-row');
     expect(rows.length).toBe(1);
+  });
+
+  it('renders the tier tag that tiersFor reports for the version snapshot (#99)', async () => {
+    const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+        loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
+      },
+      restoreService: {
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+        listVersionsForPath: vi.fn().mockReturnValue([makeVersion('m1', '2026-04-25T10:00:00Z')]),
+      },
+      tiersFor: () => new Map([['m1', 'monthly' as const]]),
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    await Promise.resolve();
+
+    const internal = view as unknown as { contentEl: MockEl };
+    const tag = findByClass(internal.contentEl, 'archivist-fv-snapshot-tier');
+    expect(tag?.textContent).toBe(fvTierLabel('monthly'));
+  });
+
+  it('renders no tier tag when tiersFor is not wired', async () => {
+    const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
+    const deps = makeDeps({
+      manifestCache: {
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+        loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
+      },
+      restoreService: {
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+        listVersionsForPath: vi.fn().mockReturnValue([makeVersion('m1', '2026-04-25T10:00:00Z')]),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    await Promise.resolve();
+
+    const internal = view as unknown as { contentEl: MockEl };
+    expect(findByClass(internal.contentEl, 'archivist-fv-snapshot-tier')).toBeUndefined();
   });
 
   it('skips a manifest that fails to load and renders surviving versions', async () => {
