@@ -1,3 +1,9 @@
+## [0.13.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.9...0.13.0) (2026-11-27)
+
+### Features
+
+* **diag:** timing logs for index, manifest, restore, chain walk and backup runs ([#141](https://github.com/MMoMM-org/obsidian-archivist/issues/141)) ([#147](https://github.com/MMoMM-org/obsidian-archivist/issues/147)) ([4c13c39](https://github.com/MMoMM-org/obsidian-archivist/commit/4c13c394893cf1e033c6bf8fd423a048e3e30342)), closes [#144](https://github.com/MMoMM-org/obsidian-archivist/issues/144)
+
 ## [0.12.9](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.8...0.12.9) (2026-11-27)
 
 ### Bug Fixes
