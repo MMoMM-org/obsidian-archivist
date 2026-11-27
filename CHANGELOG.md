@@ -1,3 +1,9 @@
+## [0.12.8](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.7...0.12.8) (2026-11-27)
+
+### Bug Fixes
+
+* **retention:** derive snapshot tier tags at render time ([#99](https://github.com/MMoMM-org/obsidian-archivist/issues/99)) ([#132](https://github.com/MMoMM-org/obsidian-archivist/issues/132)) ([674b9a6](https://github.com/MMoMM-org/obsidian-archivist/commit/674b9a60b658da3668ca1435a02a7b27f3bce72c))
+
 ## [0.12.7](https://github.com/MMoMM-org/obsidian-archivist/compare/0.12.6...0.12.7) (2026-11-26)
 
 ### Bug Fixes
