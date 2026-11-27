@@ -191,6 +191,8 @@ export const S = {
   TOAST_BACKUP_PAUSED_NO_CHANGES: 'Nothing new to back up.',
   TOAST_ERROR_GENERIC: 'Archivist encountered an error. Check settings for details.',
   TOAST_RESTORE_DONE: 'File restored.',
+  CONFIRM_RESTORE_AS_COPY_BODY: (path: string, timestamp: string): string =>
+    `A copy of "${path}" from ${timestamp} will be created next to the live file. The live file is not modified.`,
 
   // ─── Error details modal (status-bar click in ERROR / AUTH_LOST) ──
   ERROR_DETAILS_TITLE: 'Archivist — last backup failure',

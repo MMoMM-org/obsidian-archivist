@@ -1433,9 +1433,39 @@ export class BackupBrowserView extends ItemView {
       path,
       isDeleted,
       capturedSnap.id,
-      (p, snapId) => { void this._restoreFile(() => this.deps.restoreOperations.restoreInPlace(p, snapId)); },
-      (p, snapId) => { void this._restoreFile(() => this.deps.restoreOperations.restoreAsCopy(p, snapId)); },
+      (p, snapId) => { this._confirmFileRestore(p, snapId, capturedSnap.created_at, 'in_place'); },
+      (p, snapId) => { this._confirmFileRestore(p, snapId, capturedSnap.created_at, 'as_copy'); },
     );
+  }
+
+  /**
+   * Ask before a single-file restore, like the directory restore and the
+   * File versions view do. In place overwrites the live file, so a misclick
+   * or a stray Enter must not be enough.
+   */
+  private _confirmFileRestore(
+    path: string,
+    snapshotId: string,
+    createdAt: string,
+    mode: 'in_place' | 'as_copy',
+  ): void {
+    const timestamp = formatSnapshotDate(new Date(createdAt));
+    const entry = this.fileState[path];
+    new ConfirmRestoreModal(this.app, {
+      filePath: path,
+      timestamp,
+      size: entry ? formatBytes(entry.size) : '',
+      missingDirs: mode === 'in_place' ? computeMissingDirs(path, this.deps.vaultHasPath) : [],
+      customBody: mode === 'as_copy' ? S.CONFIRM_RESTORE_AS_COPY_BODY(path, timestamp) : undefined,
+      onConfirm: () => {
+        void this._restoreFile(() =>
+          mode === 'in_place'
+            ? this.deps.restoreOperations.restoreInPlace(path, snapshotId)
+            : this.deps.restoreOperations.restoreAsCopy(path, snapshotId),
+        );
+      },
+      onCancel: () => {},
+    }).open();
   }
 
   /**
