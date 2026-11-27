@@ -355,6 +355,8 @@ export interface FileHistoryModalOpts {
   getTier?: (snapshotId: string) => SnapshotTier | null;
   /** Returns true when the given vault-relative path exists (injected for tests). */
   vaultHasPath?: (path: string) => boolean;
+  /** Toast sink for the restore result; the modal closes on success, so this is the only feedback (#142). */
+  notify?: (message: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,6 +458,7 @@ export class FileHistoryModal extends Modal {
             void this.opts.restoreOperations
               .restoreInPlace(entry.currentPath, entry.snapshot_id)
               .then(() => {
+                this.opts.notify?.(S.TOAST_RESTORE_DONE);
                 this.close();
               })
               .catch((err: unknown) => {
