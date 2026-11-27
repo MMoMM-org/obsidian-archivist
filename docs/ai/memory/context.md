@@ -5,23 +5,17 @@
 ## Current state (2026-11-27)
 
 - Latest release **0.12.8**, listed in the official community plugin registry.
-- Open issues: **#67** (multi-day backup + prune integration test), **#73** (README screenshots — needs the user to capture them).
+- Open issues: **#67** (multi-day backup + prune integration test), **#73** (README screenshots — needs the user to capture them), plus the deferred items below. Priority labels: `P0-must` / `P1-should` / `P2-could`.
 
 ## Still-open deferred review items
 
-From the `/review` of `feat/backup-browser-dir-restore-and-versions-view` (2026-04-27). Re-checked against code on 2026-11-27; none is tracked in an issue yet. Address when the area is touched again.
+From the 2026-04-27 review, filed as issues on 2026-11-27:
 
-- **M7** FileVersionsView opens one manifest fetch per snapshot at once — `src/ui/FileVersionsView.ts` `Promise.allSettled(...)` in the load path. No concurrency cap; fine at current vault sizes.
-- **M8** `_renderVersionsList` re-renders every row on each click just to move `aria-selected`; the same pattern is in BackupBrowserView's `renderSnapshotsColumn` / `renderFilesColumn`. A shared row-list helper would fix both.
-- **M9** `RestoreOperations.restoreDirectory` restores files one after another (`for (const path of matches)`). Sequential was a deliberate V1 choice (Dropbox throttling); a cap of ~4 would speed up large directory restores.
-- **M14** FileVersionsView version rows (`role="option"`) carry no `aria-label`; the renamed-from span is not guaranteed to be part of the accessible name.
-- **LOW polish batch** (still open as of 2026-11-27):
-  - `formatSnapshotDate` (BackupBrowserView) and `fvFormatTimestamp` (FileVersionsView) are duplicates — hoist to a shared `src/ui/format.ts`.
-  - `restoreAsCopyAt` → clearer name (`restoreAsCopyWithSharedTimestamp`); `buildCopyPath(orig, sharedTs?)` → opts object.
-  - `collectDirMatches` duplicates the `restoreDirectory` path filter — share one util.
-  - BackupBrowserView listboxes lack `aria-labelledby` (FileVersionsView has it).
-  - Central `BannerCode` union, `WorkspaceWithLeafState` alias for the workspace casts in `main.ts`, `CONFIRM_DIR_RESTORE_BODY` named args.
-  - Minor: `computeMissingDirs` memo, `_renderForCurrentPath` decomposition, FV ArrowDown `preventDefault` placement.
+- **P1** #134 FileVersionsView manifest cache thrashes above 50 snapshots (M7)
+- **P1** #135 explicit `aria-label` on FileVersionsView rows (M14)
+- **P2** #136 directory restore with a small concurrency cap (M9)
+- **P2** #137 update row selection in place instead of re-rendering (M8)
+- **P2** #138 LOW polish batch
 
 ## Done (history)
 
