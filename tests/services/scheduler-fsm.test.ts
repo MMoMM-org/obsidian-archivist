@@ -1282,20 +1282,29 @@ describe('SchedulerFSM — FULL committed exactly at the slot', () => {
   afterEach(() => vi.useRealTimers());
 
   // Sunday 2026-10-25 03:00 local (schedule: weekly, Sunday, 03:00).
+  // Local-time constructors, not `slot + 7 days`: 2026-11-01 is a DST change
+  // in some timezones, so a fixed offset would miss the local 03:00 slot.
   const slot = new Date(2026, 9, 25, 3, 0, 0, 0).getTime();
-  const week = 7 * 24 * 3600 * 1000;
+  const nextSlot = new Date(2026, 10, 1, 3, 0, 0, 0).getTime();
 
   it('recoverOnStartup flags a catch-up when later slots were missed', () => {
-    const now = slot + 4 * week + 9 * 3600 * 1000; // a month later, 12:00
+    const now = new Date(2026, 10, 22, 12, 0, 0, 0).getTime(); // a month later
     const h = makeFSM({ lastFullCommitAt: slot, now: () => now });
 
     h.fsm.recoverOnStartup();
 
     expect(h.fsm.hasPendingCatchup()).toBe(true);
+    expect(h.logger.debug).toHaveBeenCalledWith('full_schedule_check', {
+      last_full_at: slot,
+      next_from_last: nextSlot,
+      next_scheduled_at: expect.any(Number),
+      now,
+      overdue: true,
+    });
   });
 
   it('runtime tick after the next slot starts a FULL', () => {
-    let now = slot + week - 10 * 60 * 1000; // next Sunday 02:50
+    let now = nextSlot - 10 * 60 * 1000; // next Sunday 02:50
     const h = makeFSM({
       schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
       lastFullCommitAt: slot,
@@ -1305,7 +1314,7 @@ describe('SchedulerFSM — FULL committed exactly at the slot', () => {
     vi.advanceTimersByTime(2 * 60 * 1000);
     expect(h.fsm.getState()).toBe('READY');
 
-    now = slot + week + 30 * 1000; // 03:00:30 — first tick past the slot
+    now = nextSlot + 30 * 1000; // 03:00:30 — first tick past the slot
     h.fsm.tick();
 
     expect(h.fsm.getState()).toBe('BACKUP_RUNNING');

@@ -61,9 +61,17 @@ export class ManifestCache implements ManifestLoader {
     if (this.indexCache) return this.indexCache;
     if (this.indexPromise) return this.indexPromise;
     this.indexPromise = (async (): Promise<SnapshotIndex> => {
+      const t0 = Date.now();
       const raw = await this.deps.dropbox.downloadJson(snapshotIndexPath(this.deps.vaultPrefix));
+      const t1 = Date.now();
       const parsed = parseSnapshotIndex(raw);
       this.indexCache = parsed;
+      this.deps.logger.debug('snapshot_index_loaded', {
+        snapshot_count: parsed.snapshots.length,
+        blob_hash_count: parsed.snapshots.reduce((n, s) => n + s.blob_hashes.length, 0),
+        download_ms: t1 - t0,
+        parse_ms: Date.now() - t1,
+      });
       return parsed;
     })();
     this.indexPromise.catch(() => {
@@ -84,10 +92,12 @@ export class ManifestCache implements ManifestLoader {
       // LRU touch: re-insert so this id is the most-recently-used.
       this.manifestById.delete(id);
       this.manifestById.set(id, cached);
+      this.deps.logger.debug('manifest_loaded', { id, cache: 'hit' });
       return cached;
     }
 
     await this.ensureIndexLoaded();
+    const t0 = Date.now();
     const raw = await this.deps.dropbox.downloadJson(
       snapshotPath({ vault_prefix: this.deps.vaultPrefix, id }),
       { isManifestEndpoint: true },
@@ -103,6 +113,13 @@ export class ManifestCache implements ManifestLoader {
         err,
       );
     }
+    this.deps.logger.debug('manifest_loaded', {
+      id,
+      cache: 'miss',
+      type: parsed.type,
+      file_count: Object.keys(parsed.files).length,
+      ms: Date.now() - t0,
+    });
     this.manifestById.set(id, parsed);
     if (this.manifestById.size > MANIFEST_CACHE_MAX_ENTRIES) {
       // Evict the oldest entry (Map iteration order is insertion order).
