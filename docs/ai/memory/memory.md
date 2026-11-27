@@ -7,5 +7,5 @@
 - [tools.md](tools.md) — CI, build, local dev [updated: 2026-04-27]
 - [domain.md](domain.md) — business rules, data models [updated: 2026-04-23]
 - [decisions.md](decisions.md) — architecture choices _(intentionally empty — canonical decisions live in `docs/XDD/specs/001-archivist-plugin/solution.md` ADRs 1–20)_
-- [context.md](context.md) — current focus [updated: 2026-04-23]
+- [context.md](context.md) — current focus [updated: 2026-11-27]
 - [troubleshooting.md](troubleshooting.md) — known issues [updated: 2026-06-24]
