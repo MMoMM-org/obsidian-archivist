@@ -445,7 +445,7 @@ export class SchedulerFSM {
       this.catchupPending = true;
       this.deps.logger.info('catchup_flagged', {
         last_full_at: lastFull,
-        next_from_last: this.nextFullAfter(new Date(lastFull)).getTime(),
+        next_from_last: this.nextFullAfter(new Date(lastFull + 1)).getTime(),
       });
     }
   }
@@ -459,7 +459,12 @@ export class SchedulerFSM {
   private isScheduledFullOverdue(): boolean {
     const lastFull = this.deps.getLastFullCommitAt();
     if (lastFull === null) return false;
-    const nextFromLast = this.nextFullAfter(new Date(lastFull)).getTime();
+    // +1 ms: the slot must lie strictly after the last FULL. nextFullAt
+    // returns its anchor as-is when the anchor sits exactly on a slot, and a
+    // scheduled FULL's id (minute precision) does sit exactly on its slot —
+    // without the offset the gap below is 0, the FULL "serves" itself, and
+    // no later slot is ever treated as overdue.
+    const nextFromLast = this.nextFullAfter(new Date(lastFull + 1)).getTime();
     if (nextFromLast > this.now()) return false;
     // Honour explicit user choice — "Skip this cycle" must not be undone by
     // the runtime sweep.
