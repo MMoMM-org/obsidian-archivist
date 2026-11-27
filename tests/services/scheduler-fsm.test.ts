@@ -1272,3 +1272,43 @@ describe('SchedulerFSM — BLOCKED', () => {
     expect(logger.info).toHaveBeenCalledWith('fsm_block_cleared');
   });
 });
+
+// Regression: a FULL whose commit time equals the scheduled slot (the normal
+// case — snapshot ids are minute-precision and a scheduled FULL starts at
+// exactly hh:mm) must not suppress every later scheduled FULL. Seen on a real
+// vault: last FULL 2026-10-25 03:00 local, then no FULL for a month.
+describe('SchedulerFSM — FULL committed exactly at the slot', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  // Sunday 2026-10-25 03:00 local (schedule: weekly, Sunday, 03:00).
+  const slot = new Date(2026, 9, 25, 3, 0, 0, 0).getTime();
+  const week = 7 * 24 * 3600 * 1000;
+
+  it('recoverOnStartup flags a catch-up when later slots were missed', () => {
+    const now = slot + 4 * week + 9 * 3600 * 1000; // a month later, 12:00
+    const h = makeFSM({ lastFullCommitAt: slot, now: () => now });
+
+    h.fsm.recoverOnStartup();
+
+    expect(h.fsm.hasPendingCatchup()).toBe(true);
+  });
+
+  it('runtime tick after the next slot starts a FULL', () => {
+    let now = slot + week - 10 * 60 * 1000; // next Sunday 02:50
+    const h = makeFSM({
+      schedule: { startup_grace_minutes: 1, quiet_after_event_minutes: 1 },
+      lastFullCommitAt: slot,
+      now: () => now,
+    });
+    h.fsm.onLayoutReady();
+    vi.advanceTimersByTime(2 * 60 * 1000);
+    expect(h.fsm.getState()).toBe('READY');
+
+    now = slot + week + 30 * 1000; // 03:00:30 — first tick past the slot
+    h.fsm.tick();
+
+    expect(h.fsm.getState()).toBe('BACKUP_RUNNING');
+    expect(h.fsm.getPendingBackup()?.type).toBe('full');
+  });
+});
