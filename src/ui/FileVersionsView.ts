@@ -32,6 +32,7 @@ import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -73,6 +74,8 @@ export interface FileVersionsViewDeps {
   vaultHasPath: (path: string) => boolean;
   /** Toast surface for restore success / error messages. */
   notify?: (message: string) => void;
+  /** Timer for the slow-load hint (#140). Without it the hint is skipped. */
+  schedule?: ScheduleFn;
   /** Inject app for tests; ItemView sets it from the leaf in production. */
   app?: App;
   /** Tier label lookup for the version rows; omitted → no tier tags (#99). */
@@ -247,10 +250,7 @@ export class FileVersionsView extends ItemView {
     this._renderFileInfo(path);
 
     this.snapshotsListEl.empty();
-    this.snapshotsListEl.createEl('p', {
-      text: S.BROWSER_LOADING,
-      cls: 'archivist-loading',
-    });
+    renderLoading(this.snapshotsListEl, S.FILE_VERSIONS_LOADING, this.deps.schedule);
 
     let snapshots: SnapshotIndexEntry[];
     try {
@@ -409,10 +409,7 @@ export class FileVersionsView extends ItemView {
       cls: 'archivist-fv-preview-timestamp',
       attr: { role: 'status', 'aria-live': 'polite' },
     });
-    this.previewColEl.createEl('p', {
-      text: S.BROWSER_LOADING,
-      cls: 'archivist-loading',
-    });
+    renderLoading(this.previewColEl, S.BROWSER_LOADING_PREVIEW, this.deps.schedule);
 
     let bytes: Uint8Array;
     try {

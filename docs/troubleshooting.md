@@ -96,6 +96,22 @@ the previous valid value — without a UI hint in older versions.
   range revert.
 - **Upload chunk size (MB)** is bounded to `4`–`64`.
 
+### Backup Browser or a restore takes a long time
+
+The Backup Browser and File versions read the snapshot list and the
+backup chain from Dropbox. On a large vault with many incremental
+backups since the last full backup this can take a while. The loading
+message says what is being loaded and adds *"Still working — large
+vaults take longer"* after a few seconds. A restore shows
+*"Restoring …"* until the result notice replaces it.
+
+If the snapshot list cannot be loaded (Dropbox not connected, snapshot
+index missing or damaged), the snapshots column shows the error and a
+**Retry** button. With diagnostic logging on, **Archivist: Show
+diagnostics** shows the chain
+length since the last full backup, which is the main cause of slow
+loads.
+
 ### Archivist settings don't appear in Obsidian's settings search
 
 Obsidian's settings search finds Archivist's settings only with
