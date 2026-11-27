@@ -128,6 +128,12 @@ on before reproducing the issue, then turn it back off afterward —
 the toggle exposes per-file paths and FSM/cache transitions, which is
 exactly the kind of detail a maintainer needs to follow what happened.
 
+With diagnostic logging on, the command palette also offers
+**Archivist: Show diagnostics** — a one-page summary of backup, chain
+and scheduler state (last full backup, chain depth, next scheduled
+full, last error code, cache statistics). **Copy report** puts it on the
+clipboard; it holds metadata only, no file contents or paths.
+
 Useful log prefixes:
 
 - `backup_` — backup lifecycle (start, files written, done).

@@ -1008,7 +1008,10 @@ describe('SchedulerFSM — tick() runtime catch-up', () => {
 
     // Fire preflight, then skip.
     h.fsm.tick();
+    expect(h.fsm.getSkippedCycle()).toBeNull();
     h.preflightHost.shown[0].onSkip();
+    // Exposed for the diagnostics command (#143).
+    expect(h.fsm.getSkippedCycle()).toBe(scheduled);
 
     // Advance past the scheduled instant — the slot is now "in the past"
     // from a clock-edge perspective.

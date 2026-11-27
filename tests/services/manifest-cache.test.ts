@@ -317,3 +317,16 @@ describe('ManifestCache diagnostic logs (#141)', () => {
     expect(h.logger.debug).toHaveBeenCalledWith('manifest_loaded', { id, cache: 'hit' });
   });
 });
+
+describe('ManifestCache.getStats (#143)', () => {
+  it('counts hits and misses and reports the cache size', async () => {
+    const id = '2026-04-20T03-00-full';
+    const h = makeHarness({ manifests: { [id]: makeManifest(id, 'full') } });
+
+    await h.cache.loadManifest(id);
+    await h.cache.loadManifest(id);
+    await h.cache.loadManifest(id);
+
+    expect(h.cache.getStats()).toEqual({ cached: 1, max: 50, hits: 2, misses: 1 });
+  });
+});

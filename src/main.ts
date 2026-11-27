@@ -19,6 +19,7 @@ import { VaultIdentity } from './services/VaultIdentity';
 import { AdoptVaultModal } from './ui/AdoptVaultModal';
 import { openConfirm } from './ui/ConfirmModal';
 import { ErrorDetailsModal, type ErrorDetailsRecord } from './ui/ErrorDetailsModal';
+import { DiagnosticsModal } from './ui/DiagnosticsModal';
 import { MaintenanceScheduler } from './services/MaintenanceScheduler';
 import { StorageProbe } from './services/StorageProbe';
 import { ManifestCache } from './services/ManifestCache';
@@ -36,6 +37,7 @@ import {
   registerRepairCommands,
   registerRetentionCommands,
   registerVerifyVaultOwnershipCommand,
+  registerDiagnosticsCommand,
 } from './ui/Commands';
 import { registerDevModalPreviews } from './dev/ModalPreview';
 import { ArchivistSettingTab } from './ui/SettingsTab';
@@ -1203,6 +1205,55 @@ export default class ArchivistPlugin extends Plugin {
       vaultIdentity,
       notify,
       logger: this.logger,
+    });
+
+    registerDiagnosticsCommand({
+      plugin: this,
+      isEnabled: () => cachedRef.settings.advanced.diagnostic_logging,
+      onOpen: () => {
+        notify(S.DIAGNOSTICS_COLLECTING);
+        void (async (): Promise<void> => {
+          const localIndex = await pluginStore.loadIndex();
+          // The snapshot index may be unreachable (not connected, missing on
+          // Dropbox) — the report says so instead of failing.
+          const snapshots = await manifestCache.listSnapshotsNewestFirst().catch(() => null);
+          const lastError = lastErrorRef.current;
+          new DiagnosticsModal(this.app, {
+            input: {
+              generatedAt: Date.now(),
+              pluginVersion: this.manifest.version,
+              fsmState: fsm.getState(),
+              lastFull: {
+                id: localIndex?.last_full_snapshot_id ?? null,
+                commitAt: localIndex?.last_full_commit_at ?? null,
+              },
+              lastInc: {
+                id: localIndex?.last_inc_snapshot_id ?? null,
+                commitAt: localIndex?.last_inc_commit_at ?? null,
+              },
+              nextScheduledFullAt: fsm.getNextScheduledFullAt(),
+              catchupPending: fsm.hasPendingCatchup(),
+              skippedCycleAt: fsm.getSkippedCycle(),
+              lastError: lastError ? { code: lastError.code, kind: lastError.kind, at: lastError.at } : null,
+              snapshots,
+              manifestCache: manifestCache.getStats(),
+              progress: progressTracker.getSnapshot(),
+              settings: cachedRef.settings,
+            },
+            onCopy: async (report) => {
+              await (navigator as unknown as {
+                clipboard: { writeText: (t: string) => Promise<void> };
+              }).clipboard.writeText(report);
+              notify(S.DIAGNOSTICS_COPIED);
+            },
+          }).open();
+        })().catch((err: unknown) => {
+          this.logger.warn('diagnostics_command_failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          notify(S.TOAST_ERROR_GENERIC);
+        });
+      },
     });
 
     // ---------------------------------------------------------------------------

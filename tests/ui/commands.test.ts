@@ -5,6 +5,7 @@ import {
   registerBackupNowCommand,
   registerRepairCommands,
   registerVerifyVaultOwnershipCommand,
+  registerDiagnosticsCommand,
 } from '../../src/ui/Commands';
 import {
   SchedulerFSM,
@@ -561,5 +562,24 @@ describe('registerRepairCommands', () => {
     });
     await captured.byId.get('archivist-clear-gc-lock')!.callback!();
     expect(calls.some((c) => c.message === S.GC_LOCK_CLEAR_FAILED('insufficient permissions'))).toBe(true);
+  });
+});
+
+describe('registerDiagnosticsCommand (#143)', () => {
+  it('is only available while diagnostic logging is on', () => {
+    const { plugin, captured } = makePluginStub();
+    let enabled = false;
+    const onOpen = vi.fn();
+    registerDiagnosticsCommand({ plugin, isEnabled: () => enabled, onOpen });
+    const cmd = captured.byId.get('archivist-show-diagnostics')!;
+    expect(cmd.name).toBe(S.CMD_SHOW_DIAGNOSTICS);
+
+    expect(cmd.checkCallback!(true)).toBe(false);
+    enabled = true;
+    expect(cmd.checkCallback!(true)).toBe(true);
+    expect(onOpen).not.toHaveBeenCalled();
+
+    cmd.checkCallback!(false);
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 });

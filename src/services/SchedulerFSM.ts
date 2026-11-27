@@ -415,6 +415,11 @@ export class SchedulerFSM {
   // Public API — planner
   // ---------------------------------------------------------------------------
 
+  /** Slot the user skipped via the preflight notice, or null (diagnostics, #143). */
+  getSkippedCycle(): number | null {
+    return this.skippedCycle;
+  }
+
   getNextScheduledFullAt(): number {
     return this.computeNextScheduledFullAt();
   }
