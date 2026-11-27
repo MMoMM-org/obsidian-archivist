@@ -43,6 +43,8 @@ import type { SnapshotIndexEntry } from '../../src/model/SnapshotIndex';
 import type { SnapshotManifest } from '../../src/model/Manifest';
 import type { VersionEntry } from '../../src/services/RestoreService';
 import { ChainError } from '../../src/model/Errors';
+import { formatBytes } from '../../src/ui/FileHistoryModal';
+import { S } from '../../src/ui/strings';
 import * as ModalMock from '../../src/ui/ConfirmRestoreModal';
 
 // ---------------------------------------------------------------------------
@@ -231,6 +233,54 @@ describe('FileVersionsView render flow', () => {
     const internal = view as unknown as { contentEl: MockEl };
     const tag = findByClass(internal.contentEl, 'archivist-fv-snapshot-tier');
     expect(tag?.textContent).toBe(fvTierLabel('monthly'));
+  });
+
+  async function renderRow(version: VersionEntry, tiers?: Map<string, 'monthly'>): Promise<MockEl> {
+    const snap = makeSnapshot(version.snapshot_id, version.created_at);
+    const deps = makeDeps({
+      manifestCache: historyCache({
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
+        loadManifest: vi.fn().mockResolvedValue(makeManifest(version.snapshot_id, version.created_at)),
+      }),
+      restoreService: {
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+        listVersionsForPath: vi.fn().mockReturnValue([version]),
+      },
+      tiersFor: tiers ? () => tiers : undefined,
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    await Promise.resolve();
+    const internal = view as unknown as { contentEl: MockEl };
+    return findByClass(internal.contentEl, 'archivist-fv-snapshot-row')!;
+  }
+
+  it('labels a version row with timestamp, size, tier and renamed-from note (#135)', async () => {
+    const version = {
+      ...makeVersion('m1', '2026-04-25T10:00:00Z'),
+      priorPath: 'notes/old.md',
+      renamedAt: '2026-04-20T08:00:00Z',
+    };
+
+    const row = await renderRow(version, new Map([['m1', 'monthly' as const]]));
+
+    expect(row.attrs['aria-label']).toBe([
+      fvFormatTimestamp(new Date(version.created_at)),
+      formatBytes(100),
+      fvTierLabel('monthly'),
+      S.FILE_HISTORY_RENAMED_FROM('notes/old.md', '2026-04-20'),
+    ].join(', '));
+  });
+
+  it('labels a plain version row with timestamp and size only (#135)', async () => {
+    const version = makeVersion('m1', '2026-04-25T10:00:00Z');
+
+    const row = await renderRow(version);
+
+    expect(row.attrs['aria-label']).toBe(
+      `${fvFormatTimestamp(new Date(version.created_at))}, ${formatBytes(100)}`,
+    );
   });
 
   it('renders no tier tag when tiersFor is not wired', async () => {
