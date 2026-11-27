@@ -161,7 +161,9 @@ Useful log prefixes:
   `snapshot_index_loaded` (snapshot count, download and parse time),
   `manifest_loaded` (cache hit or miss, download time),
   `materialize_done` (how many snapshots a restore had to replay),
-  `restore_blob_fetched`, `chain_walk_done` (chain length checked at
+  `restore_blob_fetched`, `history_manifests_loaded` (File versions and
+  Show history: how many snapshot manifests were loaded, cache hits and
+  misses, duration), `chain_walk_done` (chain length checked at
   the first backup of a session) and `backup_run_started` /
   `backup_run_done` (backup kind, reason and duration).
 - `full_schedule_check` — at startup: when the last full backup ran,
