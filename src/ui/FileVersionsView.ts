@@ -57,7 +57,7 @@ export interface FileVersionsRestoreServiceSubset {
 
 export interface FileVersionsManifestCacheSubset {
   listSnapshotsNewestFirst(): Promise<SnapshotIndexEntry[]>;
-  loadManifest(id: string): Promise<SnapshotManifest>;
+  loadManifestsForHistory(ids: readonly string[]): Promise<SnapshotManifest[]>;
 }
 
 export interface FileVersionsRestoreOpsSubset {
@@ -264,19 +264,13 @@ export class FileVersionsView extends ItemView {
 
     this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
 
-    // Promise.allSettled — one missing or corrupt manifest must NOT take
-    // down the whole view. Successfully-loaded manifests still produce
-    // version entries; failures are silently dropped (the user sees the
-    // remaining versions, which is a strictly better experience than an
-    // empty error state).
-    const settled = await Promise.allSettled(
-      snapshots.map((s) => this.deps.manifestCache.loadManifest(s.id)),
+    // One missing or corrupt manifest must NOT take down the whole view:
+    // loadManifestsForHistory skips failures, so the user still sees the
+    // remaining versions instead of an empty error state.
+    const manifests = await this.deps.manifestCache.loadManifestsForHistory(
+      snapshots.map((s) => s.id),
     );
     if (this._closed || this.currentPath !== path) return;
-    const manifests: SnapshotManifest[] = [];
-    for (const result of settled) {
-      if (result.status === 'fulfilled') manifests.push(result.value);
-    }
 
     let entries: VersionEntry[] = [];
     try {

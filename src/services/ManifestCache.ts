@@ -135,6 +135,37 @@ export class ManifestCache implements ManifestLoader {
     return parsed;
   }
 
+  /**
+   * Load the manifests of `ids` for a per-path history (File versions view,
+   * Show history command). Order follows `ids`; a missing or corrupt
+   * manifest is skipped so one bad snapshot does not hide the others.
+   *
+   * Logs one diagnostic summary so the cost of opening a long history is
+   * measurable (#134): with more snapshots than the cache holds, every open
+   * downloads most manifests again. Hit/miss counts are deltas of the shared
+   * counters, so a concurrent load elsewhere can blur them slightly.
+   */
+  async loadManifestsForHistory(ids: readonly string[]): Promise<SnapshotManifest[]> {
+    const t0 = Date.now();
+    const hits0 = this.hits;
+    const misses0 = this.misses;
+    const settled = await Promise.allSettled(ids.map((id) => this.loadManifest(id)));
+    const manifests: SnapshotManifest[] = [];
+    for (const result of settled) {
+      if (result.status === 'fulfilled') manifests.push(result.value);
+    }
+    this.deps.logger.debug('history_manifests_loaded', {
+      snapshot_count: ids.length,
+      loaded: manifests.length,
+      failed: ids.length - manifests.length,
+      cache_hits: this.hits - hits0,
+      cache_misses: this.misses - misses0,
+      cache_max: MANIFEST_CACHE_MAX_ENTRIES,
+      ms: Date.now() - t0,
+    });
+    return manifests;
+  }
+
   /** Cache counters for the diagnostics command (#143). Counts since plugin load. */
   getStats(): { cached: number; max: number; hits: number; misses: number } {
     return {

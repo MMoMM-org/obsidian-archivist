@@ -1159,8 +1159,8 @@ export default class ArchivistPlugin extends Plugin {
         void (async (): Promise<void> => {
           try {
             const snapshots = await manifestCache.listSnapshotsNewestFirst();
-            const manifests = await Promise.all(
-              snapshots.map((s) => manifestCache.loadManifest(s.id)),
+            const manifests = await manifestCache.loadManifestsForHistory(
+              snapshots.map((s) => s.id),
             );
             const entries = restoreService.listVersionsForPath(path, manifests);
             const stat = await vaultAdapter.stat(path).catch(() => null);

@@ -106,16 +106,33 @@ function findAllByClass(el: MockEl, cls: string): MockEl[] {
   return acc;
 }
 
+/**
+ * Adapts a per-id loadManifest mock to the view's manifest-cache subset.
+ * Mirrors ManifestCache.loadManifestsForHistory: order kept, failures skipped.
+ */
+function historyCache(c: {
+  listSnapshotsNewestFirst: () => Promise<SnapshotIndexEntry[]>;
+  loadManifest: (id: string) => Promise<SnapshotManifest>;
+}): FileVersionsViewDeps['manifestCache'] {
+  return {
+    listSnapshotsNewestFirst: c.listSnapshotsNewestFirst,
+    loadManifestsForHistory: async (ids) => {
+      const settled = await Promise.allSettled(ids.map((id) => c.loadManifest(id)));
+      return settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+    },
+  };
+}
+
 function makeDeps(overrides?: Partial<FileVersionsViewDeps>): FileVersionsViewDeps {
   return {
     restoreService: {
       fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
       listVersionsForPath: vi.fn().mockReturnValue([]),
     },
-    manifestCache: {
+    manifestCache: historyCache({
       listSnapshotsNewestFirst: vi.fn().mockResolvedValue([]),
       loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-    },
+    }),
     restoreOperations: {
       restoreInPlace: vi.fn().mockResolvedValue({}),
       restoreAsCopy: vi.fn().mockResolvedValue({}),
@@ -164,10 +181,10 @@ describe('FileVersionsView render flow', () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockReturnValue(versions),
@@ -196,10 +213,10 @@ describe('FileVersionsView render flow', () => {
   it('renders the tier tag that tiersFor reports for the version snapshot (#99)', async () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockReturnValue([makeVersion('m1', '2026-04-25T10:00:00Z')]),
@@ -219,10 +236,10 @@ describe('FileVersionsView render flow', () => {
   it('renders no tier tag when tiersFor is not wired', async () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockReturnValue([makeVersion('m1', '2026-04-25T10:00:00Z')]),
@@ -243,12 +260,12 @@ describe('FileVersionsView render flow', () => {
     const okManifest = makeManifest('m-ok', '2026-04-25T10:00:00Z');
     const versions = [makeVersion('m-ok', '2026-04-25T10:00:00Z')];
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([ok, bad]),
         loadManifest: vi.fn().mockImplementation((id: string) =>
           id === 'm-bad' ? Promise.reject(new Error('chain busted')) : Promise.resolve(okManifest),
         ),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         // Inspect the manifests that reached the listVersions step — should
@@ -274,10 +291,10 @@ describe('FileVersionsView render flow', () => {
   it('renders empty placeholder when listVersionsForPath returns []', async () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockReturnValue([]),
@@ -303,10 +320,10 @@ describe('FileVersionsView error handling', () => {
   it('renders BROWSER_ERROR_CHAIN_BROKEN when listVersionsForPath throws ChainError', async () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockImplementation(() => {
@@ -336,10 +353,10 @@ describe('FileVersionsView restore button', () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
         listVersionsForPath: vi.fn().mockReturnValue(versions),
@@ -379,10 +396,10 @@ describe('FileVersionsView stale-async bailout', () => {
     let resolveFetch: (v: Uint8Array) => void = () => {};
     const fetchGate = new Promise<Uint8Array>((r) => (resolveFetch = r));
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockReturnValue(fetchGate),
         listVersionsForPath: vi.fn().mockReturnValue(versions),
@@ -415,10 +432,10 @@ describe('FileVersionsView fetchContent error handling', () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockRejectedValue(new ChainError('CHAIN_BROKEN', 'broken', false)),
         listVersionsForPath: vi.fn().mockReturnValue(versions),
@@ -440,10 +457,10 @@ describe('FileVersionsView fetchContent error handling', () => {
     const snap = makeSnapshot('m1', '2026-04-25T10:00:00Z');
     const versions = [makeVersion('m1', '2026-04-25T10:00:00Z')];
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]),
         loadManifest: vi.fn().mockResolvedValue(makeManifest('m1', '2026-04-25T10:00:00Z')),
-      },
+      }),
       restoreService: {
         fetchContent: vi.fn().mockRejectedValue(new Error('disk on fire')),
         listVersionsForPath: vi.fn().mockReturnValue(versions),
@@ -474,12 +491,12 @@ describe('FileVersionsView version-row click', () => {
     const v2 = makeVersion('m2', '2026-04-24T10:00:00Z');
     const fetchContent = vi.fn().mockResolvedValue(new Uint8Array());
     const deps = makeDeps({
-      manifestCache: {
+      manifestCache: historyCache({
         listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap1, snap2]),
         loadManifest: vi.fn().mockImplementation((id: string) =>
           Promise.resolve(makeManifest(id, '2026-04-25T10:00:00Z')),
         ),
-      },
+      }),
       restoreService: {
         fetchContent,
         listVersionsForPath: vi.fn().mockReturnValue([v1, v2]),

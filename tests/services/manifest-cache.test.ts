@@ -330,3 +330,37 @@ describe('ManifestCache.getStats (#143)', () => {
     expect(h.cache.getStats()).toEqual({ cached: 1, max: 50, hits: 2, misses: 1 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// loadManifestsForHistory (#134)
+// ---------------------------------------------------------------------------
+
+describe('ManifestCache.loadManifestsForHistory (#134)', () => {
+  const a = '2026-04-21T03-00-inc';
+  const b = '2026-04-20T03-00-full';
+
+  it('returns manifests in the given order and skips ones that fail to load', async () => {
+    const h = makeHarness({ manifests: { [a]: makeManifest(a, 'inc'), [b]: makeManifest(b, 'full') } });
+
+    const result = await h.cache.loadManifestsForHistory([a, 'missing', b]);
+
+    expect(result.map((m) => m.id)).toEqual([a, b]);
+  });
+
+  it('logs a summary with load counts and cache hits/misses', async () => {
+    const h = makeHarness({ manifests: { [a]: makeManifest(a, 'inc'), [b]: makeManifest(b, 'full') } });
+    await h.cache.loadManifest(a);
+
+    await h.cache.loadManifestsForHistory([a, b, 'missing']);
+
+    expect(h.logger.debug).toHaveBeenCalledWith('history_manifests_loaded', {
+      snapshot_count: 3,
+      loaded: 2,
+      failed: 1,
+      cache_hits: 1,
+      cache_misses: 2,
+      cache_max: 50,
+      ms: expect.any(Number),
+    });
+  });
+});
