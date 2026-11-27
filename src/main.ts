@@ -1175,6 +1175,7 @@ export default class ArchivistPlugin extends Plugin {
               },
               vaultHasPath,
               getTier: (id) => tiers.get(id) ?? null,
+              notify,
             }).open();
           } catch (err) {
             this.logger.warn('show_history_command_failed', {

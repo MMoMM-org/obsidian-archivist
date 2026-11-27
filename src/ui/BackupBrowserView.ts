@@ -1433,8 +1433,22 @@ export class BackupBrowserView extends ItemView {
       path,
       isDeleted,
       capturedSnap.id,
-      (p, snapId) => { void this.deps.restoreOperations.restoreInPlace(p, snapId); },
-      (p, snapId) => { void this.deps.restoreOperations.restoreAsCopy(p, snapId); },
+      (p, snapId) => { void this._restoreFile(() => this.deps.restoreOperations.restoreInPlace(p, snapId)); },
+      (p, snapId) => { void this._restoreFile(() => this.deps.restoreOperations.restoreAsCopy(p, snapId)); },
     );
+  }
+
+  /**
+   * Run a single-file restore and report the outcome. Without this the
+   * promise was dropped: no notice on success and an unhandled rejection
+   * on failure, so a failed restore looked like a slow one (#142).
+   */
+  private async _restoreFile(run: () => Promise<unknown>): Promise<void> {
+    try {
+      await run();
+      this.deps.notify?.(S.TOAST_RESTORE_DONE);
+    } catch (err) {
+      this.deps.notify?.(mapRestoreErrorToToast(err));
+    }
   }
 }

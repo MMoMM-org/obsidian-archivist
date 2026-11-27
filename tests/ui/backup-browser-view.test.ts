@@ -51,6 +51,7 @@ import {
 import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
 import { S } from '../../src/ui/strings';
+import { mapRestoreErrorToToast } from '../../src/ui/restoreErrorToast';
 import type { SnapshotIndexEntry } from '../../src/model/SnapshotIndex';
 import type { FileEntry } from '../../src/model/Manifest';
 import { ChainError } from '../../src/model/Errors';
@@ -1005,6 +1006,61 @@ describe('BackupBrowserView deleted-file restore', () => {
     await Promise.resolve();
 
     expect(restoreInPlace).toHaveBeenCalledWith('deleted-note.md', 'snap-1');
+  });
+
+  // #142: the single-file restore used to drop its promise — no notice on
+  // success, unhandled rejection on failure.
+  async function clickRestore(
+    cls: 'archivist-restore-in-place' | 'archivist-restore-as-copy',
+    ops: { restoreInPlace: ReturnType<typeof vi.fn>; restoreAsCopy: ReturnType<typeof vi.fn> },
+  ): Promise<ReturnType<typeof vi.fn>> {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const notify = vi.fn();
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['note.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+      restoreOperations: ops,
+      vaultHasPath: vi.fn().mockReturnValue(true),
+      notify,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectFile('note.md');
+    const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    const btn = findByClass(previewCol, cls) as MockEl;
+    btn.dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+    return notify;
+  }
+
+  it('shows the done notice after a successful in-place restore (#142)', async () => {
+    const notify = await clickRestore('archivist-restore-in-place', {
+      restoreInPlace: vi.fn().mockResolvedValue({ ok: true }),
+      restoreAsCopy: vi.fn(),
+    });
+    expect(notify).toHaveBeenCalledWith(S.TOAST_RESTORE_DONE);
+  });
+
+  it('shows the done notice after a successful restore as copy (#142)', async () => {
+    const notify = await clickRestore('archivist-restore-as-copy', {
+      restoreInPlace: vi.fn(),
+      restoreAsCopy: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    expect(notify).toHaveBeenCalledWith(S.TOAST_RESTORE_DONE);
+  });
+
+  it('shows the mapped error notice when the restore fails (#142)', async () => {
+    const err = new Error('network down');
+    const notify = await clickRestore('archivist-restore-in-place', {
+      restoreInPlace: vi.fn().mockRejectedValue(err),
+      restoreAsCopy: vi.fn(),
+    });
+    expect(notify).toHaveBeenCalledWith(mapRestoreErrorToToast(err));
+    expect(notify).not.toHaveBeenCalledWith(S.TOAST_RESTORE_DONE);
   });
 });
 
