@@ -1,3 +1,9 @@
+## [0.14.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.13.2...0.14.0) (2026-11-27)
+
+### Features
+
+* **diag:** Show diagnostics command ([#143](https://github.com/MMoMM-org/obsidian-archivist/issues/143)) ([#151](https://github.com/MMoMM-org/obsidian-archivist/issues/151)) ([e599f3a](https://github.com/MMoMM-org/obsidian-archivist/commit/e599f3a89054b0ef109b5d545e649a387049a2c3))
+
 ## [0.13.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.13.1...0.13.2) (2026-11-27)
 
 ### Bug Fixes
