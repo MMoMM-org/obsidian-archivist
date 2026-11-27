@@ -1,3 +1,9 @@
+## [0.13.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.13.1...0.13.2) (2026-11-27)
+
+### Bug Fixes
+
+* **browser:** confirm single-file restores ([#149](https://github.com/MMoMM-org/obsidian-archivist/issues/149)) ([#150](https://github.com/MMoMM-org/obsidian-archivist/issues/150)) ([1841990](https://github.com/MMoMM-org/obsidian-archivist/commit/1841990350ca6329371bf4db1f8e9704c5e3b763))
+
 ## [0.13.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.13.0...0.13.1) (2026-11-27)
 
 ### Bug Fixes
