@@ -1,3 +1,9 @@
+## [0.14.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.1...0.14.2) (2026-11-27)
+
+### Bug Fixes
+
+* **history:** shared manifest loading with a timing summary ([#134](https://github.com/MMoMM-org/obsidian-archivist/issues/134)) ([#154](https://github.com/MMoMM-org/obsidian-archivist/issues/154)) ([bd31b20](https://github.com/MMoMM-org/obsidian-archivist/commit/bd31b20ae5aa9b1f2c47fd56f035156ebd06d396))
+
 ## [0.14.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.0...0.14.1) (2026-11-27)
 
 ### Bug Fixes
