@@ -47,6 +47,7 @@ interface Harness {
   cache: ManifestCache;
   dropbox: DropboxReader;
   downloadJson: ReturnType<typeof vi.fn>;
+  logger: Logger;
 }
 
 function makeHarness(opts: {
@@ -79,7 +80,7 @@ function makeHarness(opts: {
     logger: makeLogger(),
   };
 
-  return { cache: new ManifestCache(deps), dropbox, downloadJson };
+  return { cache: new ManifestCache(deps), dropbox, downloadJson, logger: deps.logger };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,5 +275,45 @@ describe('ManifestCache LRU eviction (L4)', () => {
     // ids[1] was the oldest after the touch — it should have been evicted.
     await h.cache.loadManifest(ids[1]);
     expect(h.downloadJson.mock.calls.length).toBe(callsAfterPush + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostic timing logs (#141)
+// ---------------------------------------------------------------------------
+
+describe('ManifestCache diagnostic logs (#141)', () => {
+  it('logs snapshot_index_loaded with counts and timings', async () => {
+    const index = makeIndex([{ id: '2026-04-20T03-00-full', type: 'full' }]);
+    index.snapshots[0].blob_hashes = ['h1', 'h2', 'h3'];
+    const h = makeHarness({ index });
+
+    await h.cache.ensureIndexLoaded();
+
+    expect(h.logger.debug).toHaveBeenCalledWith('snapshot_index_loaded', {
+      snapshot_count: 1,
+      blob_hash_count: 3,
+      download_ms: expect.any(Number),
+      parse_ms: expect.any(Number),
+    });
+  });
+
+  it('logs manifest_loaded as miss on download and hit on cache reuse', async () => {
+    const id = '2026-04-20T03-00-full';
+    const manifest = makeManifest(id, 'full');
+    manifest.files = { 'a.md': { hash: 'h1', size: 1, mtime: 0 } };
+    const h = makeHarness({ manifests: { [id]: manifest } });
+
+    await h.cache.loadManifest(id);
+    await h.cache.loadManifest(id);
+
+    expect(h.logger.debug).toHaveBeenCalledWith('manifest_loaded', {
+      id,
+      cache: 'miss',
+      type: 'full',
+      file_count: 1,
+      ms: expect.any(Number),
+    });
+    expect(h.logger.debug).toHaveBeenCalledWith('manifest_loaded', { id, cache: 'hit' });
   });
 });

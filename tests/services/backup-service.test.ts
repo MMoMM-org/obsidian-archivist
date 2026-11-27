@@ -2259,6 +2259,13 @@ describe('BackupService — chain-walk depth ceiling (Cluster G)', () => {
     const fallback = warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full');
     expect(fallback).toBeDefined();
     expect(fallback!.payload).toMatchObject({ reason: 'depth_exceeded', walked_depth: 100 });
+    expect(logger.debug).toHaveBeenCalledWith('chain_walk_done', {
+      start_id: topId,
+      depth: 100,
+      broken: true,
+      reason: 'depth_exceeded',
+      ms: expect.any(Number),
+    });
   });
 
   it('logs the depth-warn event when the chain crosses the warn threshold', async () => {
@@ -2286,6 +2293,13 @@ describe('BackupService — chain-walk depth ceiling (Cluster G)', () => {
     expect(warns.find((w) => w.message === 'dropbox_chain_walk_depth_high')).toBeDefined();
     // Chain reached FULL — no fallback warn fired.
     expect(warns.find((w) => w.message === 'dropbox_chain_broken_falling_back_to_full')).toBeUndefined();
+    expect(logger.debug).toHaveBeenCalledWith('chain_walk_done', {
+      start_id: topId,
+      depth: 61,
+      broken: false,
+      reason: null,
+      ms: expect.any(Number),
+    });
   });
 
   it('runIncremental builds vaultPathSet once instead of n×m linear scans (M8)', async () => {

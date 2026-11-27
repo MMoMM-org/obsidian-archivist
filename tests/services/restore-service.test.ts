@@ -359,8 +359,9 @@ describe('fetchContent', () => {
     bytes?: Uint8Array;
     hash?: string;
     throwOn?: string;
-  }): { service: RestoreService; downloadedPaths: string[] } {
+  }): { service: RestoreService; downloadedPaths: string[]; logger: Logger } {
     const downloadedPaths: string[] = [];
+    const logger = makeLogger();
     const dropbox = {
       downloadBytes: async (path: string): Promise<Uint8Array> => {
         downloadedPaths.push(path);
@@ -371,10 +372,10 @@ describe('fetchContent', () => {
     const service = new RestoreService({
       loader: loader([fullFx]),
       dropbox,
-      logger: makeLogger(),
+      logger,
       hasher: async () => opts.hash ?? HASH_A,
     });
-    return { service, downloadedPaths };
+    return { service, downloadedPaths, logger };
   }
 
   it('fetches bytes and returns them when hash matches', async () => {
@@ -403,5 +404,48 @@ describe('fetchContent', () => {
     await service.fetchContent('full', 'a.md');
     expect(downloadedPaths[0]).toContain('content/');
     expect(downloadedPaths[0]).toContain(HASH_A);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Diagnostic timing logs (#141)
+// ---------------------------------------------------------------------------
+
+describe('RestoreService diagnostic logs (#141)', () => {
+  const HASH = 'c'.repeat(64);
+
+  it('logs materialize_done with chain length and timings', async () => {
+    const full = m({ id: 'full', type: 'full', files: { 'a.md': fe('h1') } });
+    const inc = m({ id: 'inc', parent_id: 'full', files: { 'b.md': fe('h2') } });
+    const { service, logger } = makeService([full, inc]);
+
+    await service.materializeVaultStateAt('inc');
+
+    expect(logger.debug).toHaveBeenCalledWith('materialize_done', {
+      snapshot_id: 'inc',
+      chain_length: 2,
+      file_count: 2,
+      chain_load_ms: expect.any(Number),
+      total_ms: expect.any(Number),
+    });
+  });
+
+  it('logs restore_blob_fetched with size and timing', async () => {
+    const full = m({ id: 'full', type: 'full', files: { 'a.md': { hash: HASH, size: 4, mtime: 0 } } });
+    const logger = makeLogger();
+    const service = new RestoreService({
+      loader: loader([full]),
+      dropbox: { downloadBytes: async () => new Uint8Array([1, 2, 3, 4]) },
+      logger,
+      hasher: async () => HASH,
+    });
+
+    await service.fetchContent('full', 'a.md');
+
+    expect(logger.debug).toHaveBeenCalledWith('restore_blob_fetched', {
+      snapshot_id: 'full',
+      bytes: 4,
+      ms: expect.any(Number),
+    });
   });
 });

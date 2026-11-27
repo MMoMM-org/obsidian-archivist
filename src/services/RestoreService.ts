@@ -95,9 +95,15 @@ export class RestoreService {
     // Need the manifest at the target snapshot to resolve vault_prefix for
     // the content path. The loader already cached it during materialize.
     const manifest = await this.deps.loader.loadManifest(snapshotId);
+    const t0 = Date.now();
     const bytes = await this.deps.dropbox.downloadBytes(
       contentPath(manifest.vault_prefix, entry.hash),
     );
+    this.deps.logger.debug('restore_blob_fetched', {
+      snapshot_id: snapshotId,
+      bytes: bytes.byteLength,
+      ms: Date.now() - t0,
+    });
     const actualHash = await this.hasher(bytes);
     if (actualHash !== entry.hash) {
       throw new CorruptionError(
@@ -118,7 +124,9 @@ export class RestoreService {
    * Throws `ChainError('CHAIN_BROKEN')` if the chain cannot reach a Full.
    */
   async materializeVaultStateAt(targetSnapshotId: string): Promise<Record<string, FileEntry>> {
+    const t0 = Date.now();
     const chain = await this.loadChainToFull(targetSnapshotId);
+    const chainLoadedMs = Date.now() - t0;
 
     // chain is newest→oldest ending in Full. Replay oldest→newest.
     chain.reverse();
@@ -154,6 +162,13 @@ export class RestoreService {
       }
     }
 
+    this.deps.logger.debug('materialize_done', {
+      snapshot_id: targetSnapshotId,
+      chain_length: chain.length,
+      file_count: Object.keys(state).length,
+      chain_load_ms: chainLoadedMs,
+      total_ms: Date.now() - t0,
+    });
     return state;
   }
 

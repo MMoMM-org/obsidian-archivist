@@ -441,7 +441,15 @@ export class SchedulerFSM {
       return;
     }
 
-    if (this.isScheduledFullOverdue()) {
+    const overdue = this.isScheduledFullOverdue();
+    this.deps.logger.debug('full_schedule_check', {
+      last_full_at: lastFull,
+      next_from_last: this.nextFullAfter(new Date(lastFull + 1)).getTime(),
+      next_scheduled_at: this.computeNextScheduledFullAt(),
+      now: this.now(),
+      overdue,
+    });
+    if (overdue) {
       this.catchupPending = true;
       this.deps.logger.info('catchup_flagged', {
         last_full_at: lastFull,

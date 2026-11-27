@@ -652,12 +652,21 @@ export default class ArchivistPlugin extends Plugin {
       const pending = fsm.getPendingBackup();
       if (!pending) return;
 
+      const runStartedAt = Date.now();
+      const runReason = pending.type === 'full' ? pending.reason : null;
+      this.logger.debug('backup_run_started', { kind: pending.type, reason: runReason });
       void (async () => {
         try {
           const result =
             pending.type === 'full'
               ? await backupService.runFull()
               : await backupService.runIncremental();
+          this.logger.debug('backup_run_done', {
+            kind: pending.type,
+            reason: runReason,
+            files_written: result.filesWritten,
+            ms: Date.now() - runStartedAt,
+          });
 
           const now = Date.now();
           if (pending.type === 'full') {
@@ -711,6 +720,8 @@ export default class ArchivistPlugin extends Plugin {
             this.logger.error('backup_failed', {
               code: errCode,
               kind: pending.type,
+              reason: runReason,
+              ms: Date.now() - runStartedAt,
               message: msg,
               stack,
               permanent: true,

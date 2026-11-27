@@ -491,7 +491,15 @@ export class BackupService {
     if (!this.dropboxChainVerified) {
       const startId = index.last_inc_snapshot_id ?? index.last_full_snapshot_id;
       if (startId !== null) {
+        const walkStart = Date.now();
         const result = await this.walkChainToFull(startId);
+        this.logger.debug('chain_walk_done', {
+          start_id: startId,
+          depth: result.broken ? result.walkedDepth : result.depth,
+          broken: result.broken,
+          reason: result.broken ? result.reason : null,
+          ms: Date.now() - walkStart,
+        });
         if (result.broken) {
           this.dropboxChainVerified = true;
           this.logger.warn('dropbox_chain_broken_falling_back_to_full', {

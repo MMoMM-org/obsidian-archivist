@@ -135,6 +135,16 @@ Useful log prefixes:
   diagnostic logging on).
 - `manifest_cache_invalidated` — cache flush events after a commit or
   a retention prune (diagnostic logging only).
+- Timing lines for slow loads and restores (diagnostic logging only):
+  `snapshot_index_loaded` (snapshot count, download and parse time),
+  `manifest_loaded` (cache hit or miss, download time),
+  `materialize_done` (how many snapshots a restore had to replay),
+  `restore_blob_fetched`, `chain_walk_done` (chain length checked at
+  the first backup of a session) and `backup_run_started` /
+  `backup_run_done` (backup kind, reason and duration).
+- `full_schedule_check` — at startup: when the last full backup ran,
+  when the next one is due, and whether one is overdue (diagnostic
+  logging only).
 - `retention_pruned` — one line per snapshot retention deleted.
 - `repair_` / `gc_` — repair commands and garbage-collection sweeps.
 
