@@ -338,6 +338,31 @@ export interface VerifyVaultOwnershipCommandDeps {
 
 const VERIFY_OWNERSHIP_COMMAND_ID = 'archivist-verify-vault-ownership';
 
+// ---------------------------------------------------------------------------
+// Show diagnostics (#143) — only offered while diagnostic logging is on, so
+// the palette stays uncluttered for everyone else.
+// ---------------------------------------------------------------------------
+
+export interface DiagnosticsCommandDeps {
+  plugin: Pick<Plugin, 'addCommand'>;
+  isEnabled: () => boolean;
+  onOpen: () => void;
+}
+
+const SHOW_DIAGNOSTICS_COMMAND_ID = 'archivist-show-diagnostics';
+
+export function registerDiagnosticsCommand(deps: DiagnosticsCommandDeps): void {
+  deps.plugin.addCommand({
+    id: SHOW_DIAGNOSTICS_COMMAND_ID,
+    name: S.CMD_SHOW_DIAGNOSTICS,
+    checkCallback: (checking: boolean): boolean | void => {
+      if (!deps.isEnabled()) return false;
+      if (!checking) deps.onOpen();
+      return true;
+    },
+  });
+}
+
 export function registerVerifyVaultOwnershipCommand(
   deps: VerifyVaultOwnershipCommandDeps,
 ): void {

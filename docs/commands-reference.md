@@ -25,6 +25,7 @@ command name or ID.
 | **Remove unused backup blobs** | `archivist-gc-orphan-content` | Runs a manual garbage-collection sweep — scans `content/` for blobs not referenced by any kept manifest and deletes them. Normally runs automatically after retention. | Dropbox is connected. |
 | **Clear stuck garbage-collection lock** | `archivist-clear-gc-lock` | Removes a stale `gc_lock.json` from Dropbox so the next GC sweep can proceed. Use only if a previous sweep crashed mid-run and the lock has been there longer than expected. | Dropbox is connected. See the *Stale GC lock* section of [docs/troubleshooting/dropbox-corruption.md](troubleshooting/dropbox-corruption.md). |
 | **Verify backup ownership** | `archivist-verify-vault-ownership` | Confirms the Dropbox folder's `vault_meta.json` matches this vault's local vault id. Surfaces the Adopt dialog if there's a mismatch. | Dropbox is connected. |
+| **Show diagnostics** | `archivist-show-diagnostics` | Shows backup, chain and scheduler state — last full and incremental backup, chain depth, next scheduled full, catch-up flag, last error code, snapshot counts, manifest cache hits and misses, running backup progress and the schedule and retention settings. **Copy report** puts it on the clipboard for a bug report. Metadata only: no file contents or paths. | **Diagnostic logging** is on (Settings → Advanced). |
 
 ## Notes
 

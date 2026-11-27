@@ -48,6 +48,8 @@ export class ManifestCache implements ManifestLoader {
    * to the most-recent end, and the cap eviction takes the head.
    */
   private readonly manifestById = new Map<string, SnapshotManifest>();
+  private hits = 0;
+  private misses = 0;
 
   constructor(private readonly deps: ManifestCacheDeps) {}
 
@@ -92,10 +94,12 @@ export class ManifestCache implements ManifestLoader {
       // LRU touch: re-insert so this id is the most-recently-used.
       this.manifestById.delete(id);
       this.manifestById.set(id, cached);
+      this.hits += 1;
       this.deps.logger.debug('manifest_loaded', { id, cache: 'hit' });
       return cached;
     }
 
+    this.misses += 1;
     await this.ensureIndexLoaded();
     const t0 = Date.now();
     const raw = await this.deps.dropbox.downloadJson(
@@ -129,6 +133,16 @@ export class ManifestCache implements ManifestLoader {
       }
     }
     return parsed;
+  }
+
+  /** Cache counters for the diagnostics command (#143). Counts since plugin load. */
+  getStats(): { cached: number; max: number; hits: number; misses: number } {
+    return {
+      cached: this.manifestById.size,
+      max: MANIFEST_CACHE_MAX_ENTRIES,
+      hits: this.hits,
+      misses: this.misses,
+    };
   }
 
   /** Return a newest-first copy of the cached index entries. */

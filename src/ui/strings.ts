@@ -52,6 +52,7 @@ export const S = {
   CMD_GC_ORPHAN_CONTENT: 'Remove unused backup blobs',
   CMD_CLEAR_GC_LOCK: 'Clear stuck garbage-collection lock',
   CMD_VERIFY_VAULT_OWNERSHIP: 'Verify backup ownership',
+  CMD_SHOW_DIAGNOSTICS: 'Show diagnostics',
   CMD_RETENTION_DRY_RUN: 'Preview retention (dry run)',
   CMD_RETENTION_RUN_NOW: 'Run retention now (delete)',
 
@@ -208,6 +209,13 @@ export const S = {
   ERROR_DETAILS_COPY: 'Copy report',
   ERROR_DETAILS_COPIED: 'Error report copied to clipboard.',
   ERROR_DETAILS_CLOSE: 'Close',
+  DIAGNOSTICS_TITLE: 'Archivist — diagnostics',
+  DIAGNOSTICS_INTRO:
+    'Backup, chain and scheduler state. Metadata only — no file contents or paths. Copy it into a bug report.',
+  DIAGNOSTICS_COPY: 'Copy report',
+  DIAGNOSTICS_COPIED: 'Diagnostics copied to clipboard.',
+  DIAGNOSTICS_CLOSE: 'Close',
+  DIAGNOSTICS_COLLECTING: 'Collecting diagnostics…',
   ERROR_DETAILS_HINT:
     'Open the developer console (View → Toggle Developer Tools) for the full log — Archivist now writes the error there too.',
   // Persistent banner used when a generic / NETWORK-class failure has no
