@@ -519,7 +519,7 @@ export class FileVersionsView extends ItemView {
         timestamp: ts,
         size: formatBytes(entry.size),
         missingDirs: [],
-        customBody: `A copy of "${targetPath}" from ${ts} will be created next to the live file. The live file is not modified.`,
+        customBody: S.CONFIRM_RESTORE_AS_COPY_BODY(targetPath, ts),
         onConfirm: () => {
           void this.deps.restoreOperations
             .restoreAsCopy(targetPath, entry.snapshot_id)

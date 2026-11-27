@@ -15,6 +15,21 @@
 // provides adequate coverage of the tree-building wiring without the perf hit.
 
 import { describe, expect, it, vi } from 'vitest';
+
+// The real ConfirmRestoreModal.onOpen reaches for Electron's `activeDocument`.
+// Stub only the class so Scenario 1 can capture and fire onConfirm; the
+// pure renderConfirmRestoreContent stays real for the other scenarios.
+vi.mock('../../src/ui/ConfirmRestoreModal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/ui/ConfirmRestoreModal')>();
+  class ConfirmRestoreModalStub {
+    static _last: { opts: { onConfirm: () => void } } | null = null;
+    constructor(_app: unknown, opts: { onConfirm: () => void }) {
+      ConfirmRestoreModalStub._last = { opts };
+    }
+    open(): void {}
+  }
+  return { ...actual, ConfirmRestoreModal: ConfirmRestoreModalStub };
+});
 import {
   BackupBrowserView,
   type BackupBrowserDeps,
@@ -297,6 +312,11 @@ describe('Phase 9 integration — Scenario 1: BackupBrowserView large snapshot +
     const inPlaceBtn = findAllByClass(view.contentEl, 'archivist-restore-in-place');
     expect(inPlaceBtn.length).toBeGreaterThan(0);
     inPlaceBtn[0].dispatchEvent({ type: 'click', key: '', preventDefault: () => {} });
+
+    // The click opens the confirm dialog; nothing is written until it fires.
+    expect(restoreInPlace).not.toHaveBeenCalled();
+    const { ConfirmRestoreModal } = await import('../../src/ui/ConfirmRestoreModal');
+    (ConfirmRestoreModal as unknown as { _last: { opts: { onConfirm: () => void } } })._last.opts.onConfirm();
 
     // restoreInPlace is called with the correct (path, snapshotId) pair
     await vi.waitFor(() => {

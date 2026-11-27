@@ -54,8 +54,9 @@ check what a snapshot actually contains.
 2. Pick a snapshot in the left column. The middle column shows the
    files at that moment.
 3. Click a file → preview in the right column → **Restore in-place** or
-   **Restore to new location**. A notice confirms when the file is
-   restored, or says why the restore failed.
+   **Restore to new location**. Archivist asks for confirmation first;
+   a notice then confirms the file is restored, or says why the restore
+   failed.
 4. To restore a whole folder, click the folder header in the file
    column. The Preview column then offers two actions, both wired:
 

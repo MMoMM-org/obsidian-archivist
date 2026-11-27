@@ -52,6 +52,16 @@ import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
 import { S } from '../../src/ui/strings';
 import { mapRestoreErrorToToast } from '../../src/ui/restoreErrorToast';
+
+type ConfirmStub = {
+  _last: { opts: { onConfirm: () => void; onCancel: () => void; filePath: string; customBody?: string; missingDirs: string[] } } | null;
+};
+async function lastConfirm(): Promise<NonNullable<ConfirmStub['_last']>['opts']> {
+  const mod = await import('../../src/ui/ConfirmRestoreModal');
+  const last = (mod.ConfirmRestoreModal as unknown as ConfirmStub)._last;
+  if (!last) throw new Error('no ConfirmRestoreModal was opened');
+  return last.opts;
+}
 import type { SnapshotIndexEntry } from '../../src/model/SnapshotIndex';
 import type { FileEntry } from '../../src/model/Manifest';
 import { ChainError } from '../../src/model/Errors';
@@ -1002,10 +1012,45 @@ describe('BackupBrowserView deleted-file restore', () => {
     const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
     const inPlaceBtn = findByClass(previewCol, 'archivist-restore-in-place') as MockEl;
     inPlaceBtn.dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
-    // Allow the click handler's async chain to flush.
+
+    // The click only opens the confirm dialog — nothing is written yet.
+    expect(restoreInPlace).not.toHaveBeenCalled();
+    (await lastConfirm()).onConfirm();
     await Promise.resolve();
 
     expect(restoreInPlace).toHaveBeenCalledWith('deleted-note.md', 'snap-1');
+  });
+
+  it('cancelling the confirm dialog restores nothing', async () => {
+    const snap = makeSnapshot({ id: 'snap-1', created_at: '2026-04-24T09:00:00Z' });
+    const restoreInPlace = vi.fn().mockResolvedValue({ ok: true });
+    const notify = vi.fn();
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['note.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new TextEncoder().encode('content')),
+      },
+      restoreOperations: { restoreInPlace, restoreAsCopy: vi.fn() },
+      vaultHasPath: vi.fn().mockReturnValue(true),
+      notify,
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    await view._selectFile('note.md');
+    const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
+    (findByClass(previewCol, 'archivist-restore-in-place') as MockEl)
+      .dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
+
+    const confirm = await lastConfirm();
+    expect(confirm.filePath).toBe('note.md');
+    expect(confirm.customBody).toBeUndefined();
+    confirm.onCancel();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(restoreInPlace).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
   });
 
   // #142: the single-file restore used to drop its promise — no notice on
@@ -1033,6 +1078,7 @@ describe('BackupBrowserView deleted-file restore', () => {
     const previewCol = findByClass(view.contentEl, 'archivist-preview') as MockEl;
     const btn = findByClass(previewCol, cls) as MockEl;
     btn.dispatchEvent({ key: '', type: 'click', preventDefault: () => {} });
+    (await lastConfirm()).onConfirm();
     await new Promise((r) => setTimeout(r, 0));
     return notify;
   }
@@ -1051,6 +1097,8 @@ describe('BackupBrowserView deleted-file restore', () => {
       restoreAsCopy: vi.fn().mockResolvedValue({ ok: true }),
     });
     expect(notify).toHaveBeenCalledWith(S.TOAST_RESTORE_DONE);
+    // As copy explains that the live file stays untouched.
+    expect((await lastConfirm()).customBody).toContain('The live file is not modified.');
   });
 
   it('shows the mapped error notice when the restore fails (#142)', async () => {
