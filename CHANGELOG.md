@@ -1,3 +1,9 @@
+## [0.14.1](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.0...0.14.1) (2026-11-27)
+
+### Bug Fixes
+
+* **browser:** loading feedback, error state and restore notice ([#140](https://github.com/MMoMM-org/obsidian-archivist/issues/140)) ([#152](https://github.com/MMoMM-org/obsidian-archivist/issues/152)) ([1c2465f](https://github.com/MMoMM-org/obsidian-archivist/commit/1c2465fdb16cd6b34d43d8eb9ad97b96d48f7304))
+
 ## [0.14.0](https://github.com/MMoMM-org/obsidian-archivist/compare/0.13.2...0.14.0) (2026-11-27)
 
 ### Features
