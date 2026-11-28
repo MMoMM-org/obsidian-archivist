@@ -247,9 +247,9 @@ describe('NoticeCenter — persistent banners', () => {
 
   it('same code twice updates in place — one entry wins', () => {
     const { center } = makeCenter();
-    center.showPersistent('STORAGE', 'first');
-    center.showPersistent('STORAGE', 'second');
-    expect(center.getPersistentBanners()).toEqual([{ code: 'STORAGE', message: 'second' }]);
+    center.showPersistent('QUOTA_EXCEEDED', 'first');
+    center.showPersistent('QUOTA_EXCEEDED', 'second');
+    expect(center.getPersistentBanners()).toEqual([{ code: 'QUOTA_EXCEEDED', message: 'second' }]);
   });
 
   it('idempotent: same code + same message does NOT re-emit to subscribers', () => {
@@ -299,11 +299,11 @@ describe('NoticeCenter — persistent banners', () => {
     const handler = vi.fn();
     const unsubscribe = center.subscribePersistentBanners(handler);
 
-    center.showPersistent('A', '1');
+    center.showPersistent('AUTH_LOST', '1');
     expect(handler).toHaveBeenCalledTimes(1);
 
     unsubscribe();
-    center.showPersistent('B', '2');
+    center.showPersistent('BACKUP_ERROR', '2');
     expect(handler).toHaveBeenCalledTimes(1); // still 1
   });
 });

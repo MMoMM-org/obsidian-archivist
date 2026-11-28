@@ -50,6 +50,7 @@ import {
 } from '../../src/ui/BackupBrowserView';
 import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
+import type { BannerCode } from '../../src/ui/NoticeCenter';
 import { S } from '../../src/ui/strings';
 import { SLOW_LOAD_HINT_MS } from '../../src/ui/loadingState';
 import { mapRestoreErrorToToast } from '../../src/ui/restoreErrorToast';
@@ -1481,7 +1482,7 @@ describe('BackupBrowserView empty state body', () => {
 describe('BackupBrowserView banner rendering', () => {
   it('renders a banner when onBannersChange fires with a persistent banner', async () => {
     let bannerCallback: (() => void) | null = null;
-    let banners: Array<{ code: string; message: string; onDismiss?: () => void }> = [];
+    let banners: Array<{ code: BannerCode; message: string; onDismiss?: () => void }> = [];
 
     const noticeCenter = {
       showPersistent: vi.fn(),
@@ -1502,7 +1503,7 @@ describe('BackupBrowserView banner rendering', () => {
     expect(bannerRegion.children).toHaveLength(0);
 
     // Publish a banner and fire the subscription callback
-    banners = [{ code: 'STORAGE_WARN', message: 'Storage at 90%' }];
+    banners = [{ code: 'QUOTA_EXCEEDED', message: 'Storage at 90%' }];
     bannerCallback!();
 
     const text = collectText(bannerRegion);
@@ -1511,8 +1512,8 @@ describe('BackupBrowserView banner rendering', () => {
 
   it('clearing banners removes them from the banner region', async () => {
     let bannerCallback: (() => void) | null = null;
-    let banners: Array<{ code: string; message: string }> = [
-      { code: 'STORAGE_WARN', message: 'Storage at 90%' },
+    let banners: Array<{ code: BannerCode; message: string }> = [
+      { code: 'QUOTA_EXCEEDED', message: 'Storage at 90%' },
     ];
 
     const noticeCenter = {
