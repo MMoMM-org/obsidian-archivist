@@ -1,3 +1,9 @@
+## [0.14.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.2...0.14.3) (2026-11-28)
+
+### Bug Fixes
+
+* **a11y:** explicit aria-label on File versions rows ([#135](https://github.com/MMoMM-org/obsidian-archivist/issues/135)) ([#156](https://github.com/MMoMM-org/obsidian-archivist/issues/156)) ([076e97a](https://github.com/MMoMM-org/obsidian-archivist/commit/076e97a6cbab79b64908b82d4cd5c06973675e13))
+
 ## [0.14.2](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.1...0.14.2) (2026-11-27)
 
 ### Bug Fixes
