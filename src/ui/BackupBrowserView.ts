@@ -27,6 +27,7 @@ import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
 import { formatSnapshotTimestamp } from './format';
+import { pathsUnderDir } from '../util/dirPrefix';
 import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
@@ -553,24 +554,6 @@ function renderFileTreeNode(
 // ---------------------------------------------------------------------------
 // Directory preview helpers — pure, exported for tests
 // ---------------------------------------------------------------------------
-
-/**
- * Collect every vault path under a directory prefix from a flat snapshot
- * state map. Mirrors the filter used by `RestoreOperations.restoreDirectory`
- * so the count shown in the confirm dialog matches what will actually be
- * restored. Returns paths sorted alphabetically for stable display.
- */
-export function collectDirMatches(
-  state: Record<string, FileEntry>,
-  rawPrefix: string,
-): string[] {
-  const normalized = rawPrefix.replace(/\/+$/, '');
-  if (normalized === '') return [];
-  const prefixWithSlash = normalized + '/';
-  return Object.keys(state)
-    .filter((p) => p === normalized || p.startsWith(prefixWithSlash))
-    .sort();
-}
 
 /**
  * Render the preview-column header for a selected directory: name + file
@@ -1253,7 +1236,7 @@ export class BackupBrowserView extends ItemView {
 
     // Compute the matching files from the already-materialized snapshot
     // state — no second materialize call needed; we have it in fileState.
-    const matches = collectDirMatches(this.fileState, prefix);
+    const matches = pathsUnderDir(Object.keys(this.fileState), prefix);
 
     this.previewColEl.empty();
     renderDirPreviewHeader(this.previewColEl, prefix, matches.length);

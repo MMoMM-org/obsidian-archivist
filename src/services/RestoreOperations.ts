@@ -21,6 +21,7 @@ import type { RestoreService } from './RestoreService';
 import type { VaultAdapter } from '../infra/VaultAdapter';
 import type { Logger } from '../infra/Logger';
 import { sha256hex } from '../infra/Hasher';
+import { normalizeDirPrefix, pathsUnderDir } from '../util/dirPrefix';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,7 +125,7 @@ export class RestoreOperations {
     snapshotId: string,
     mode: 'in_place' | 'as_copy',
   ): Promise<RestoreDirectoryResult> {
-    const normalized = dirPrefix.replace(/\/+$/, '');
+    const normalized = normalizeDirPrefix(dirPrefix);
     if (normalized === '') {
       throw new PathError(
         'INVALID_DIR_PREFIX',
@@ -134,10 +135,7 @@ export class RestoreOperations {
     }
 
     const state = await this.deps.restoreService.materializeVaultStateAt(snapshotId);
-    const prefix = normalized + '/';
-    const matches = Object.keys(state)
-      .filter((p) => p === normalized || p.startsWith(prefix))
-      .sort();
+    const matches = pathsUnderDir(Object.keys(state), normalized);
 
     this.deps.logger.info('dir_restore_started', {
       dir: normalized,
@@ -159,7 +157,7 @@ export class RestoreOperations {
           await this.restoreInPlaceWithState(path, snapshotId, state);
         } else {
           // sharedTs is defined here — narrowed by the mode check above.
-          await this.restoreAsCopyAt(path, snapshotId, sharedTs!, state);
+          await this.restoreAsCopyWithSharedTimestamp(path, snapshotId, sharedTs!, state);
         }
         ok++;
       } catch (err) {
@@ -184,13 +182,13 @@ export class RestoreOperations {
    * threaded through so the per-file pre-write hash check skips a
    * redundant chain merge.
    */
-  private async restoreAsCopyAt(
+  private async restoreAsCopyWithSharedTimestamp(
     path: string,
     snapshotId: string,
     sharedTs: number,
     precomputedState?: Record<string, FileEntry>,
   ): Promise<RestoreResult> {
-    const copyPath = this.buildCopyPath(path, sharedTs);
+    const copyPath = this.buildCopyPath(path, { sharedTs });
     return this.runWithMutex(path, () =>
       this.writeRestore(path, snapshotId, copyPath, precomputedState),
     );
@@ -316,12 +314,14 @@ export class RestoreOperations {
     }
   }
 
-  private buildCopyPath(original: string, sharedTs?: number): string {
-    // Defensive against `0` being passed as a "don't-care" sentinel — `??`
-    // would also accept 0 here, but a future caller passing 0 explicitly
-    // would silently get the epoch path. The undefined-aware check makes
-    // the contract explicit: only undefined falls back to now().
-    const ts = new Date(sharedTs !== undefined ? sharedTs : this.now())
+  /**
+   * `<base>.restored-<ts><ext>` next to `original`. `sharedTs` lets a
+   * directory batch give every copy the same suffix; without it the
+   * timestamp is now(). Only `undefined` falls back to now(), so an explicit
+   * 0 is honoured rather than treated as "not given".
+   */
+  private buildCopyPath(original: string, opts: { sharedTs?: number } = {}): string {
+    const ts = new Date(opts.sharedTs !== undefined ? opts.sharedTs : this.now())
       .toISOString()
       .replace(/[:.]/g, '-');
     const dot = original.lastIndexOf('.');
