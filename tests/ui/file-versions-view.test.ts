@@ -565,3 +565,53 @@ describe('FileVersionsView version-row click', () => {
     expect(refreshedRows[0]?.attrs['aria-selected']).toBe('false');
   });
 });
+
+describe('FileVersionsView arrow-key navigation', () => {
+  async function openWithTwoVersions(): Promise<MockEl[]> {
+    const snaps = [
+      makeSnapshot('m2', '2026-04-26T10:00:00Z'),
+      makeSnapshot('m1', '2026-04-25T10:00:00Z'),
+    ];
+    const deps = makeDeps({
+      manifestCache: historyCache({
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue(snaps),
+        loadManifest: vi.fn((id: string) => Promise.resolve(makeManifest(id, '2026-04-25T10:00:00Z'))),
+      }),
+      restoreService: {
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+        listVersionsForPath: vi.fn().mockReturnValue([
+          makeVersion('m2', '2026-04-26T10:00:00Z'),
+          makeVersion('m1', '2026-04-25T10:00:00Z'),
+        ]),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    const internal = view as unknown as { contentEl: MockEl };
+    const list = findByClass(internal.contentEl, 'archivist-fv-snapshots-list')!;
+    return findAllByClass(list, 'archivist-fv-snapshot-row');
+  }
+
+  it('swallows ArrowDown on the last row so the list does not scroll (#138)', async () => {
+    const rows = await openWithTwoVersions();
+    expect(rows).toHaveLength(2);
+    const preventDefault = vi.fn();
+    rows[1].dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault });
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('swallows ArrowUp on the first row so the list does not scroll (#138)', async () => {
+    const rows = await openWithTwoVersions();
+    const preventDefault = vi.fn();
+    rows[0].dispatchEvent({ type: 'keydown', key: 'ArrowUp', preventDefault });
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('leaves other keys alone', async () => {
+    const rows = await openWithTwoVersions();
+    const preventDefault = vi.fn();
+    rows[0].dispatchEvent({ type: 'keydown', key: 'Tab', preventDefault });
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+});

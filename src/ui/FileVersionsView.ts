@@ -238,35 +238,8 @@ export class FileVersionsView extends ItemView {
     this.snapshotsListEl.empty();
     renderLoading(this.snapshotsListEl, S.FILE_VERSIONS_LOADING, this.deps.schedule);
 
-    let snapshots: SnapshotIndexEntry[];
-    try {
-      snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
-    } catch (err) {
-      if (this._closed) return;
-      this._renderSnapshotsError(err);
-      return;
-    }
-    if (this._closed || this.currentPath !== path) return;
-
-    this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
-
-    // One missing or corrupt manifest must NOT take down the whole view:
-    // loadManifestsForHistory skips failures, so the user still sees the
-    // remaining versions instead of an empty error state.
-    const manifests = await this.deps.manifestCache.loadManifestsForHistory(
-      snapshots.map((s) => s.id),
-    );
-    if (this._closed || this.currentPath !== path) return;
-
-    let entries: VersionEntry[] = [];
-    try {
-      entries = this.deps.restoreService.listVersionsForPath(path, manifests);
-    } catch (err) {
-      if (this._closed || this.currentPath !== path) return;
-      this._renderSnapshotsError(err);
-      return;
-    }
-    if (this._closed || this.currentPath !== path) return;
+    const entries = await this._loadVersionEntries(path);
+    if (entries === null) return;
 
     this.versions = entries;
     this._renderVersionsList();
@@ -279,6 +252,45 @@ export class FileVersionsView extends ItemView {
     } else {
       this._renderPreviewEmpty();
     }
+  }
+
+  /**
+   * Load the version list for `path`. Returns null when the view closed or
+   * switched paths meanwhile, or when loading failed; the error state is
+   * already rendered in that case.
+   */
+  private async _loadVersionEntries(path: string): Promise<VersionEntry[] | null> {
+    const stale = (): boolean => this._closed || this.currentPath !== path;
+
+    let snapshots: SnapshotIndexEntry[];
+    try {
+      snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+    } catch (err) {
+      if (this._closed) return null;
+      this._renderSnapshotsError(err);
+      return null;
+    }
+    if (stale()) return null;
+
+    this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
+
+    // One missing or corrupt manifest must NOT take down the whole view:
+    // loadManifestsForHistory skips failures, so the user still sees the
+    // remaining versions instead of an empty error state.
+    const manifests = await this.deps.manifestCache.loadManifestsForHistory(
+      snapshots.map((s) => s.id),
+    );
+    if (stale()) return null;
+
+    let entries: VersionEntry[];
+    try {
+      entries = this.deps.restoreService.listVersionsForPath(path, manifests);
+    } catch (err) {
+      if (stale()) return null;
+      this._renderSnapshotsError(err);
+      return null;
+    }
+    return stale() ? null : entries;
   }
 
   private _renderFileInfo(path: string): void {
@@ -322,15 +334,14 @@ export class FileVersionsView extends ItemView {
     // Local arrow-key navigation (mirrors BackupBrowserView's wireArrowNav).
     rows.forEach((row, i) => {
       row.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'ArrowDown' && i + 1 < rows.length) {
-          e.preventDefault();
-          rows[i + 1].focus();
-          void this._selectVersion(this.versions[i + 1]);
-        } else if (e.key === 'ArrowUp' && i > 0) {
-          e.preventDefault();
-          rows[i - 1].focus();
-          void this._selectVersion(this.versions[i - 1]);
-        }
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        // Swallow the arrow even at either end of the list, so the browser
+        // does not scroll the column instead of moving the selection.
+        e.preventDefault();
+        const next = e.key === 'ArrowDown' ? i + 1 : i - 1;
+        if (next < 0 || next >= rows.length) return;
+        rows[next].focus();
+        void this._selectVersion(this.versions[next]);
       });
     });
   }

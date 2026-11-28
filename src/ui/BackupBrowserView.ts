@@ -23,7 +23,7 @@ import { renderPreview, maybeShowPreviewAdvisory } from './PreviewPane';
 import type { PreviewAdvisoryNoticeCenter, AppWithPluginRegistry } from './PreviewPane';
 import type { PersistentBanner } from './NoticeCenter';
 import { ConfirmRestoreModal } from './ConfirmRestoreModal';
-import { computeMissingDirs, formatBytes } from './FileHistoryModal';
+import { computeMissingDirs, computeMissingDirsForPaths, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
 import { formatSnapshotTimestamp } from './format';
@@ -1327,13 +1327,7 @@ export class BackupBrowserView extends ItemView {
     // Union of missing parent directories across every file in the batch.
     // Only relevant for in-place; as-copy restores into the original
     // ancestors too, but mkdirParents handles that idempotently.
-    const missingDirsSet = new Set<string>();
-    for (const path of matches) {
-      for (const dir of computeMissingDirs(path, this.deps.vaultHasPath)) {
-        missingDirsSet.add(dir);
-      }
-    }
-    const missingDirs = [...missingDirsSet].sort();
+    const missingDirs = computeMissingDirsForPaths(matches, this.deps.vaultHasPath);
 
     const fileCount = S.BROWSER_DIR_FILE_COUNT(matches.length);
     const modeLabel =
