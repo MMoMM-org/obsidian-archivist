@@ -358,21 +358,27 @@ export class FileVersionsView extends ItemView {
       entry.snapshot_id === this.selectedSnapshotId ? 'true' : 'false',
     );
 
+    // The visible parts double as the row's aria-label (#135): screen
+    // readers do not reliably read a role="option" subtree, so the
+    // renamed-from note could otherwise go unannounced.
     const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const size = formatBytes(entry.size);
+    const labelParts = [ts, size];
     row.createSpan({
-      text: `${ts} · ${formatBytes(entry.size)}`,
+      text: `${ts} · ${size}`,
       cls: 'archivist-fv-snapshot-meta',
     });
     const tier = fvTierLabel(this.tierByID.get(entry.snapshot_id) ?? null);
     if (tier) {
       row.createSpan({ text: tier, cls: 'archivist-fv-snapshot-tier' });
+      labelParts.push(tier);
     }
     if (entry.priorPath && entry.renamedAt) {
-      row.createSpan({
-        text: S.FILE_HISTORY_RENAMED_FROM(entry.priorPath, entry.renamedAt.slice(0, 10)),
-        cls: 'archivist-fv-snapshot-renamed',
-      });
+      const renamed = S.FILE_HISTORY_RENAMED_FROM(entry.priorPath, entry.renamedAt.slice(0, 10));
+      row.createSpan({ text: renamed, cls: 'archivist-fv-snapshot-renamed' });
+      labelParts.push(renamed);
     }
+    row.setAttribute('aria-label', labelParts.join(', '));
 
     row.addEventListener('click', () => {
       void this._selectVersion(entry);
