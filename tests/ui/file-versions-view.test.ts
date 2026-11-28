@@ -33,7 +33,6 @@ vi.mock('../../src/ui/PreviewPane', () => ({
 
 import {
   FileVersionsView,
-  fvFormatTimestamp,
   fvTierLabel,
   type FileVersionsViewDeps,
 } from '../../src/ui/FileVersionsView';
@@ -45,6 +44,7 @@ import type { VersionEntry } from '../../src/services/RestoreService';
 import { ChainError } from '../../src/model/Errors';
 import { formatBytes } from '../../src/ui/FileHistoryModal';
 import { S } from '../../src/ui/strings';
+import { formatSnapshotTimestamp } from '../../src/ui/format';
 import * as ModalMock from '../../src/ui/ConfirmRestoreModal';
 
 // ---------------------------------------------------------------------------
@@ -165,15 +165,6 @@ describe('fvTierLabel', () => {
   });
 });
 
-describe('fvFormatTimestamp', () => {
-  it('returns a stable compact form (24h)', () => {
-    const out = fvFormatTimestamp(new Date('2026-04-25T10:00:00Z'));
-    expect(out.length).toBeGreaterThan(0);
-    // Should not contain AM/PM markers — 24h.
-    expect(/AM|PM/.test(out)).toBe(false);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // onOpen + setState — happy path
 // ---------------------------------------------------------------------------
@@ -266,7 +257,7 @@ describe('FileVersionsView render flow', () => {
     const row = await renderRow(version, new Map([['m1', 'monthly' as const]]));
 
     expect(row.attrs['aria-label']).toBe([
-      fvFormatTimestamp(new Date(version.created_at)),
+      formatSnapshotTimestamp(new Date(version.created_at)),
       formatBytes(100),
       fvTierLabel('monthly'),
       S.FILE_HISTORY_RENAMED_FROM('notes/old.md', '2026-04-20'),
@@ -279,7 +270,7 @@ describe('FileVersionsView render flow', () => {
     const row = await renderRow(version);
 
     expect(row.attrs['aria-label']).toBe(
-      `${fvFormatTimestamp(new Date(version.created_at))}, ${formatBytes(100)}`,
+      `${formatSnapshotTimestamp(new Date(version.created_at))}, ${formatBytes(100)}`,
     );
   });
 

@@ -26,6 +26,7 @@ import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { formatSnapshotTimestamp } from './format';
 import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
@@ -155,25 +156,6 @@ function classifySnapshotDate(
   if (snapDate >= weekStart) return S.BROWSER_GROUP_THIS_WEEK;
   if (snapDate >= monthStart) return S.BROWSER_GROUP_THIS_MONTH;
   return S.BROWSER_GROUP_OLDER;
-}
-
-/**
- * Format a snapshot's created_at for the Snapshots column row.
- *
- * Locale-aware date + 24-hour time, no AM/PM, second-precision dropped —
- * `Apr 25, 2026 14:34` (en-US) / `25. Apr. 2026, 14:34` (de-DE). The default
- * `Date.toLocaleString()` was producing the long en-US form with seconds and
- * AM/PM, which felt out of place next to the compact `[full]` / `[daily]` tags.
- */
-function formatSnapshotDate(d: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(d);
 }
 
 /**
@@ -396,7 +378,7 @@ function renderSnapshotRow(
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', snap.id === selectedId ? 'true' : 'false');
 
-  const dateStr = formatSnapshotDate(new Date(snap.created_at));
+  const dateStr = formatSnapshotTimestamp(new Date(snap.created_at));
   row.createSpan({ text: dateStr, cls: 'archivist-snapshot-date' });
   // Type tag wraps in brackets for visual symmetry with the tier tag and to
   // keep a clean separation from the date — `[full]` / `[inc]` instead of a
@@ -1030,7 +1012,7 @@ export class BackupBrowserView extends ItemView {
     // ties the user's mental model to the snapshot they just clicked.
     if (this.filesColHeaderEl) {
       this.filesColHeaderEl.setText(
-        `Files at ${formatSnapshotDate(new Date(snap.created_at))}`,
+        `Files at ${formatSnapshotTimestamp(new Date(snap.created_at))}`,
       );
     }
 
@@ -1500,7 +1482,7 @@ export class BackupBrowserView extends ItemView {
     createdAt: string,
     mode: 'in_place' | 'as_copy',
   ): void {
-    const timestamp = formatSnapshotDate(new Date(createdAt));
+    const timestamp = formatSnapshotTimestamp(new Date(createdAt));
     const entry = this.fileState[path];
     new ConfirmRestoreModal(this.app, {
       filePath: path,

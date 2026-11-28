@@ -32,6 +32,7 @@ import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { formatSnapshotTimestamp } from './format';
 import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
@@ -95,21 +96,6 @@ export function fvTierLabel(tier: SnapshotTier | null | undefined): string | nul
   if (tier === 'monthly') return S.BROWSER_TIER_MONTHLY;
   if (tier === 'never_prune') return S.BROWSER_TIER_NEVER_PRUNE;
   return null;
-}
-
-/**
- * Format the timestamp shown in a version row. Locale-aware compact form,
- * 24-hour time — matches BackupBrowserView's `formatSnapshotDate`.
- */
-export function fvFormatTimestamp(d: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +347,7 @@ export class FileVersionsView extends ItemView {
     // The visible parts double as the row's aria-label (#135): screen
     // readers do not reliably read a role="option" subtree, so the
     // renamed-from note could otherwise go unannounced.
-    const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const ts = formatSnapshotTimestamp(new Date(entry.created_at));
     const size = formatBytes(entry.size);
     const labelParts = [ts, size];
     row.createSpan({
@@ -405,7 +391,7 @@ export class FileVersionsView extends ItemView {
     this.previewColEl.empty();
     this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
     this.previewColEl.createEl('p', {
-      text: fvFormatTimestamp(new Date(entry.created_at)),
+      text: formatSnapshotTimestamp(new Date(entry.created_at)),
       cls: 'archivist-fv-preview-timestamp',
       attr: { role: 'status', 'aria-live': 'polite' },
     });
@@ -424,7 +410,7 @@ export class FileVersionsView extends ItemView {
     this.previewColEl.empty();
     this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
     this.previewColEl.createEl('p', {
-      text: fvFormatTimestamp(new Date(entry.created_at)),
+      text: formatSnapshotTimestamp(new Date(entry.created_at)),
       cls: 'archivist-fv-preview-timestamp',
       attr: { role: 'status', 'aria-live': 'polite' },
     });
@@ -474,7 +460,7 @@ export class FileVersionsView extends ItemView {
     const actions = this.previewColEl.createDiv({ cls: 'archivist-fv-preview-actions' });
     const targetPath = entry.currentPath;
     const targetBasename = basename(targetPath);
-    const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const ts = formatSnapshotTimestamp(new Date(entry.created_at));
     const inPlaceBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_IN_PLACE });
     inPlaceBtn.setAttribute(
       'aria-label',
