@@ -2037,6 +2037,31 @@ describe('BackupBrowserView accessibility', () => {
     expect(region!.attrs['aria-atomic']).toBe('false');
   });
 
+  it('snapshots and files listboxes are labelled by their column headings (#138)', async () => {
+    const view = new BackupBrowserView(makeLeaf(), makeDeps());
+    await view.onOpen();
+    const findById = (el: MockEl, id: string): MockEl | undefined => {
+      if (el.attrs['id'] === id) return el;
+      for (const child of el.children) {
+        const found = findById(child, id);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const cases: Array<[string, string]> = [
+      ['archivist-snapshots-list', S.BROWSER_COL_SNAPSHOTS],
+      ['archivist-files-list', S.BROWSER_COL_FILES],
+    ];
+    for (const [listCls, heading] of cases) {
+      const list = findByClass(view.contentEl, listCls)!;
+      const labelId = list.attrs['aria-labelledby'];
+      expect(labelId, listCls).toBeTruthy();
+      const label = findById(view.contentEl, labelId);
+      expect(label?.tagName, listCls).toBe('h3');
+      expect(collectText(label!), listCls).toBe(heading);
+    }
+  });
+
   it('snapshots and files lists toggle aria-busy across loading transitions (L7)', async () => {
     const snap = makeSnapshot({ created_at: '2026-04-24T08:00:00Z' });
     const deps = makeDeps({

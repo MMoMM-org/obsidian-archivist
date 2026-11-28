@@ -30,6 +30,10 @@ import { formatSnapshotTimestamp } from './format';
 import { pathsUnderDir } from '../util/dirPrefix';
 import { renderLoading, type ScheduleFn } from './loadingState';
 
+/** Ids of the column headings that label the two listboxes. */
+const SNAPSHOTS_LABEL_ID = 'archivist-browser-snapshots-label';
+const FILES_LABEL_ID = 'archivist-browser-files-label';
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -756,7 +760,12 @@ export class BackupBrowserView extends ItemView {
     const snapshotsHeaderEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-header',
     });
-    snapshotsHeaderEl.createEl('h3', { text: S.BROWSER_COL_SNAPSHOTS });
+    // The Backup Browser is single-instance (open-or-focus), so fixed ids
+    // for the listbox labels cannot collide.
+    snapshotsHeaderEl.createEl('h3', {
+      text: S.BROWSER_COL_SNAPSHOTS,
+      attr: { id: SNAPSHOTS_LABEL_ID },
+    });
     // Refresh button: re-fetches the snapshot list without forcing the user
     // to close and re-open the view. Useful right after a backup run when the
     // newest snapshot would otherwise only appear on next view open.
@@ -777,16 +786,19 @@ export class BackupBrowserView extends ItemView {
     this.refreshBtnEl = refreshBtn;
     this.snapshotsListEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-list',
-      attr: { tabindex: '0', role: 'listbox' },
+      attr: { tabindex: '0', role: 'listbox', 'aria-labelledby': SNAPSHOTS_LABEL_ID },
     });
 
     // -- Files column --
     const filesColEl = columnsEl.createDiv({ cls: 'archivist-files' });
-    this.filesColHeaderEl = filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
+    this.filesColHeaderEl = filesColEl.createEl('h3', {
+      text: S.BROWSER_COL_FILES,
+      attr: { id: FILES_LABEL_ID },
+    });
     this._renderFilesSearchBar(filesColEl);
     this.filesListEl = filesColEl.createDiv({
       cls: 'archivist-files-list',
-      attr: { tabindex: '0', role: 'listbox' },
+      attr: { tabindex: '0', role: 'listbox', 'aria-labelledby': FILES_LABEL_ID },
     });
 
     // -- Preview column --
