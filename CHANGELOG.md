@@ -1,3 +1,9 @@
+## [0.14.4](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.3...0.14.4) (2026-11-28)
+
+### Bug Fixes
+
+* polish batch from the 2026-04-27 review ([#138](https://github.com/MMoMM-org/obsidian-archivist/issues/138)) ([#157](https://github.com/MMoMM-org/obsidian-archivist/issues/157)) ([e5b7d25](https://github.com/MMoMM-org/obsidian-archivist/commit/e5b7d25a940645429e715b8c52cf9d6c7c2abcaf)), closes [#135](https://github.com/MMoMM-org/obsidian-archivist/issues/135)
+
 ## [0.14.3](https://github.com/MMoMM-org/obsidian-archivist/compare/0.14.2...0.14.3) (2026-11-28)
 
 ### Bug Fixes
