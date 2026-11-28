@@ -131,6 +131,23 @@ function configCodeToBlockReason(code: string): BlockReason | null {
 }
 
 /**
+ * The slice of `app.workspace` the view openers and the "Show history"
+ * command use. Structural rather than Obsidian's `Workspace` so the test
+ * fixtures' minimal workspace satisfies it; one alias instead of an inline
+ * cast at each call site (#138).
+ */
+interface WorkspaceLeafWithState {
+  getViewState?: () => { state?: { path?: string } };
+  setViewState: (s: unknown) => Promise<void> | void;
+}
+interface WorkspaceWithLeafState {
+  getLeavesOfType: (type: string) => WorkspaceLeafWithState[];
+  revealLeaf: (leaf: unknown) => void;
+  getLeaf: (newLeaf: boolean) => WorkspaceLeafWithState | null;
+  getActiveFile?: () => { path: string } | null;
+}
+
+/**
  * Prefix for every user-visible Obsidian Notice this plugin raises, so a user
  * running many plugins can attribute a toast (e.g. a network error) to Archivist
  * at a glance instead of guessing which plugin is reporting.
@@ -833,15 +850,7 @@ export default class ArchivistPlugin extends Plugin {
     // another Backup Browser tab. Now: if a leaf already hosts our view
     // type, reveal it; only fall back to creating one when none exists.
     const openBrowser = (): void => {
-      const workspace = this.app.workspace as unknown as {
-        getLeavesOfType: (type: string) => Array<{
-          setViewState?: (s: unknown) => Promise<void> | void;
-        }>;
-        revealLeaf: (leaf: unknown) => void;
-        getLeaf: (newLeaf: boolean) => {
-          setViewState: (s: unknown) => Promise<void> | void;
-        } | null;
-      };
+      const workspace = this.app.workspace as unknown as WorkspaceWithLeafState;
       const existing = workspace.getLeavesOfType(BACKUP_BROWSER_VIEW_TYPE);
       if (existing.length > 0) {
         workspace.revealLeaf(existing[0]);
@@ -861,16 +870,7 @@ export default class ArchivistPlugin extends Plugin {
     // Right-click on a file in BackupBrowserView routes here. Always opens
     // a new tab — multiple files can be inspected side by side.
     const openFileVersions = (path: string): void => {
-      const workspace = this.app.workspace as unknown as {
-        getLeavesOfType: (type: string) => Array<{
-          getViewState: () => { state?: { path?: string } };
-          setViewState: (s: unknown) => Promise<void> | void;
-        }>;
-        revealLeaf: (leaf: unknown) => void;
-        getLeaf: (newLeaf: boolean) => {
-          setViewState: (s: unknown) => Promise<void> | void;
-        } | null;
-      };
+      const workspace = this.app.workspace as unknown as WorkspaceWithLeafState;
       const existing = workspace.getLeavesOfType(FILE_VERSIONS_VIEW_TYPE);
       const sameLeaf = existing.find((l) => l.getViewState?.().state?.path === path);
       if (sameLeaf) {
@@ -1145,9 +1145,8 @@ export default class ArchivistPlugin extends Plugin {
     registerShowHistoryCommand({
       plugin: this,
       currentFileProvider: () => {
-        const active = (this.app.workspace as unknown as {
-          getActiveFile?: () => { path: string } | null;
-        }).getActiveFile?.();
+        const active = (this.app.workspace as unknown as WorkspaceWithLeafState)
+          .getActiveFile?.();
         return active?.path ?? null;
       },
       onOpen: (path: string) => {

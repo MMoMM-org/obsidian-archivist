@@ -1771,6 +1771,29 @@ describe('BackupBrowserView directory selection', () => {
     expect(restoreOps.restoreDirectory).not.toHaveBeenCalled();
   });
 
+  it('dir-restore confirm body names the file count, directory and mode', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['notes/a.md', 'notes/b.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    const internal = view as unknown as {
+      _confirmDirectoryRestore: (prefix: string, matches: string[], snapshotId: string, mode: 'in_place' | 'as_copy') => void;
+    };
+    internal._confirmDirectoryRestore('notes', ['notes/a.md', 'notes/b.md'], snap.id, 'as_copy');
+
+    const body = (await lastConfirm()).customBody ?? '';
+    expect(body).toContain(S.BROWSER_DIR_FILE_COUNT(2));
+    expect(body).toContain('"notes"');
+    expect(body).toContain(S.CONFIRM_DIR_RESTORE_MODE_AS_COPY);
+  });
+
   it('confirming the dir-restore modal triggers _runDirectoryRestore', async () => {
     const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
     const state = makeVaultState(['notes/a.md', 'notes/b.md']);

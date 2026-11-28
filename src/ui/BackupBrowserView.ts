@@ -1343,7 +1343,12 @@ export class BackupBrowserView extends ItemView {
     const timestamp = this.selectedSnapshot
       ? new Date(this.selectedSnapshot.created_at).toISOString()
       : snapshotId;
-    const body = S.CONFIRM_DIR_RESTORE_BODY(prefix, timestamp, fileCount, modeLabel);
+    const body = S.CONFIRM_DIR_RESTORE_BODY({
+      dirPath: prefix,
+      timestamp,
+      fileCount,
+      mode: modeLabel,
+    });
 
     new ConfirmRestoreModal(this.app, {
       filePath: prefix,
