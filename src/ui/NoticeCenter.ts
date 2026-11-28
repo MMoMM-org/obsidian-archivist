@@ -41,8 +41,25 @@ export interface BannerAction {
   onClick: () => void;
 }
 
+/**
+ * Every persistent-banner code. One banner per code: showing a code again
+ * replaces its banner, clearing it removes it. A union instead of `string`
+ * so a typo in a clear call is a type error, not a banner that never goes.
+ */
+export type BannerCode =
+  | 'AUTH_LOST'
+  | 'BACKUP_ERROR'
+  | 'CHAIN_RECOVERY'
+  | 'DEVICE_CONFLICT'
+  | 'DIR_RESTORE_PARTIAL_FAILURE'
+  | 'PREDECESSOR'
+  | 'PREVIEW_ADVISORY'
+  | 'QUOTA_EXCEEDED'
+  | 'VAULT_ID_MISMATCH'
+  | 'VAULT_META_CORRUPT';
+
 export interface PersistentBanner {
-  code: string;
+  code: BannerCode;
   message: string;
   /** Optional primary action — rendered as a CTA button ahead of Dismiss. */
   action?: BannerAction;
@@ -111,7 +128,7 @@ function formatHHmm(epochMs: number): string {
 export class NoticeCenter implements PreflightHost {
   private readonly now: () => number;
   private readonly errorLastSeen = new Map<string, number>();
-  private readonly banners = new Map<string, PersistentBanner>();
+  private readonly banners = new Map<BannerCode, PersistentBanner>();
   private bannerSubscribers: BannerSubscriber[] = [];
   private errorBurstActive = false;
   /**
@@ -175,7 +192,7 @@ export class NoticeCenter implements PreflightHost {
   // Persistent banners (state — not Obsidian Notice)
   // ---------------------------------------------------------------------------
 
-  showPersistent(code: string, message: string, opts?: ShowPersistentOptions): void {
+  showPersistent(code: BannerCode, message: string, opts?: ShowPersistentOptions): void {
     const existing = this.banners.get(code);
     if (
       existing &&
@@ -196,7 +213,7 @@ export class NoticeCenter implements PreflightHost {
     this.emitBanners();
   }
 
-  clearPersistent(code: string): void {
+  clearPersistent(code: BannerCode): void {
     if (this.banners.delete(code)) this.emitBanners();
   }
 

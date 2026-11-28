@@ -19,6 +19,7 @@ import {
   buildLiveNowRow,
   renderHistoryContent,
   computeMissingDirs,
+  computeMissingDirsForPaths,
   formatBytes,
   type HistoryHandle,
   type HistoryRenderOpts,
@@ -911,5 +912,22 @@ describe('formatBytes', () => {
 
   it('formats bytes in MB range', () => {
     expect(formatBytes(1_048_576)).toBe('1.0 MB');
+  });
+});
+
+describe('computeMissingDirsForPaths', () => {
+  it('returns the sorted union of missing ancestors', () => {
+    const vaultHasPath = (p: string): boolean => p === 'a';
+    expect(computeMissingDirsForPaths(['a/c/x.md', 'a/b/y.md', 'd/z.md'], vaultHasPath)).toEqual([
+      'a/b',
+      'a/c',
+      'd',
+    ]);
+  });
+
+  it('asks the vault about each ancestor only once', () => {
+    const vaultHasPath = vi.fn((p: string): boolean => p === 'notes');
+    computeMissingDirsForPaths(['notes/sub/1.md', 'notes/sub/2.md', 'notes/sub/3.md'], vaultHasPath);
+    expect(vaultHasPath.mock.calls.map(([p]) => p)).toEqual(['notes', 'notes/sub']);
   });
 });

@@ -50,6 +50,7 @@ import {
 } from '../../src/ui/BackupBrowserView';
 import { App, WorkspaceLeaf } from '../fixtures/obsidian-mock';
 import type { MockEl } from '../fixtures/obsidian-mock';
+import type { BannerCode } from '../../src/ui/NoticeCenter';
 import { S } from '../../src/ui/strings';
 import { SLOW_LOAD_HINT_MS } from '../../src/ui/loadingState';
 import { mapRestoreErrorToToast } from '../../src/ui/restoreErrorToast';
@@ -1481,7 +1482,7 @@ describe('BackupBrowserView empty state body', () => {
 describe('BackupBrowserView banner rendering', () => {
   it('renders a banner when onBannersChange fires with a persistent banner', async () => {
     let bannerCallback: (() => void) | null = null;
-    let banners: Array<{ code: string; message: string; onDismiss?: () => void }> = [];
+    let banners: Array<{ code: BannerCode; message: string; onDismiss?: () => void }> = [];
 
     const noticeCenter = {
       showPersistent: vi.fn(),
@@ -1502,7 +1503,7 @@ describe('BackupBrowserView banner rendering', () => {
     expect(bannerRegion.children).toHaveLength(0);
 
     // Publish a banner and fire the subscription callback
-    banners = [{ code: 'STORAGE_WARN', message: 'Storage at 90%' }];
+    banners = [{ code: 'QUOTA_EXCEEDED', message: 'Storage at 90%' }];
     bannerCallback!();
 
     const text = collectText(bannerRegion);
@@ -1511,8 +1512,8 @@ describe('BackupBrowserView banner rendering', () => {
 
   it('clearing banners removes them from the banner region', async () => {
     let bannerCallback: (() => void) | null = null;
-    let banners: Array<{ code: string; message: string }> = [
-      { code: 'STORAGE_WARN', message: 'Storage at 90%' },
+    let banners: Array<{ code: BannerCode; message: string }> = [
+      { code: 'QUOTA_EXCEEDED', message: 'Storage at 90%' },
     ];
 
     const noticeCenter = {
@@ -1768,6 +1769,29 @@ describe('BackupBrowserView directory selection', () => {
       restoreDirectory: ReturnType<typeof vi.fn>;
     };
     expect(restoreOps.restoreDirectory).not.toHaveBeenCalled();
+  });
+
+  it('dir-restore confirm body names the file count, directory and mode', async () => {
+    const snap = makeSnapshot({ created_at: '2026-04-25T10:00:00Z' });
+    const deps = makeDeps({
+      manifestCache: { listSnapshotsNewestFirst: vi.fn().mockResolvedValue([snap]) },
+      restoreService: {
+        materializeVaultStateAt: vi.fn().mockResolvedValue(makeVaultState(['notes/a.md', 'notes/b.md'])),
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+      },
+    });
+    const view = new BackupBrowserView(makeLeaf(), deps);
+    await view.onOpen();
+    await view._selectSnapshot(snap);
+    const internal = view as unknown as {
+      _confirmDirectoryRestore: (prefix: string, matches: string[], snapshotId: string, mode: 'in_place' | 'as_copy') => void;
+    };
+    internal._confirmDirectoryRestore('notes', ['notes/a.md', 'notes/b.md'], snap.id, 'as_copy');
+
+    const body = (await lastConfirm()).customBody ?? '';
+    expect(body).toContain(S.BROWSER_DIR_FILE_COUNT(2));
+    expect(body).toContain('"notes"');
+    expect(body).toContain(S.CONFIRM_DIR_RESTORE_MODE_AS_COPY);
   });
 
   it('confirming the dir-restore modal triggers _runDirectoryRestore', async () => {
@@ -2035,6 +2059,31 @@ describe('BackupBrowserView accessibility', () => {
     expect(region!.attrs['role']).toBe('status');
     expect(region!.attrs['aria-live']).toBe('polite');
     expect(region!.attrs['aria-atomic']).toBe('false');
+  });
+
+  it('snapshots and files listboxes are labelled by their column headings (#138)', async () => {
+    const view = new BackupBrowserView(makeLeaf(), makeDeps());
+    await view.onOpen();
+    const findById = (el: MockEl, id: string): MockEl | undefined => {
+      if (el.attrs['id'] === id) return el;
+      for (const child of el.children) {
+        const found = findById(child, id);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const cases: Array<[string, string]> = [
+      ['archivist-snapshots-list', S.BROWSER_COL_SNAPSHOTS],
+      ['archivist-files-list', S.BROWSER_COL_FILES],
+    ];
+    for (const [listCls, heading] of cases) {
+      const list = findByClass(view.contentEl, listCls)!;
+      const labelId = list.attrs['aria-labelledby'];
+      expect(labelId, listCls).toBeTruthy();
+      const label = findById(view.contentEl, labelId);
+      expect(label?.tagName, listCls).toBe('h3');
+      expect(collectText(label!), listCls).toBe(heading);
+    }
   });
 
   it('snapshots and files lists toggle aria-busy across loading transitions (L7)', async () => {

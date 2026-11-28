@@ -243,6 +243,32 @@ export function computeMissingDirs(
   return missing;
 }
 
+/**
+ * Union of the missing ancestor directories of every path in `paths`,
+ * sorted. Each ancestor is checked once, so a directory restore of many
+ * files in the same folder does not ask the vault about that folder per
+ * file.
+ */
+export function computeMissingDirsForPaths(
+  paths: Iterable<string>,
+  vaultHasPath: (p: string) => boolean,
+): string[] {
+  const checked = new Map<string, boolean>();
+  const hasPathOnce = (dir: string): boolean => {
+    let exists = checked.get(dir);
+    if (exists === undefined) {
+      exists = vaultHasPath(dir);
+      checked.set(dir, exists);
+    }
+    return exists;
+  };
+  const missing = new Set<string>();
+  for (const path of paths) {
+    for (const dir of computeMissingDirs(path, hasPathOnce)) missing.add(dir);
+  }
+  return [...missing].sort();
+}
+
 // ---------------------------------------------------------------------------
 // renderHistoryContent — pure render function
 // ---------------------------------------------------------------------------

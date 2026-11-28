@@ -735,11 +735,11 @@ describe('ArchivistSettingTab — refresh orchestration', () => {
 
   it('coalesces a burst of 3 banner changes inside 150 ms into one update(), 150 ms after the first', () => {
     const h = makeHarness();
-    h.emitBanners([{ code: 'A', message: 'a' }]);
+    h.emitBanners([{ code: 'AUTH_LOST', message: 'a' }]);
     vi.advanceTimersByTime(50);
-    h.emitBanners([{ code: 'B', message: 'b' }]);
+    h.emitBanners([{ code: 'BACKUP_ERROR', message: 'b' }]);
     vi.advanceTimersByTime(50);
-    h.emitBanners([{ code: 'C', message: 'c' }]);
+    h.emitBanners([{ code: 'CHAIN_RECOVERY', message: 'c' }]);
     vi.advanceTimersByTime(49);
     expect(h.tab._updateCalls).toBe(0);
     vi.advanceTimersByTime(1);
@@ -1140,7 +1140,7 @@ describe('SettingsTab — persistent-banner mapping', () => {
 
   it('carries dismissLabel and onDismiss through unchanged', () => {
     const onDismiss = () => {};
-    const spec = persistentToBannerSpec({ code: 'X', message: 'm', dismissLabel: 'Hide', onDismiss });
-    expect(spec).toMatchObject({ kind: 'banner', code: 'X', message: 'm', dismissLabel: 'Hide', onDismiss });
+    const spec = persistentToBannerSpec({ code: 'PREDECESSOR', message: 'm', dismissLabel: 'Hide', onDismiss });
+    expect(spec).toMatchObject({ kind: 'banner', code: 'PREDECESSOR', message: 'm', dismissLabel: 'Hide', onDismiss });
   });
 });

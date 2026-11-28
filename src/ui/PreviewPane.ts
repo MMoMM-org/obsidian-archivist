@@ -18,6 +18,7 @@
 import { MarkdownRenderer, type App, type Component } from 'obsidian';
 import { S } from './strings';
 import type { AppWithPluginRegistry } from '../services/PredecessorDetector';
+import type { BannerCode } from './NoticeCenter';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,7 +45,7 @@ export type { AppWithPluginRegistry } from '../services/PredecessorDetector';
 
 export interface PreviewAdvisoryNoticeCenter {
   showPersistent(
-    code: string,
+    code: BannerCode,
     message: string,
     opts?: {
       onDismiss?: () => void | Promise<void>;
@@ -149,7 +150,7 @@ export function detectCodeEvalPlugins(app: AppWithPluginRegistry): string[] {
 // maybeShowPreviewAdvisory (SEC-H3)
 // ---------------------------------------------------------------------------
 
-const ADVISORY_BANNER_CODE = 'PREVIEW_ADVISORY';
+const ADVISORY_BANNER_CODE: BannerCode = 'PREVIEW_ADVISORY';
 
 /**
  * Show a one-time advisory notice when code-evaluating plugins are installed.

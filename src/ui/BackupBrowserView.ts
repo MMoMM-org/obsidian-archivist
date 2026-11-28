@@ -23,10 +23,16 @@ import { renderPreview, maybeShowPreviewAdvisory } from './PreviewPane';
 import type { PreviewAdvisoryNoticeCenter, AppWithPluginRegistry } from './PreviewPane';
 import type { PersistentBanner } from './NoticeCenter';
 import { ConfirmRestoreModal } from './ConfirmRestoreModal';
-import { computeMissingDirs, formatBytes } from './FileHistoryModal';
+import { computeMissingDirs, computeMissingDirsForPaths, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { formatSnapshotTimestamp } from './format';
+import { pathsUnderDir } from '../util/dirPrefix';
 import { renderLoading, type ScheduleFn } from './loadingState';
+
+/** Ids of the column headings that label the two listboxes. */
+const SNAPSHOTS_LABEL_ID = 'archivist-browser-snapshots-label';
+const FILES_LABEL_ID = 'archivist-browser-files-label';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -155,25 +161,6 @@ function classifySnapshotDate(
   if (snapDate >= weekStart) return S.BROWSER_GROUP_THIS_WEEK;
   if (snapDate >= monthStart) return S.BROWSER_GROUP_THIS_MONTH;
   return S.BROWSER_GROUP_OLDER;
-}
-
-/**
- * Format a snapshot's created_at for the Snapshots column row.
- *
- * Locale-aware date + 24-hour time, no AM/PM, second-precision dropped —
- * `Apr 25, 2026 14:34` (en-US) / `25. Apr. 2026, 14:34` (de-DE). The default
- * `Date.toLocaleString()` was producing the long en-US form with seconds and
- * AM/PM, which felt out of place next to the compact `[full]` / `[daily]` tags.
- */
-function formatSnapshotDate(d: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(d);
 }
 
 /**
@@ -396,7 +383,7 @@ function renderSnapshotRow(
   row.setAttribute('role', 'option');
   row.setAttribute('aria-selected', snap.id === selectedId ? 'true' : 'false');
 
-  const dateStr = formatSnapshotDate(new Date(snap.created_at));
+  const dateStr = formatSnapshotTimestamp(new Date(snap.created_at));
   row.createSpan({ text: dateStr, cls: 'archivist-snapshot-date' });
   // Type tag wraps in brackets for visual symmetry with the tier tag and to
   // keep a clean separation from the date — `[full]` / `[inc]` instead of a
@@ -571,24 +558,6 @@ function renderFileTreeNode(
 // ---------------------------------------------------------------------------
 // Directory preview helpers — pure, exported for tests
 // ---------------------------------------------------------------------------
-
-/**
- * Collect every vault path under a directory prefix from a flat snapshot
- * state map. Mirrors the filter used by `RestoreOperations.restoreDirectory`
- * so the count shown in the confirm dialog matches what will actually be
- * restored. Returns paths sorted alphabetically for stable display.
- */
-export function collectDirMatches(
-  state: Record<string, FileEntry>,
-  rawPrefix: string,
-): string[] {
-  const normalized = rawPrefix.replace(/\/+$/, '');
-  if (normalized === '') return [];
-  const prefixWithSlash = normalized + '/';
-  return Object.keys(state)
-    .filter((p) => p === normalized || p.startsWith(prefixWithSlash))
-    .sort();
-}
 
 /**
  * Render the preview-column header for a selected directory: name + file
@@ -791,7 +760,12 @@ export class BackupBrowserView extends ItemView {
     const snapshotsHeaderEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-header',
     });
-    snapshotsHeaderEl.createEl('h3', { text: S.BROWSER_COL_SNAPSHOTS });
+    // The Backup Browser is single-instance (open-or-focus), so fixed ids
+    // for the listbox labels cannot collide.
+    snapshotsHeaderEl.createEl('h3', {
+      text: S.BROWSER_COL_SNAPSHOTS,
+      attr: { id: SNAPSHOTS_LABEL_ID },
+    });
     // Refresh button: re-fetches the snapshot list without forcing the user
     // to close and re-open the view. Useful right after a backup run when the
     // newest snapshot would otherwise only appear on next view open.
@@ -812,16 +786,19 @@ export class BackupBrowserView extends ItemView {
     this.refreshBtnEl = refreshBtn;
     this.snapshotsListEl = snapshotsColEl.createDiv({
       cls: 'archivist-snapshots-list',
-      attr: { tabindex: '0', role: 'listbox' },
+      attr: { tabindex: '0', role: 'listbox', 'aria-labelledby': SNAPSHOTS_LABEL_ID },
     });
 
     // -- Files column --
     const filesColEl = columnsEl.createDiv({ cls: 'archivist-files' });
-    this.filesColHeaderEl = filesColEl.createEl('h3', { text: S.BROWSER_COL_FILES });
+    this.filesColHeaderEl = filesColEl.createEl('h3', {
+      text: S.BROWSER_COL_FILES,
+      attr: { id: FILES_LABEL_ID },
+    });
     this._renderFilesSearchBar(filesColEl);
     this.filesListEl = filesColEl.createDiv({
       cls: 'archivist-files-list',
-      attr: { tabindex: '0', role: 'listbox' },
+      attr: { tabindex: '0', role: 'listbox', 'aria-labelledby': FILES_LABEL_ID },
     });
 
     // -- Preview column --
@@ -1030,7 +1007,7 @@ export class BackupBrowserView extends ItemView {
     // ties the user's mental model to the snapshot they just clicked.
     if (this.filesColHeaderEl) {
       this.filesColHeaderEl.setText(
-        `Files at ${formatSnapshotDate(new Date(snap.created_at))}`,
+        `Files at ${formatSnapshotTimestamp(new Date(snap.created_at))}`,
       );
     }
 
@@ -1271,7 +1248,7 @@ export class BackupBrowserView extends ItemView {
 
     // Compute the matching files from the already-materialized snapshot
     // state — no second materialize call needed; we have it in fileState.
-    const matches = collectDirMatches(this.fileState, prefix);
+    const matches = pathsUnderDir(Object.keys(this.fileState), prefix);
 
     this.previewColEl.empty();
     renderDirPreviewHeader(this.previewColEl, prefix, matches.length);
@@ -1350,13 +1327,7 @@ export class BackupBrowserView extends ItemView {
     // Union of missing parent directories across every file in the batch.
     // Only relevant for in-place; as-copy restores into the original
     // ancestors too, but mkdirParents handles that idempotently.
-    const missingDirsSet = new Set<string>();
-    for (const path of matches) {
-      for (const dir of computeMissingDirs(path, this.deps.vaultHasPath)) {
-        missingDirsSet.add(dir);
-      }
-    }
-    const missingDirs = [...missingDirsSet].sort();
+    const missingDirs = computeMissingDirsForPaths(matches, this.deps.vaultHasPath);
 
     const fileCount = S.BROWSER_DIR_FILE_COUNT(matches.length);
     const modeLabel =
@@ -1366,7 +1337,12 @@ export class BackupBrowserView extends ItemView {
     const timestamp = this.selectedSnapshot
       ? new Date(this.selectedSnapshot.created_at).toISOString()
       : snapshotId;
-    const body = S.CONFIRM_DIR_RESTORE_BODY(prefix, timestamp, fileCount, modeLabel);
+    const body = S.CONFIRM_DIR_RESTORE_BODY({
+      dirPath: prefix,
+      timestamp,
+      fileCount,
+      mode: modeLabel,
+    });
 
     new ConfirmRestoreModal(this.app, {
       filePath: prefix,
@@ -1500,7 +1476,7 @@ export class BackupBrowserView extends ItemView {
     createdAt: string,
     mode: 'in_place' | 'as_copy',
   ): void {
-    const timestamp = formatSnapshotDate(new Date(createdAt));
+    const timestamp = formatSnapshotTimestamp(new Date(createdAt));
     const entry = this.fileState[path];
     new ConfirmRestoreModal(this.app, {
       filePath: path,

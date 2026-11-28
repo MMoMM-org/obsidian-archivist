@@ -371,13 +371,13 @@ export const S = {
   BROWSER_DIR_RESTORE_IN_PLACE: 'Restore directory in place',
   BROWSER_DIR_RESTORE_AS_COPY: 'Restore directory as copies…',
   BROWSER_CONTEXT_RESTORE_DOTS: 'Restore…',
-  CONFIRM_DIR_RESTORE_BODY: (
-    dirPath: string,
-    timestamp: string,
-    fileCount: string,
-    mode: string,
-  ): string =>
-    `Restore ${fileCount} from "${dirPath}" (snapshot ${timestamp}, ${mode}). This cannot be undone.`,
+  CONFIRM_DIR_RESTORE_BODY: (args: {
+    dirPath: string;
+    timestamp: string;
+    fileCount: string;
+    mode: string;
+  }): string =>
+    `Restore ${args.fileCount} from "${args.dirPath}" (snapshot ${args.timestamp}, ${args.mode}). This cannot be undone.`,
   CONFIRM_DIR_RESTORE_MODE_IN_PLACE: 'overwriting existing files',
   CONFIRM_DIR_RESTORE_MODE_AS_COPY: 'as side-by-side copies',
   TOAST_DIR_RESTORE_OK: (n: number): string =>

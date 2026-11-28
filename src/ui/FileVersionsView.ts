@@ -32,6 +32,7 @@ import { ConfirmRestoreModal } from './ConfirmRestoreModal';
 import { computeMissingDirs, formatBytes } from './FileHistoryModal';
 import { mapRestoreErrorToToast } from './restoreErrorToast';
 import { S } from './strings';
+import { formatSnapshotTimestamp } from './format';
 import { renderLoading, type ScheduleFn } from './loadingState';
 
 // ---------------------------------------------------------------------------
@@ -95,21 +96,6 @@ export function fvTierLabel(tier: SnapshotTier | null | undefined): string | nul
   if (tier === 'monthly') return S.BROWSER_TIER_MONTHLY;
   if (tier === 'never_prune') return S.BROWSER_TIER_NEVER_PRUNE;
   return null;
-}
-
-/**
- * Format the timestamp shown in a version row. Locale-aware compact form,
- * 24-hour time — matches BackupBrowserView's `formatSnapshotDate`.
- */
-export function fvFormatTimestamp(d: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,35 +238,8 @@ export class FileVersionsView extends ItemView {
     this.snapshotsListEl.empty();
     renderLoading(this.snapshotsListEl, S.FILE_VERSIONS_LOADING, this.deps.schedule);
 
-    let snapshots: SnapshotIndexEntry[];
-    try {
-      snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
-    } catch (err) {
-      if (this._closed) return;
-      this._renderSnapshotsError(err);
-      return;
-    }
-    if (this._closed || this.currentPath !== path) return;
-
-    this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
-
-    // One missing or corrupt manifest must NOT take down the whole view:
-    // loadManifestsForHistory skips failures, so the user still sees the
-    // remaining versions instead of an empty error state.
-    const manifests = await this.deps.manifestCache.loadManifestsForHistory(
-      snapshots.map((s) => s.id),
-    );
-    if (this._closed || this.currentPath !== path) return;
-
-    let entries: VersionEntry[] = [];
-    try {
-      entries = this.deps.restoreService.listVersionsForPath(path, manifests);
-    } catch (err) {
-      if (this._closed || this.currentPath !== path) return;
-      this._renderSnapshotsError(err);
-      return;
-    }
-    if (this._closed || this.currentPath !== path) return;
+    const entries = await this._loadVersionEntries(path);
+    if (entries === null) return;
 
     this.versions = entries;
     this._renderVersionsList();
@@ -293,6 +252,45 @@ export class FileVersionsView extends ItemView {
     } else {
       this._renderPreviewEmpty();
     }
+  }
+
+  /**
+   * Load the version list for `path`. Returns null when the view closed or
+   * switched paths meanwhile, or when loading failed; the error state is
+   * already rendered in that case.
+   */
+  private async _loadVersionEntries(path: string): Promise<VersionEntry[] | null> {
+    const stale = (): boolean => this._closed || this.currentPath !== path;
+
+    let snapshots: SnapshotIndexEntry[];
+    try {
+      snapshots = await this.deps.manifestCache.listSnapshotsNewestFirst();
+    } catch (err) {
+      if (this._closed) return null;
+      this._renderSnapshotsError(err);
+      return null;
+    }
+    if (stale()) return null;
+
+    this.tierByID = this.deps.tiersFor?.(snapshots) ?? new Map();
+
+    // One missing or corrupt manifest must NOT take down the whole view:
+    // loadManifestsForHistory skips failures, so the user still sees the
+    // remaining versions instead of an empty error state.
+    const manifests = await this.deps.manifestCache.loadManifestsForHistory(
+      snapshots.map((s) => s.id),
+    );
+    if (stale()) return null;
+
+    let entries: VersionEntry[];
+    try {
+      entries = this.deps.restoreService.listVersionsForPath(path, manifests);
+    } catch (err) {
+      if (stale()) return null;
+      this._renderSnapshotsError(err);
+      return null;
+    }
+    return stale() ? null : entries;
   }
 
   private _renderFileInfo(path: string): void {
@@ -336,15 +334,14 @@ export class FileVersionsView extends ItemView {
     // Local arrow-key navigation (mirrors BackupBrowserView's wireArrowNav).
     rows.forEach((row, i) => {
       row.addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'ArrowDown' && i + 1 < rows.length) {
-          e.preventDefault();
-          rows[i + 1].focus();
-          void this._selectVersion(this.versions[i + 1]);
-        } else if (e.key === 'ArrowUp' && i > 0) {
-          e.preventDefault();
-          rows[i - 1].focus();
-          void this._selectVersion(this.versions[i - 1]);
-        }
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        // Swallow the arrow even at either end of the list, so the browser
+        // does not scroll the column instead of moving the selection.
+        e.preventDefault();
+        const next = e.key === 'ArrowDown' ? i + 1 : i - 1;
+        if (next < 0 || next >= rows.length) return;
+        rows[next].focus();
+        void this._selectVersion(this.versions[next]);
       });
     });
   }
@@ -361,7 +358,7 @@ export class FileVersionsView extends ItemView {
     // The visible parts double as the row's aria-label (#135): screen
     // readers do not reliably read a role="option" subtree, so the
     // renamed-from note could otherwise go unannounced.
-    const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const ts = formatSnapshotTimestamp(new Date(entry.created_at));
     const size = formatBytes(entry.size);
     const labelParts = [ts, size];
     row.createSpan({
@@ -405,7 +402,7 @@ export class FileVersionsView extends ItemView {
     this.previewColEl.empty();
     this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
     this.previewColEl.createEl('p', {
-      text: fvFormatTimestamp(new Date(entry.created_at)),
+      text: formatSnapshotTimestamp(new Date(entry.created_at)),
       cls: 'archivist-fv-preview-timestamp',
       attr: { role: 'status', 'aria-live': 'polite' },
     });
@@ -424,7 +421,7 @@ export class FileVersionsView extends ItemView {
     this.previewColEl.empty();
     this.previewColEl.createEl('h3', { text: S.FILE_VERSIONS_COL_PREVIEW });
     this.previewColEl.createEl('p', {
-      text: fvFormatTimestamp(new Date(entry.created_at)),
+      text: formatSnapshotTimestamp(new Date(entry.created_at)),
       cls: 'archivist-fv-preview-timestamp',
       attr: { role: 'status', 'aria-live': 'polite' },
     });
@@ -474,7 +471,7 @@ export class FileVersionsView extends ItemView {
     const actions = this.previewColEl.createDiv({ cls: 'archivist-fv-preview-actions' });
     const targetPath = entry.currentPath;
     const targetBasename = basename(targetPath);
-    const ts = fvFormatTimestamp(new Date(entry.created_at));
+    const ts = formatSnapshotTimestamp(new Date(entry.created_at));
     const inPlaceBtn = actions.createEl('button', { text: S.BROWSER_RESTORE_IN_PLACE });
     inPlaceBtn.setAttribute(
       'aria-label',

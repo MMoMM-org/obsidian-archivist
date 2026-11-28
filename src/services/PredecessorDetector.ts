@@ -17,10 +17,10 @@
 // accepts "the banner auto-clears on next plugin reload" as good enough.
 
 import { S } from '../ui/strings';
-import type { NoticeCenter } from '../ui/NoticeCenter';
+import type { BannerCode, NoticeCenter } from '../ui/NoticeCenter';
 
 const PREDECESSOR_PLUGIN_ID = 'obsidian-dropbox-backups';
-const BANNER_CODE = 'PREDECESSOR';
+const BANNER_CODE: BannerCode = 'PREDECESSOR';
 
 export interface AppWithPluginRegistry {
   plugins: { enabledPlugins: Set<string> };

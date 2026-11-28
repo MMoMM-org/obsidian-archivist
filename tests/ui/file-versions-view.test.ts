@@ -33,7 +33,6 @@ vi.mock('../../src/ui/PreviewPane', () => ({
 
 import {
   FileVersionsView,
-  fvFormatTimestamp,
   fvTierLabel,
   type FileVersionsViewDeps,
 } from '../../src/ui/FileVersionsView';
@@ -45,6 +44,7 @@ import type { VersionEntry } from '../../src/services/RestoreService';
 import { ChainError } from '../../src/model/Errors';
 import { formatBytes } from '../../src/ui/FileHistoryModal';
 import { S } from '../../src/ui/strings';
+import { formatSnapshotTimestamp } from '../../src/ui/format';
 import * as ModalMock from '../../src/ui/ConfirmRestoreModal';
 
 // ---------------------------------------------------------------------------
@@ -165,15 +165,6 @@ describe('fvTierLabel', () => {
   });
 });
 
-describe('fvFormatTimestamp', () => {
-  it('returns a stable compact form (24h)', () => {
-    const out = fvFormatTimestamp(new Date('2026-04-25T10:00:00Z'));
-    expect(out.length).toBeGreaterThan(0);
-    // Should not contain AM/PM markers — 24h.
-    expect(/AM|PM/.test(out)).toBe(false);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // onOpen + setState — happy path
 // ---------------------------------------------------------------------------
@@ -266,7 +257,7 @@ describe('FileVersionsView render flow', () => {
     const row = await renderRow(version, new Map([['m1', 'monthly' as const]]));
 
     expect(row.attrs['aria-label']).toBe([
-      fvFormatTimestamp(new Date(version.created_at)),
+      formatSnapshotTimestamp(new Date(version.created_at)),
       formatBytes(100),
       fvTierLabel('monthly'),
       S.FILE_HISTORY_RENAMED_FROM('notes/old.md', '2026-04-20'),
@@ -279,7 +270,7 @@ describe('FileVersionsView render flow', () => {
     const row = await renderRow(version);
 
     expect(row.attrs['aria-label']).toBe(
-      `${fvFormatTimestamp(new Date(version.created_at))}, ${formatBytes(100)}`,
+      `${formatSnapshotTimestamp(new Date(version.created_at))}, ${formatBytes(100)}`,
     );
   });
 
@@ -572,5 +563,55 @@ describe('FileVersionsView version-row click', () => {
     const refreshedRows = findAllByClass(snapsList, 'archivist-fv-snapshot-row');
     expect(refreshedRows[1]?.attrs['aria-selected']).toBe('true');
     expect(refreshedRows[0]?.attrs['aria-selected']).toBe('false');
+  });
+});
+
+describe('FileVersionsView arrow-key navigation', () => {
+  async function openWithTwoVersions(): Promise<MockEl[]> {
+    const snaps = [
+      makeSnapshot('m2', '2026-04-26T10:00:00Z'),
+      makeSnapshot('m1', '2026-04-25T10:00:00Z'),
+    ];
+    const deps = makeDeps({
+      manifestCache: historyCache({
+        listSnapshotsNewestFirst: vi.fn().mockResolvedValue(snaps),
+        loadManifest: vi.fn((id: string) => Promise.resolve(makeManifest(id, '2026-04-25T10:00:00Z'))),
+      }),
+      restoreService: {
+        fetchContent: vi.fn().mockResolvedValue(new Uint8Array()),
+        listVersionsForPath: vi.fn().mockReturnValue([
+          makeVersion('m2', '2026-04-26T10:00:00Z'),
+          makeVersion('m1', '2026-04-25T10:00:00Z'),
+        ]),
+      },
+    });
+    const view = new FileVersionsView(new WorkspaceLeaf(), deps);
+    await view.onOpen();
+    await view.setState({ path: 'notes/a.md' }, undefined);
+    const internal = view as unknown as { contentEl: MockEl };
+    const list = findByClass(internal.contentEl, 'archivist-fv-snapshots-list')!;
+    return findAllByClass(list, 'archivist-fv-snapshot-row');
+  }
+
+  it('swallows ArrowDown on the last row so the list does not scroll (#138)', async () => {
+    const rows = await openWithTwoVersions();
+    expect(rows).toHaveLength(2);
+    const preventDefault = vi.fn();
+    rows[1].dispatchEvent({ type: 'keydown', key: 'ArrowDown', preventDefault });
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('swallows ArrowUp on the first row so the list does not scroll (#138)', async () => {
+    const rows = await openWithTwoVersions();
+    const preventDefault = vi.fn();
+    rows[0].dispatchEvent({ type: 'keydown', key: 'ArrowUp', preventDefault });
+    expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it('leaves other keys alone', async () => {
+    const rows = await openWithTwoVersions();
+    const preventDefault = vi.fn();
+    rows[0].dispatchEvent({ type: 'keydown', key: 'Tab', preventDefault });
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 });
